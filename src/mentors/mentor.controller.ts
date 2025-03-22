@@ -9,8 +9,8 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { MentorService } from './providers/mentor.service';
-import { CreateMentorDto } from './dto/createUser.dto';
-import { UpdateMentorDto } from './dto/update-user.dto';
+import { CreateMentorDto } from './dto/createMentor.dto';
+import { UpdateMentorDto } from './dto/update-Mentor.dto';
 import { CacheInterceptor } from 'src/common/interceptor/cache.interceptor';
 
 @Controller('mentors')

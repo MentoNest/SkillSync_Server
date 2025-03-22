@@ -1,8 +1,16 @@
+import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+
+@Entity()
 export class Payment {
-    id: number;
-    userId: number;
-    amount: number;
-    method: string;
-    status: string;
-  }
-  
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  amount: number;
+
+  @Column()
+  method: string;
+
+  @Column({ nullable: true })
+  description?: string;
+}

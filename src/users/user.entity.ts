@@ -1,4 +1,3 @@
-// src/users/user.entity.ts
 import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
 import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { Exclude } from 'class-transformer';
@@ -18,6 +17,8 @@ export class User {
   @Exclude()
   password: string;
 
-  @OneToMany(() => RefreshToken, (refreshToken) => refreshToken.user)
+  @OneToMany(() => RefreshToken, (refreshToken) => refreshToken.user, {
+    cascade: true,
+  })
   refreshTokens: RefreshToken[];
 }

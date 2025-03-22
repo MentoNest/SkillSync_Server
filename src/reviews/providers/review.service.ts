@@ -1,37 +1,49 @@
-import { Injectable } from '@nestjs/common';
-import { CreateReviewDto } from '../dto/createReviewdto';
-import { UpdateReviewDto } from '../dto/updateReview.dto';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { Review } from '../review.entity';
+import { CreateReviewDto } from '../dto/createReview.dto';
+import { UpdateReviewDto } from '../dto/updateReview.dto';
 
 @Injectable()
 export class ReviewService {
-  private reviews: Review[] = [];
-  private idCounter = 1;
+  constructor(
+    @InjectRepository(Review)
+    private reviewRepository: Repository<Review>,
+  ) {}
 
-  create(createReviewDto: CreateReviewDto): Review {
-    const newReview: Review = { id: this.idCounter++, ...createReviewDto };
-    this.reviews.push(newReview);
-    return newReview;
+  async create(createReviewDto: CreateReviewDto): Promise<Review> {
+    const review = this.reviewRepository.create(createReviewDto);
+    return await this.reviewRepository.save(review);
   }
 
-  findAll(): Review[] {
-    return this.reviews;
+  async findAll(): Promise<Review[]> {
+    return await this.reviewRepository.find();
   }
 
-  findOne(id: number): Review {
-    return this.reviews.find((review) => review.id === id);
+  async findOne(id: number): Promise<Review> {
+    const review = await this.reviewRepository.findOne({ where: { id } });
+    if (!review) {
+      throw new NotFoundException(`Review with id ${id} not found`);
+    }
+    return review;
   }
 
-  update(id: number, updateReviewDto: UpdateReviewDto): Review {
-    const index = this.reviews.findIndex((review) => review.id === id);
-    if (index < 0) return null;
-    this.reviews[index] = { ...this.reviews[index], ...updateReviewDto };
-    return this.reviews[index];
+  async update(id: number, updateReviewDto: UpdateReviewDto): Promise<Review> {
+    const review = await this.reviewRepository.preload({
+      id,
+      ...updateReviewDto,
+    });
+    if (!review) {
+      throw new NotFoundException(`Review with id ${id} not found`);
+    }
+    return await this.reviewRepository.save(review);
   }
 
-  remove(id: number): boolean {
-    const initialLength = this.reviews.length;
-    this.reviews = this.reviews.filter((review) => review.id !== id);
-    return this.reviews.length < initialLength;
+  async remove(id: number): Promise<void> {
+    const result = await this.reviewRepository.delete(id);
+    if (result.affected === 0) {
+      throw new NotFoundException(`Review with id ${id} not found`);
+    }
   }
 }

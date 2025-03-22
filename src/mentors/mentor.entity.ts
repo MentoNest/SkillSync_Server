@@ -1,7 +1,13 @@
+import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+
+@Entity()
 export class Mentor {
-    id: number;
-    name: string;
-    expertise: string;
-    email: string;
-  }
-  
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  name: string;
+
+  @Column({ nullable: true })
+  expertise?: string;
+}

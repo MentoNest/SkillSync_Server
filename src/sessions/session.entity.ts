@@ -1,8 +1,13 @@
+import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+
+@Entity()
 export class Session {
-    id: number;
-    mentorId: number;
-    menteeId: number;
-    scheduledAt: Date;
-    status: string;
-  }
-  
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  topic: string;
+
+  @Column({ nullable: true })
+  description?: string;
+}

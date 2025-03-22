@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
-import { PaymentController } from './payment.controller';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { PaymentService } from './providers/payment.service';
+import { PaymentController } from './payment.controller';
+import { Payment } from './payment.entity';
 import { RedisModule } from 'src/common/redis/redis.module';
 
 @Module({
@@ -9,4 +11,4 @@ import { RedisModule } from 'src/common/redis/redis.module';
   providers: [PaymentService],
   exports: [PaymentService],
 })
-export class PaymentsModule {}
+export class PaymentModule {}

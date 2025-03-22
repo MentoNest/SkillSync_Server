@@ -1,8 +1,13 @@
+import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+
+@Entity()
 export class Review {
-    id: number;
-    userId: number;
-    sessionId: number;
-    rating: number;
-    comment?: string;
-  }
-  
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  content: string;
+
+  @Column()
+  rating: number;
+}
