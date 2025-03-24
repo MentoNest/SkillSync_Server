@@ -1,9 +1,0 @@
-POST http://localhost:3000/sessions
-Content-Type: application/json
-
-{
-  "mentorId": 1,
-  "menteeId": 1,
-  "scheduledAt": "2025-03-25T10:00:00Z",
-  "status": "scheduled"
-}
