@@ -1,0 +1,32 @@
+### 1️⃣ Create a Session
+POST http://localhost:3000/sessions
+Content-Type: application/json
+
+{
+  "title": "NestJS API Session",
+  "description": "Building CRUD operations for OnlyDust Hack",
+  "date": "2025-03-30T14:00:00.000Z"
+}
+
+### 2️⃣ Get All Sessions
+GET http://localhost:3000/sessions
+
+### 3️⃣ Get a Session by ID
+GET http://localhost:3000/sessions/REPLACE_WITH_SESSION_ID
+
+### 4️⃣ Update a Session
+PATCH http://localhost:3000/sessions/REPLACE_WITH_SESSION_ID
+Content-Type: application/json
+
+{
+  "title": "Updated NestJS API Session"
+}
+
+### 5️⃣ Change Session Status
+PATCH http://localhost:3000/sessions/REPLACE_WITH_SESSION_ID/status?status=completed
+
+### 6️⃣ Soft Delete a Session
+DELETE http://localhost:3000/sessions/REPLACE_WITH_SESSION_ID
+
+### 7️⃣ Restore a Soft-Deleted Session
+PATCH http://localhost:3000/sessions/REPLACE_WITH_SESSION_ID/restore
