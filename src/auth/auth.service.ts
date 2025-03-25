@@ -16,13 +16,15 @@ import * as bcrypt from 'bcrypt';
 export class AuthService {
   constructor(
     private jwtService: JwtService,
+
     @InjectRepository(RefreshToken)
     private refreshTokenRepository: Repository<RefreshToken>,
+    
     @InjectRepository(User)
     private userRepository: Repository<User>,
   ) {}
 
-  async register(registerDto: RegisterDto): Promise<User> {
+  public async register(registerDto: RegisterDto): Promise<User> {
     const { email, password, name } = registerDto;
 
     // Check if user already exists
@@ -61,7 +63,8 @@ export class AuthService {
     return user;
   }
 
-  async login(loginDto: LoginDto) {
+  //LOGIN FN 
+  public async login(loginDto: LoginDto) {
     const user = await this.validateUser(loginDto.email, loginDto.password);
     const payload = { email: user.email, sub: user.id };
 

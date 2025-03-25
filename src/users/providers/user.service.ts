@@ -11,10 +11,12 @@ export class UserService {
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
+
     private readonly redisService: RedisService
   ) {}
 
-  async create(createUserDto: CreateUserDto): Promise<User> {
+  //FN TO CREATE NEW USER 
+  public async create(createUserDto: CreateUserDto): Promise<User> {
     const user = this.userRepository.create(createUserDto);
     await this.userRepository.save(user);
 
@@ -25,7 +27,8 @@ export class UserService {
     return user;
   }
 
-  async findAll(): Promise<User[]> {
+  // FN TO FIND ALL USERS 
+  public async findAll(): Promise<User[]> {
     // Try fetching from cache first
     const cachedUsers = await this.redisService.get<User[]>('users:all');
     if (cachedUsers) {
@@ -39,7 +42,8 @@ export class UserService {
     return users;
   }
 
-  async findOne(id: number): Promise<User> {
+  //FN TO FIND A SINGLE USER 
+  public async findOne(id: number): Promise<User> {
     // Try fetching from cache
     const cachedUser = await this.redisService.get<User>(`user:${id}`);
     if (cachedUser) {
@@ -52,12 +56,13 @@ export class UserService {
       throw new NotFoundException(`User with id ${id} not found`);
     }
 
-    // Cache the user (1 hour)
+    // Cache the user for (1 hour)
     await this.redisService.set(`user:${id}`, user, 3600);
     return user;
   }
 
-  async update(id: number, updateUserDto: UpdateUserDto): Promise<User> {
+  //FN TO UPDATE A USER 
+  public async update(id: number, updateUserDto: UpdateUserDto): Promise<User> {
     let user = await this.userRepository.preload({ id, ...updateUserDto });
     if (!user) {
       throw new NotFoundException(`User with id ${id} not found`);
@@ -72,7 +77,8 @@ export class UserService {
     return user;
   }
 
-  async remove(id: number): Promise<void> {
+  // FN TO DELETE A USER 
+  public async remove(id: number): Promise<void> {
     const user = await this.userRepository.findOne({ where: { id } });
     if (!user) {
       throw new NotFoundException(`User with id ${id} not found`);
