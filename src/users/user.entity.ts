@@ -1,7 +1,10 @@
-import { Entity, PrimaryGeneratedColumn, Column, OneToMany, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany, CreateDateColumn, UpdateDateColumn, OneToOne } from 'typeorm';
 import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { Exclude } from 'class-transformer';
 import { Role } from 'src/common/enums/Role.enum';
+import { Mentor } from 'src/mentors/mentor.entity';
+import { Mentee } from 'src/mentees/mentee.entity';
+import { Payment } from 'src/payments/payment.entity';
 
 @Entity()
 export class User {
@@ -46,4 +49,13 @@ export class User {
     cascade: true,
   })
   refreshTokens: RefreshToken[];
+
+  @OneToOne(() => Mentor, (mentor) => mentor.user, { cascade: true })
+  mentor?: Mentor;
+
+  @OneToOne(() => Mentee, (mentee) => mentee.user, { cascade: true })
+  mentee?: Mentee;
+
+  @OneToMany(() => Payment, (payment) => payment.user)
+  payments: Payment[];
 }

@@ -1,5 +1,6 @@
 import { PaymentStatus } from 'src/common/enums/PaymentStatus.enum';
-import { Entity, PrimaryGeneratedColumn, Column, UpdateDateColumn, CreateDateColumn } from 'typeorm';
+import { User } from 'src/users/user.entity';
+import { Entity, PrimaryGeneratedColumn, Column, UpdateDateColumn, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 
 @Entity()
 export class Payment {
@@ -42,6 +43,7 @@ export class Payment {
   )
   updatedAt: Date;
 
-  @Column({ nullable: false })
-  userId: string;    //suppose to be a payment->user relation
+  @ManyToOne(() => User, (user) => user.payments)
+  @JoinColumn({ name: 'user_id' }) 
+  user: User;
 }

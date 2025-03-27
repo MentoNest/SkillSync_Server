@@ -12,7 +12,7 @@ export class PaymentService {
     @InjectRepository(Payment)
     private paymentRepository: Repository<Payment>,
     private readonly redisService: RedisService
-  ) {}
+  ) { }
 
   async create(createPaymentDto: CreatePaymentDto): Promise<Payment> {
     const payment = this.paymentRepository.create(createPaymentDto);
@@ -20,8 +20,8 @@ export class PaymentService {
     await this.redisService.set(`payment:${payment.id}`, payment, 1800);
     await this.redisService.delete('payments:all');
 
-    if (payment.userId) {
-      await this.redisService.delete(`user:${payment.userId}:payments`);
+    if (payment.user) {
+      await this.redisService.delete(`user:${payment.user}:payments`);
     }
 
     return payment;
@@ -46,7 +46,7 @@ export class PaymentService {
       return cachedPayments;
     }
 
-    const userPayments = await this.paymentRepository.find({ where: { userId } });
+    const userPayments = await this.paymentRepository.find({ where: { user: { id: userId } } });
     await this.redisService.set(cacheKey, userPayments, 900);
 
     return userPayments;
@@ -80,8 +80,8 @@ export class PaymentService {
     await this.redisService.set(`payment:${id}`, payment, 1800);
     await this.redisService.delete('payments:all');
 
-    if (payment.userId) {
-      await this.redisService.delete(`user:${payment.userId}:payments`);
+    if (payment.user) {
+      await this.redisService.delete(`user:${payment.user}:payments`);
     }
 
     return payment;
@@ -97,8 +97,8 @@ export class PaymentService {
     await this.redisService.delete(`payment:${id}`);
     await this.redisService.delete('payments:all');
 
-    if (payment.userId) {
-      await this.redisService.delete(`user:${payment.userId}:payments`);
+    if (payment.user) {
+      await this.redisService.delete(`user:${payment.user}:payments`);
     }
   }
 }

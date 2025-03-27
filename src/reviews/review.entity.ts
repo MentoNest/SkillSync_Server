@@ -1,6 +1,6 @@
 import { Mentee } from 'src/mentees/mentee.entity';
 import { Mentor } from 'src/mentors/mentor.entity';
-import { Entity, PrimaryGeneratedColumn, Column, UpdateDateColumn, CreateDateColumn, OneToOne } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, UpdateDateColumn, CreateDateColumn, OneToOne, ManyToOne, JoinColumn } from 'typeorm';
 
 @Entity()
 export class Review {
@@ -29,9 +29,11 @@ export class Review {
   )
   updatedAt: Date;
 
-  @OneToOne(() => Mentor)
-  mentorId: Mentor;
+  @ManyToOne(() => Mentee, (mentee) => mentee.reviewsGiven)
+  @JoinColumn({ name: 'mentee_id' })
+  reviewer: Mentee;
 
-  @OneToOne(() => Mentee)
-  menteeId: Mentee;
+  @ManyToOne(() => Mentor, (mentor) => mentor.reviewsReceived)
+  @JoinColumn({ name: 'mentor_id' })
+  mentor: Mentor;
 }

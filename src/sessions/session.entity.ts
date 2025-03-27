@@ -1,16 +1,11 @@
 import { SessionStatus } from "src/common/enums/SessionStatus.enum";
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm"
+import { User } from "src/users/user.entity";
+import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm"
 
 @Entity()
 export class Session {
   @PrimaryGeneratedColumn()
   id: number;
-
-  @Column({ type: 'varchar', nullable: false })
-  mentorId: string;
-
-  @Column({ type: 'varchar', nullable: false })
-  menteeId: string;
 
   @Column({ type: 'timestamp', nullable: false })
   sessionDate: Date;
@@ -41,5 +36,13 @@ export class Session {
     },
   )
   updatedAt: Date;
+
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'mentor_id' })
+  mentor: User;
+
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'mentee_id' })
+  mentee: User; 
 
 }
