@@ -43,7 +43,7 @@ export class UserService {
   }
 
   //FN TO FIND A SINGLE USER 
-  public async findOne(id: number): Promise<User> {
+  public async findOne(id: string): Promise<User> {
     // Try fetching from cache
     const cachedUser = await this.redisService.get<User>(`user:${id}`);
     if (cachedUser) {
@@ -62,7 +62,7 @@ export class UserService {
   }
 
   //FN TO UPDATE A USER 
-  public async update(id: number, updateUserDto: UpdateUserDto): Promise<User> {
+  public async update(id: string, updateUserDto: UpdateUserDto): Promise<User> {
     let user = await this.userRepository.preload({ id, ...updateUserDto });
     if (!user) {
       throw new NotFoundException(`User with id ${id} not found`);
@@ -78,7 +78,7 @@ export class UserService {
   }
 
   // FN TO DELETE A USER 
-  public async remove(id: number): Promise<void> {
+  public async remove(id: string): Promise<void> {
     const user = await this.userRepository.findOne({ where: { id } });
     if (!user) {
       throw new NotFoundException(`User with id ${id} not found`);

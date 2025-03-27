@@ -9,7 +9,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { ReviewService } from './providers/review.service';
-import { CreateReviewDto } from './dto/createReviewdto';
+import { CreateReviewDto } from './dto/createReview.dto';
 import { UpdateReviewDto } from './dto/updateReview.dto';
 import { CacheInterceptor } from 'src/common/interceptor/cache.interceptor';
 

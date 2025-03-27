@@ -13,4 +13,7 @@ export class Payment {
 
   @Column({ nullable: true })
   description?: string;
+
+  @Column({ nullable: false })
+  userId: number;
 }
