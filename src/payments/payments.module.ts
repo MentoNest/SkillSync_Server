@@ -6,7 +6,7 @@ import { Payment } from './payment.entity';
 import { RedisModule } from 'src/common/redis/redis.module';
 
 @Module({
-  imports: [RedisModule],
+  imports: [RedisModule, TypeOrmModule.forFeature([Payment])],
   controllers: [PaymentController],
   providers: [PaymentService],
   exports: [PaymentService],
