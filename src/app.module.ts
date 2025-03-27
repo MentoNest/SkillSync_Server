@@ -9,6 +9,7 @@ import { MentorModule } from './mentors/mentor.module';
 import { MenteeModule } from './mentees/mentees.module';
 import { ReviewModule } from './reviews/reviews.module';
 import { PaymentModule } from './payments/payments.module';
+import { SessionsModule } from './sessions/sessions.module';
 
 
 @Module({
@@ -22,6 +23,7 @@ import { PaymentModule } from './payments/payments.module';
     ReviewModule,
     RedisModule,
     AuthModule,
+    SessionsModule,
 
   ],
 })
