@@ -6,7 +6,7 @@ export class Mentee {
   id: number;
 
   @Column()
-  name: string;
+  preferences: string[];
 
   @Column({ nullable: true })
   goal?: string;
