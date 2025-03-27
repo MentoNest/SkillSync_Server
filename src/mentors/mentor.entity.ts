@@ -6,8 +6,11 @@ export class Mentor {
   id: number;
 
   @Column()
-  name: string;
+  bio: string;
+
+  @Column()
+  skills: string[];
 
   @Column({ nullable: true })
-  expertise?: string;
+  availability?: string;
 }
