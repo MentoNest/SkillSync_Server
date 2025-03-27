@@ -1,5 +1,5 @@
 import { IsString, IsOptional, IsUUID, IsEnum, IsDateString } from 'class-validator';
-import { SessionStatus } from '../session-status.enum';
+import { SessionStatus } from '../enums/session-status.enum';
 
 export class CreateSessionDto {
   @IsString()

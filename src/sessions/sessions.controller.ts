@@ -13,7 +13,7 @@ import {
   import { SessionsService } from './sessions.service';
   import { CreateSessionDto } from './dto/create-session.dto';
   import { UpdateSessionDto } from './dto/update-session.dto';
-  import { Session } from './entities/session.entity';
+  import { Session } from './entities/sessions.entity';
   import { SessionStatus } from './enums/session-status.enum';
   
   @Controller('sessions')
