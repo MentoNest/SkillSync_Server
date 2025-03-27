@@ -39,7 +39,7 @@ export class PaymentService {
     return payments;
   }
 
-  async findPaymentsByUserId(userId: number): Promise<Payment[]> {
+  async findPaymentsByUserId(userId: string): Promise<Payment[]> {
     const cacheKey = `user:${userId}:payments`;
     const cachedPayments = await this.redisService.get<Payment[]>(cacheKey);
     if (cachedPayments) {

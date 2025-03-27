@@ -1,3 +1,4 @@
+import { PaymentStatus } from 'src/common/enums/PaymentStatus.enum';
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
 @Entity()
@@ -6,14 +7,25 @@ export class Payment {
   id: number;
 
   @Column()
+  transactionId: string;
+
+  @Column()
   amount: number;
 
   @Column()
-  method: string;
+  paymentMethod: string;
+
+  @Column({
+    type: 'enum',
+    nullable: false,
+    enum: PaymentStatus,
+    default: PaymentStatus.PENDING,
+  })
+  status: PaymentStatus;
 
   @Column({ nullable: true })
   description?: string;
 
   @Column({ nullable: false })
-  userId: number;
+  userId: string;    //suppose to be a payment->user relation
 }
