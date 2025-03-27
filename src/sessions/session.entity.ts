@@ -3,43 +3,43 @@ import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateCol
 
 @Entity()
 export class Session {
-    @PrimaryGeneratedColumn()
-    id: number;
+  @PrimaryGeneratedColumn()
+  id: number;
 
-    @Column({type: 'varchar', nullable: false})
-    mentorId: string;
+  @Column({ type: 'varchar', nullable: false })
+  mentorId: string;
 
-    @Column({type: 'varchar', nullable: false})
-    menteeId: string;
+  @Column({ type: 'varchar', nullable: false })
+  menteeId: string;
 
-    @Column({ type: 'timestamp', nullable: false })
-    sessionDate: Date;
+  @Column({ type: 'timestamp', nullable: false })
+  sessionDate: Date;
 
-    @Column({ type: 'int', nullable: false })
-    duration: number;
+  @Column({ type: 'int', nullable: false })
+  duration: number;
 
-    @Column({
-        type: 'enum',
-        nullable: false,
-        enum: SessionStatus,
-        default: SessionStatus.PENDING,
-    })
-    status: SessionStatus;
+  @Column({
+    type: 'enum',
+    nullable: false,
+    enum: SessionStatus,
+    default: SessionStatus.PENDING,
+  })
+  status: SessionStatus;
 
-    @CreateDateColumn(
-        {
-          type: 'timestamptz',
-          default: () => 'CURRENT_TIMESTAMP',
-        },
-      )
-      createdAt: Date;
-    
-      @UpdateDateColumn(
-        {
-          type: 'timestamptz',
-          default: () => 'CURRENT_TIMESTAMP',
-        },
-      )
-      updatedAt: Date;
+  @CreateDateColumn(
+    {
+      type: 'timestamptz',
+      default: () => 'CURRENT_TIMESTAMP',
+    },
+  )
+  createdAt: Date;
+
+  @UpdateDateColumn(
+    {
+      type: 'timestamptz',
+      default: () => 'CURRENT_TIMESTAMP',
+    },
+  )
+  updatedAt: Date;
 
 }

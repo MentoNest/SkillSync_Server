@@ -1,5 +1,5 @@
 import { PaymentStatus } from 'src/common/enums/PaymentStatus.enum';
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, UpdateDateColumn, CreateDateColumn } from 'typeorm';
 
 @Entity()
 export class Payment {
@@ -25,6 +25,22 @@ export class Payment {
 
   @Column({ nullable: true })
   description?: string;
+
+  @CreateDateColumn(
+    {
+      type: 'timestamptz',
+      default: () => 'CURRENT_TIMESTAMP',
+    },
+  )
+  createdAt: Date;
+
+  @UpdateDateColumn(
+    {
+      type: 'timestamptz',
+      default: () => 'CURRENT_TIMESTAMP',
+    },
+  )
+  updatedAt: Date;
 
   @Column({ nullable: false })
   userId: string;    //suppose to be a payment->user relation

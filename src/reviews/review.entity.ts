@@ -1,4 +1,6 @@
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Mentee } from 'src/mentees/mentee.entity';
+import { Mentor } from 'src/mentors/mentor.entity';
+import { Entity, PrimaryGeneratedColumn, Column, UpdateDateColumn, CreateDateColumn, OneToOne } from 'typeorm';
 
 @Entity()
 export class Review {
@@ -6,8 +8,30 @@ export class Review {
   id: number;
 
   @Column()
-  content: string;
+  rating: number;
 
   @Column()
-  rating: number;
+  reviewText: string;
+
+  @CreateDateColumn(
+    {
+      type: 'timestamptz',
+      default: () => 'CURRENT_TIMESTAMP',
+    },
+  )
+  createdAt: Date;
+
+  @UpdateDateColumn(
+    {
+      type: 'timestamptz',
+      default: () => 'CURRENT_TIMESTAMP',
+    },
+  )
+  updatedAt: Date;
+
+  @OneToOne(() => Mentor)
+  mentorId: Mentor;
+
+  @OneToOne(() => Mentee)
+  menteeId: Mentee;
 }
