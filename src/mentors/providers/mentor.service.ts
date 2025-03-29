@@ -5,6 +5,7 @@ import { Mentor } from '../mentor.entity';
 import { CreateMentorDto } from '../dto/createMentor.dto';
 import { UpdateMentorDto } from '../dto/update-Mentor.dto';
 import { RedisService } from 'src/common/redis/cache.service';
+import { UserService } from 'src/users/providers/user.service';
 
 @Injectable()
 export class MentorService {
@@ -12,10 +13,21 @@ export class MentorService {
     @InjectRepository(Mentor)
     private mentorRepository: Repository<Mentor>,
     private readonly redisService: RedisService,
-  ) {}
+    private readonly userService: UserService,
+  ) { }
 
   async create(createMentorDto: CreateMentorDto): Promise<Mentor> {
-    const mentor = this.mentorRepository.create(createMentorDto);
+    const user = await this.userService.findOne(createMentorDto.userId);
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const mentor = this.mentorRepository.create({
+      ...createMentorDto,
+      user,
+    });
+
     const savedMentor = await this.mentorRepository.save(mentor);
 
     // Cache the new mentor
