@@ -10,7 +10,7 @@ export class Mentor {
   @Column()
   bio: string;
 
-  @Column()
+  @Column({ type: 'simple-array' })
   skills: string[];
 
   @Column({ nullable: true })
