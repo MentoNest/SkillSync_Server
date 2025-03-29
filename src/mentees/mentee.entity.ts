@@ -7,7 +7,7 @@ export class Mentee {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column()
+  @Column({ type: 'simple-array' })
   preferences: string[];
 
   @Column({ nullable: true })
