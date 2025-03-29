@@ -46,7 +46,7 @@ export class MentorService {
       return cachedMentors;
     }
 
-    const mentors = await this.mentorRepository.find();
+    const mentors = await this.mentorRepository.find({ relations: ['user'] });
 
     // Store in cache (15 minutes TTL)
     await this.redisService.set('mentors:all', mentors, 900);
@@ -61,7 +61,11 @@ export class MentorService {
       return cachedMentor;
     }
 
-    const mentor = await this.mentorRepository.findOne({ where: { id } });
+    const mentor = await this.mentorRepository.findOne({
+      where: { id },
+      relations: ['user']
+    });
+
     if (!mentor) {
       throw new NotFoundException(`Mentor with id ${id} not found`);
     }
@@ -73,15 +77,16 @@ export class MentorService {
   }
 
   async update(id: number, updateMentorDto: UpdateMentorDto): Promise<Mentor> {
-    const mentor = await this.mentorRepository.preload({
-      id,
-      ...updateMentorDto,
-    });
 
-    if (!mentor) {
-      throw new NotFoundException(`Mentor with id ${id} not found`);
+    const mentor = await this.findOne(id);
+
+    if (updateMentorDto.userId && updateMentorDto.userId !== mentor.user.id) {
+      const user = await this.userService.findOne(updateMentorDto.userId);
+      if (!user) throw new NotFoundException('New user not found');
+      mentor.user = user;
     }
 
+    Object.assign(mentor, updateMentorDto);
     const updatedMentor = await this.mentorRepository.save(mentor);
 
     // Update cache with new data
