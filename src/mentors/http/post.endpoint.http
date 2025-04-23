@@ -1,8 +1,0 @@
-POST http://localhost:3000/mentors
-Content-Type: application/json
-
-{
-  "name": "Jane Mentor",
-  "expertise": "Web Development",
-  "email": "jane@example.com"
-}
