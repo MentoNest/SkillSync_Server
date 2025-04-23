@@ -83,6 +83,8 @@ export class AuthService {
     return { accessToken, refreshToken: refreshTokenString };
   }
 
+
+  //LOGOUT FN 
   async logout(refreshToken: string): Promise<boolean> {
     const tokenRecord = await this.refreshTokenRepository.findOne({
       where: { token: refreshToken },
