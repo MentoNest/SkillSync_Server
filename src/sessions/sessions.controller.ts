@@ -1,34 +1,38 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, NotFoundException } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { SessionsService } from './providers/sessions.service';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 
+@ApiTags('Sessions')
 @Controller('sessions')
 export class SessionsController {
   constructor(private readonly sessionsService: SessionsService) {}
 
   @Post()
-  create(@Body() createSessionDto: CreateSessionDto) {
-    return this.sessionsService.create(createSessionDto);
+  async createSession(@Body() createSessionDto: CreateSessionDto) {
+    return await this.sessionsService.createSession(createSessionDto);
   }
 
   @Get()
-  findAll() {
-    return this.sessionsService.findAll();
+  async getAllSessions(@Query('includeDeleted') includeDeleted: boolean) {
+    return await this.sessionsService.getAllSessions(includeDeleted);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.sessionsService.findOne(+id);
+  async getSessionById(@Param('id') id: string) {
+    const session = await this.sessionsService.getSessionById(+id);
+    if (!session) throw new NotFoundException('Session not found');
+    return session;
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateSessionDto: UpdateSessionDto) {
-    return this.sessionsService.update(+id, updateSessionDto);
+  async updateSession(@Param('id') id: string, @Body() updateSessionDto: UpdateSessionDto) {
+    return await this.sessionsService.updateSession(+id, updateSessionDto);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.sessionsService.remove(+id);
+  async softDeleteSession(@Param('id') id: string) {
+    return await this.sessionsService.softDeleteSession(+id);
   }
 }

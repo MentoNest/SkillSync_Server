@@ -5,6 +5,7 @@ import { Mentor } from '../mentor.entity';
 import { CreateMentorDto } from '../dto/createMentor.dto';
 import { UpdateMentorDto } from '../dto/update-Mentor.dto';
 import { RedisService } from 'src/common/redis/cache.service';
+import { UserService } from 'src/users/providers/user.service';
 
 @Injectable()
 export class MentorService {
@@ -12,10 +13,21 @@ export class MentorService {
     @InjectRepository(Mentor)
     private mentorRepository: Repository<Mentor>,
     private readonly redisService: RedisService,
-  ) {}
+    private readonly userService: UserService,
+  ) { }
 
   async create(createMentorDto: CreateMentorDto): Promise<Mentor> {
-    const mentor = this.mentorRepository.create(createMentorDto);
+    const user = await this.userService.findOne(createMentorDto.userId);
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const mentor = this.mentorRepository.create({
+      ...createMentorDto,
+      user,
+    });
+
     const savedMentor = await this.mentorRepository.save(mentor);
 
     // Cache the new mentor
@@ -34,7 +46,7 @@ export class MentorService {
       return cachedMentors;
     }
 
-    const mentors = await this.mentorRepository.find();
+    const mentors = await this.mentorRepository.find({ relations: ['user'] });
 
     // Store in cache (15 minutes TTL)
     await this.redisService.set('mentors:all', mentors, 900);
@@ -49,7 +61,11 @@ export class MentorService {
       return cachedMentor;
     }
 
-    const mentor = await this.mentorRepository.findOne({ where: { id } });
+    const mentor = await this.mentorRepository.findOne({
+      where: { id },
+      relations: ['user']
+    });
+
     if (!mentor) {
       throw new NotFoundException(`Mentor with id ${id} not found`);
     }
@@ -61,15 +77,16 @@ export class MentorService {
   }
 
   async update(id: number, updateMentorDto: UpdateMentorDto): Promise<Mentor> {
-    const mentor = await this.mentorRepository.preload({
-      id,
-      ...updateMentorDto,
-    });
 
-    if (!mentor) {
-      throw new NotFoundException(`Mentor with id ${id} not found`);
+    const mentor = await this.findOne(id);
+
+    if (updateMentorDto.userId && updateMentorDto.userId !== mentor.user.id) {
+      const user = await this.userService.findOne(updateMentorDto.userId);
+      if (!user) throw new NotFoundException('New user not found');
+      mentor.user = user;
     }
 
+    Object.assign(mentor, updateMentorDto);
     const updatedMentor = await this.mentorRepository.save(mentor);
 
     // Update cache with new data
