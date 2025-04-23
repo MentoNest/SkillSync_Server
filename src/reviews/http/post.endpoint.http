@@ -1,9 +1,0 @@
-POST http://localhost:3000/reviews
-Content-Type: application/json
-
-{
-  "userId": 1,
-  "sessionId": 1,
-  "rating": 5,
-  "comment": "Great session!"
-}

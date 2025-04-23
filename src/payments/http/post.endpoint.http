@@ -1,9 +1,0 @@
-POST http://localhost:3000/payments
-Content-Type: application/json
-
-{
-  "userId": 1,
-  "amount": 100.50,
-  "method": "credit_card",
-  "status": "completed"
-}

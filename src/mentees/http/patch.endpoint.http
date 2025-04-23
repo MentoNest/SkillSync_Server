@@ -1,6 +1,0 @@
-PATCH http://localhost:3000/mentees/1
-Content-Type: application/json
-
-{
-  "interest": "Data Science"
-}
