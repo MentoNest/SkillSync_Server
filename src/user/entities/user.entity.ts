@@ -1,40 +1,51 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Role } from '../../common/enum/role.enum';
 import { Exclude } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
-import { Role } from 'src/common/enum/role.enum';
 
-@Entity('users')
+@Entity()
 export class User {
   @ApiProperty({ description: 'The unique identifier of the user' })
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+  @PrimaryGeneratedColumn()
+  id: number;
 
-  @ApiProperty({ description: 'The email address of the user', example: 'user@example.com' })
+  @ApiProperty({ description: 'The email address of the user' })
   @Column({ unique: true })
   email: string;
 
-  @ApiProperty({ description: 'The hashed password of the user' })
-  @Column()
   @Exclude()
+  @Column()
   password: string;
 
-  @ApiProperty({ 
-    description: 'The role of the user', 
-    enum: Role,
-    example: Role.MENTOR 
-  })
-  @Column({
-    type: 'enum',
-    enum: Role,
-    default: Role.MENTEE
-  })
+  @ApiProperty({ description: 'The role of the user', enum: Role })
+  @Column({ type: 'enum', enum: Role })
   role: Role;
 
-  @ApiProperty({ description: 'The date when the user was created' })
+  @ApiProperty({ description: 'The full name of the user' })
+  @Column({ nullable: true })
+  fullName?: string;
+
+  @ApiProperty({ description: 'The bio or description of the user' })
+  @Column({ type: 'text', nullable: true })
+  bio?: string;
+
+  @ApiProperty({ description: 'The skills or expertise of the user' })
+  @Column('text', { array: true, nullable: true })
+  skills?: string[];
+
+  @ApiProperty({ description: 'URL to the user\'s profile picture' })
+  @Column({ nullable: true })
+  profilePicture?: string;
+
+  @ApiProperty({ description: 'The user\'s preferred programming languages' })
+  @Column('text', { array: true, nullable: true })
+  programmingLanguages?: string[];
+
+  @ApiProperty({ description: 'The creation timestamp' })
   @CreateDateColumn()
   createdAt: Date;
 
-  @ApiProperty({ description: 'The date when the user was last updated' })
+  @ApiProperty({ description: 'The last update timestamp' })
   @UpdateDateColumn()
   updatedAt: Date;
 }
