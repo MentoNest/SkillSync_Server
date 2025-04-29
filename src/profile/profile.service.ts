@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User } from '../user/entities/user.entity';
 import { UpdateProfileDto } from '../user/dto/update-profile.dto';
+import { User } from 'src/user/entities/user.entity';
 
 @Injectable()
 export class ProfileService {

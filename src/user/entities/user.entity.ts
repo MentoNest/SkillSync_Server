@@ -1,90 +1,51 @@
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
-import { UserRole } from '../enums/user-role.enum';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Role } from '../../common/enum/role.enum';
+import { Exclude } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
 @Entity()
 export class User {
-  @ApiProperty({ description: 'User ID' })
+  @ApiProperty({ description: 'The unique identifier of the user' })
   @PrimaryGeneratedColumn()
   id: number;
 
-  @ApiProperty({ description: 'User username' })
-  @Column()
-  username: string;
-
-  @ApiProperty({ description: 'User email' })
-  @Column()
+  @ApiProperty({ description: 'The email address of the user' })
+  @Column({ unique: true })
   email: string;
 
+  @Exclude()
   @Column()
   password: string;
 
-  @ApiProperty({ description: 'User role', enum: UserRole })
-  @Column({
-    type: 'enum',
-    enum: UserRole,
-    default: UserRole.MENTEE,
-  })
-  role: UserRole;
+  @ApiProperty({ description: 'The role of the user', enum: Role })
+  @Column({ type: 'enum', enum: Role })
+  role: Role;
 
-  @ApiProperty({ description: 'User first name', required: false })
+  @ApiProperty({ description: 'The full name of the user' })
   @Column({ nullable: true })
-  firstName: string;
+  fullName?: string;
 
-  @ApiProperty({ description: 'User last name', required: false })
+  @ApiProperty({ description: 'The bio or description of the user' })
+  @Column({ type: 'text', nullable: true })
+  bio?: string;
+
+  @ApiProperty({ description: 'The skills or expertise of the user' })
+  @Column('text', { array: true, nullable: true })
+  skills?: string[];
+
+  @ApiProperty({ description: 'URL to the user\'s profile picture' })
   @Column({ nullable: true })
-  lastName: string;
+  profilePicture?: string;
 
-  @ApiProperty({ description: 'User phone number', required: false })
-  @Column({ nullable: true })
-  phoneNumber: string;
+  @ApiProperty({ description: 'The user\'s preferred programming languages' })
+  @Column('text', { array: true, nullable: true })
+  programmingLanguages?: string[];
 
-  @ApiProperty({ description: 'User address', required: false })
-  @Column({ nullable: true })
-  address: string;
+  @ApiProperty({ description: 'The creation timestamp' })
+  @CreateDateColumn()
+  createdAt: Date;
 
-  @ApiProperty({ description: 'User gender', required: false })
-  @Column({ nullable: true })
-  gender: string;
-
-  @ApiProperty({ description: 'User about section', required: false })
-  @Column({ nullable: true, type: 'text' })
-  about: string;
-
-  @ApiProperty({ description: 'User bio', required: false })
-  @Column({ nullable: true, type: 'text' })
-  bio: string;
-
-  @ApiProperty({ description: 'User skills', required: false })
-  @Column('simple-array', { nullable: true })
-  skills: string[];
-
-  @ApiProperty({ description: 'User profile picture URL', required: false })
-  @Column({ nullable: true })
-  profilePicture: string;
-
-  @ApiProperty({ 
-    description: 'User social media links', 
-    required: false,
-    example: {
-      linkedin: 'https://linkedin.com/in/username',
-      github: 'https://github.com/username',
-      twitter: 'https://twitter.com/username'
-    }
-  })
-  @Column('simple-json', { nullable: true })
-  socialLinks: {
-    linkedin?: string;
-    github?: string;
-    twitter?: string;
-  };
-
-  @ApiProperty({ description: 'User experience level', required: false })
-  @Column({ nullable: true })
-  experienceLevel: string;
-
-  @ApiProperty({ description: 'User availability status', required: false })
-  @Column({ default: true })
-  isAvailable: boolean;
+  @ApiProperty({ description: 'The last update timestamp' })
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
-
