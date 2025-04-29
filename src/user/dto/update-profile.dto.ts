@@ -1,39 +1,86 @@
-import { IsOptional, IsString, IsPhoneNumber, IsEnum } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { IsString, IsOptional, IsArray, IsObject, IsBoolean, IsUrl, IsEnum } from 'class-validator';
+import { Type } from 'class-transformer';
+
+class SocialLinksDto {
+  @ApiProperty({ required: false })
+  @IsUrl()
+  @IsOptional()
+  linkedin?: string;
+
+  @ApiProperty({ required: false })
+  @IsUrl()
+  @IsOptional()
+  github?: string;
+
+  @ApiProperty({ required: false })
+  @IsUrl()
+  @IsOptional()
+  twitter?: string;
+}
 
 export class UpdateProfileDto {
-  @ApiProperty({ required: false, description: 'User first name' })
-  @IsOptional()
+  @ApiProperty({ description: 'User first name', required: false })
   @IsString()
+  @IsOptional()
   firstName?: string;
 
-  @ApiProperty({ required: false, description: 'User last name' })
-  @IsOptional()
+  @ApiProperty({ description: 'User last name', required: false })
   @IsString()
+  @IsOptional()
   lastName?: string;
 
-  @ApiProperty({ required: false, description: 'User address' })
-  @IsOptional()
+  @ApiProperty({ description: 'User phone number', required: false })
   @IsString()
-  address?: string;
-
-  @ApiProperty({ required: false, description: 'User phone number' })
   @IsOptional()
-  @IsPhoneNumber()
   phoneNumber?: string;
 
-  @ApiProperty({ required: false, description: 'User gender' })
-  @IsOptional()
+  @ApiProperty({ description: 'User address', required: false })
   @IsString()
+  @IsOptional()
+  address?: string;
+
+  @ApiProperty({ description: 'User gender', required: false })
+  @IsString()
+  @IsOptional()
   gender?: string;
 
-  @ApiProperty({ required: false, description: 'User about section' })
-  @IsOptional()
+  @ApiProperty({ description: 'User about section', required: false })
   @IsString()
+  @IsOptional()
   about?: string;
 
-  @ApiProperty({ required: false, description: 'User profile picture URL' })
-  @IsOptional()
+  @ApiProperty({ description: 'User bio', required: false })
   @IsString()
-  profilePicture?: string;
-} 
+  @IsOptional()
+  bio?: string;
+
+  @ApiProperty({ description: 'User skills', required: false, type: [String] })
+  @IsArray()
+  @IsOptional()
+  skills?: string[];
+
+  @ApiProperty({ description: 'User experience level', required: false })
+  @IsString()
+  @IsOptional()
+  experienceLevel?: string;
+
+  @ApiProperty({
+    description: 'User social media links',
+    required: false,
+    type: SocialLinksDto
+  })
+  @IsObject()
+  @IsOptional()
+  @Type(() => SocialLinksDto)
+  socialLinks?: SocialLinksDto;
+
+  @ApiProperty({ 
+    description: 'User availability status', 
+    required: false,
+    type: Boolean 
+  })
+  @IsBoolean()
+  @IsOptional()
+  isAvailable?: boolean;
+}

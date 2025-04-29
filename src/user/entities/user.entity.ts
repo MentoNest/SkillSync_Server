@@ -35,13 +35,13 @@ export class User {
   @Column({ nullable: true })
   lastName: string;
 
-  @ApiProperty({ description: 'User address', required: false })
-  @Column({ nullable: true })
-  address: string;
-
   @ApiProperty({ description: 'User phone number', required: false })
   @Column({ nullable: true })
   phoneNumber: string;
+
+  @ApiProperty({ description: 'User address', required: false })
+  @Column({ nullable: true })
+  address: string;
 
   @ApiProperty({ description: 'User gender', required: false })
   @Column({ nullable: true })
@@ -51,8 +51,40 @@ export class User {
   @Column({ nullable: true, type: 'text' })
   about: string;
 
+  @ApiProperty({ description: 'User bio', required: false })
+  @Column({ nullable: true, type: 'text' })
+  bio: string;
+
+  @ApiProperty({ description: 'User skills', required: false })
+  @Column('simple-array', { nullable: true })
+  skills: string[];
+
   @ApiProperty({ description: 'User profile picture URL', required: false })
   @Column({ nullable: true })
   profilePicture: string;
+
+  @ApiProperty({ 
+    description: 'User social media links', 
+    required: false,
+    example: {
+      linkedin: 'https://linkedin.com/in/username',
+      github: 'https://github.com/username',
+      twitter: 'https://twitter.com/username'
+    }
+  })
+  @Column('simple-json', { nullable: true })
+  socialLinks: {
+    linkedin?: string;
+    github?: string;
+    twitter?: string;
+  };
+
+  @ApiProperty({ description: 'User experience level', required: false })
+  @Column({ nullable: true })
+  experienceLevel: string;
+
+  @ApiProperty({ description: 'User availability status', required: false })
+  @Column({ default: true })
+  isAvailable: boolean;
 }
 
