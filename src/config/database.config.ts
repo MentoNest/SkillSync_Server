@@ -7,6 +7,7 @@ export default (): TypeOrmModuleOptions => ({
   username: process.env.DATABASE_USER || 'postgres',
   password: process.env.DATABASE_PASSWORD || 'password',
   database: process.env.DATABASE_NAME || 'skillsync',
+  // jwt-secret: process.env.JWT_SECRET,
   entities: [__dirname + '/../**/*.entity{.ts,.js}'], // Ensure entities are loaded
   autoLoadEntities: true,
   synchronize: true, // Set to false in production
