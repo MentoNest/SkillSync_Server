@@ -1,13 +1,24 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User } from 'src/user/entities/user.entity';
+<<<<<<< HEAD
 // import { UserRole } from 'src/user/enums/user-role.enum';
 import { CreateUserDto } from 'src/user/dto/create-user.dto';
 import { AuthDto } from './dto/auth.dto';
 import { Role } from 'src/user/enums/user-role.enum';
+=======
+import { Role } from 'src/common/enum/role.enum';
+import { CreateUserDto } from 'src/user/dto/create-user.dto';
+import { AuthDto } from './dto/sign-in.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+>>>>>>> c6904fba41f8263c0c4d14d8bad705693164cb31
 
 @Injectable()
 export class AuthService {
@@ -36,5 +47,33 @@ export class AuthService {
       role: user.role,
     });
     return { access_token: token };
+  }
+
+  async changePassword(userId: number, dto: ChangePasswordDto) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Verify current password
+    const isPasswordValid = await bcrypt.compare(
+      dto.currentPassword,
+      user.password,
+    );
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    // Verify new passwords match
+    if (dto.newPassword !== dto.confirmNewPassword) {
+      throw new BadRequestException('New passwords do not match');
+    }
+
+    // Hash and update the new password
+    const hash = await bcrypt.hash(dto.newPassword, 10);
+    user.password = hash;
+
+    await this.userRepo.save(user);
+    return { message: 'Password updated successfully' };
   }
 }
