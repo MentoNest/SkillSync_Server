@@ -1,5 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, IsArray, IsObject, IsBoolean, IsUrl, IsEnum } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsArray,
+  IsObject,
+  IsBoolean,
+  IsUrl,
+  IsEnum,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 class SocialLinksDto {
@@ -68,17 +76,17 @@ export class UpdateProfileDto {
   @ApiProperty({
     description: 'User social media links',
     required: false,
-    type: SocialLinksDto
+    type: SocialLinksDto,
   })
   @IsObject()
   @IsOptional()
   @Type(() => SocialLinksDto)
   socialLinks?: SocialLinksDto;
 
-  @ApiProperty({ 
-    description: 'User availability status', 
+  @ApiProperty({
+    description: 'User availability status',
     required: false,
-    type: Boolean 
+    type: Boolean,
   })
   @IsBoolean()
   @IsOptional()
