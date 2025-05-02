@@ -4,9 +4,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User } from 'src/user/entities/user.entity';
-import { UserRole } from 'src/user/enums/user-role.enum';
+// import { UserRole } from 'src/user/enums/user-role.enum';
 import { CreateUserDto } from 'src/user/dto/create-user.dto';
 import { AuthDto } from './dto/auth.dto';
+import { Role } from 'src/user/enums/user-role.enum';
 
 @Injectable()
 export class AuthService {
@@ -20,7 +21,7 @@ export class AuthService {
     const user = this.userRepo.create({
       ...dto,
       password: hash,
-      role: dto.role === 'MENTOR' ? UserRole.MENTOR : UserRole.MENTEE,
+      role: dto.role === 'MENTOR' ? Role.MENTOR : Role.MENTEE,
     });
     return this.userRepo.save(user);
   }
