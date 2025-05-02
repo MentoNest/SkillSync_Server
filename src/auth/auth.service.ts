@@ -8,10 +8,17 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User } from 'src/user/entities/user.entity';
+<<<<<<< HEAD
+// import { UserRole } from 'src/user/enums/user-role.enum';
+import { CreateUserDto } from 'src/user/dto/create-user.dto';
+import { AuthDto } from './dto/auth.dto';
+import { Role } from 'src/user/enums/user-role.enum';
+=======
 import { Role } from 'src/common/enum/role.enum';
 import { CreateUserDto } from 'src/user/dto/create-user.dto';
 import { AuthDto } from './dto/sign-in.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+>>>>>>> c6904fba41f8263c0c4d14d8bad705693164cb31
 
 @Injectable()
 export class AuthService {
