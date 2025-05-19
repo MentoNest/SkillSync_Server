@@ -16,7 +16,9 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 @Injectable()
 export class AuthService {
   constructor(
-    @InjectRepository(User) private userRepo: Repository<User>,
+    @InjectRepository(User) 
+    private userRepo: Repository<User>,
+    
     private jwtService: JwtService,
   ) {}
 

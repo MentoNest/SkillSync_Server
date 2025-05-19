@@ -11,16 +11,22 @@ export class ProfileService {
     private readonly userRepository: Repository<User>,
   ) {}
 
-  async getProfile(userId: number): Promise<User> {
+  public async getProfile(userId: number): Promise<User> {
     return this.userRepository.findOneOrFail({ where: { id: userId } });
   }
 
-  async updateProfile(userId: number, updateProfileDto: UpdateProfileDto): Promise<User> {
+  public async updateProfile(
+    userId: number,
+    updateProfileDto: UpdateProfileDto,
+  ): Promise<User> {
     await this.userRepository.update(userId, updateProfileDto);
     return this.getProfile(userId);
   }
 
-  async updateProfilePicture(userId: number, profilePicture: string): Promise<User> {
+  public async updateProfilePicture(
+    userId: number,
+    profilePicture: string,
+  ): Promise<User> {
     await this.userRepository.update(userId, { profilePicture });
     return this.getProfile(userId);
   }
