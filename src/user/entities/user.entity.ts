@@ -1,4 +1,10 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 import { Role } from '../../common/enum/role.enum';
 import { Exclude } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
@@ -33,13 +39,17 @@ export class User {
   @Column('text', { array: true, nullable: true })
   skills?: string[];
 
-  @ApiProperty({ description: 'URL to the user\'s profile picture' })
+  @ApiProperty({ description: "URL to the user's profile picture" })
   @Column({ nullable: true })
   profilePicture?: string;
 
-  @ApiProperty({ description: 'The user\'s preferred programming languages' })
+  @ApiProperty({ description: "The user's preferred programming languages" })
   @Column('text', { array: true, nullable: true })
   programmingLanguages?: string[];
+
+  @Column({ default: false })
+  @ApiProperty({ description: 'Whether the user is deleted' })
+  isDeleted: boolean;
 
   @ApiProperty({ description: 'The creation timestamp' })
   @CreateDateColumn()
