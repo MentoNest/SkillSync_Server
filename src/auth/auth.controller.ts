@@ -3,6 +3,7 @@ import { AuthService } from './auth.service';
 import { CreateUserDto } from 'src/user/dto/create-user.dto';
 import { AuthDto } from './dto/sign-in.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { SignInResponseDto } from './dto/sign-in-response.dto';
 import {
   ApiTags,
   ApiOperation,
@@ -22,6 +23,16 @@ export class AuthController {
   }
 
   @Post('signin')
+  @ApiOperation({ summary: 'Sign in user' })
+  @ApiResponse({
+    status: 200,
+    description: 'User successfully authenticated',
+    type: SignInResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid credentials',
+  })
   signin(@Body() dto: AuthDto) {
     return this.authService.signin(dto);
   }
