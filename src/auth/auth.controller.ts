@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Req } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Req, Res, HttpCode, HttpStatus } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { CreateUserDto } from 'src/user/dto/create-user.dto';
 import { AuthDto } from './dto/sign-in.dto';
@@ -11,11 +11,12 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guard/jwt-auth.guard';
+import { Response } from 'express';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @Post('signup')
   signup(@Body() dto: CreateUserDto) {
@@ -23,7 +24,7 @@ export class AuthController {
   }
 
   @Post('signin')
-  @ApiOperation({ summary: 'Sign in user' })
+  @ApiOperation({ summary: 'Sign in user ' })
   @ApiResponse({
     status: 200,
     description: 'User successfully authenticated',
@@ -60,6 +61,29 @@ export class AuthController {
     description: 'Unauthorized - Invalid current password',
   })
   async changePassword(@Req() req, @Body() dto: ChangePasswordDto) {
-    return this.authService.changePassword(req.user.id, dto);
+    return this.authService.changePassword(req.user.userId, dto);
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Logout user and invalidate tokens' })
+  @ApiResponse({
+    status: 200,
+    description: 'User successfully logged out',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Logout successful' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Invalid or expired token',
+  })
+  async logout(@Req() req, @Res({ passthrough: true }) res: Response) {
+    return this.authService.logout(req.user.userId, res);
   }
 }

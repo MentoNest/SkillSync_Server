@@ -2,6 +2,7 @@ import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -13,9 +14,12 @@ import { CreateUserDto } from 'src/user/dto/create-user.dto';
 import { AuthDto } from './dto/sign-in.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { SignInResponseDto, UserResponseDto } from './dto/sign-in-response.dto';
+import { Response } from 'express';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(User) private userRepo: Repository<User>,
     private jwtService: JwtService,
@@ -30,6 +34,7 @@ export class AuthService {
     });
     return this.userRepo.save(user);
   }
+
   async signin(dto: AuthDto) {
     const user = await this.userRepo.findOne({
       where: { email: dto.email },
@@ -78,5 +83,44 @@ export class AuthService {
 
     await this.userRepo.save(user);
     return { message: 'Password updated successfully' };
+  }
+
+  async logout(userId: number, res: Response) {
+    try {
+      // Find the user to ensure they exist
+      const user = await this.userRepo.findOne({ where: { id: userId } });
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+
+      // If your User entity has a refreshToken field, invalidate it
+      // Uncomment and modify these lines if you have refresh tokens:
+      
+      // if (user.refreshToken) {
+      //   user.refreshToken = null;
+      //   await this.userRepo.save(user);
+      // }
+      
+
+      // Clear any authentication cookies if they exist
+      // Common cookie names for refresh tokens
+      const cookiesToClear = ['refreshToken', 'refresh_token', 'jwt_refresh'];
+      
+      cookiesToClear.forEach(cookieName => {
+        res.clearCookie(cookieName, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'strict',
+        });
+      });
+
+      // Log the logout event for auditing purposes
+      this.logger.log(`User ${user.email} (ID: ${userId}) logged out successfully`);
+
+      return { message: 'Logout successful' };
+    } catch (error) {
+      this.logger.error(`Logout failed for user ID ${userId}:`, error.message);
+      throw error;
+    }
   }
 }
