@@ -24,7 +24,7 @@ export class AuthController {
   }
 
   @Post('signin')
-  @ApiOperation({ summary: 'Sign in user' })
+  @ApiOperation({ summary: 'Sign in user ' })
   @ApiResponse({
     status: 200,
     description: 'User successfully authenticated',
