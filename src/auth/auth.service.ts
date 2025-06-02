@@ -8,6 +8,7 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'crypto';
 import { User } from 'src/user/entities/user.entity';
 import { Role } from 'src/common/enum/role.enum';
 import { CreateUserDto } from 'src/user/dto/create-user.dto';
@@ -15,6 +16,9 @@ import { AuthDto } from './dto/sign-in.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { SignInResponseDto, UserResponseDto } from './dto/sign-in-response.dto';
 import { Response } from 'express';
+import { UserService } from '../user/providers/user.service';
+import { RedisService } from '../redis/redis.service';
+import { MailerService } from '../mailer/mailer.service';
 
 @Injectable()
 export class AuthService {
@@ -23,6 +27,9 @@ export class AuthService {
   constructor(
     @InjectRepository(User) private userRepo: Repository<User>,
     private jwtService: JwtService,
+    private readonly usersService: UserService,
+    private readonly redisService: RedisService,
+    private readonly mailerService: MailerService,
   ) {}
 
   async signup(dto: CreateUserDto) {
@@ -122,5 +129,25 @@ export class AuthService {
       this.logger.error(`Logout failed for user ID ${userId}:`, error.message);
       throw error;
     }
+  }
+
+   async forgotPassword(email: string) {
+    const user = await this.usersService.findByEmail(email);
+    if (!user) return;
+
+    const token = randomBytes(32).toString('hex');
+    await this.redisService.set(`reset:${token}`, user.id.toString(), 3600);
+ // 1 hour
+
+    await this.mailerService.sendResetEmail(email, token);
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const userId = await this.redisService.get(`reset:${token}`);
+    if (!userId) throw new BadRequestException('Invalid or expired token.');
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await this.usersService.updatePassword(userId, hashed);
+    await this.redisService.del(`reset:${token}`);
   }
 }
