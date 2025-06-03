@@ -125,4 +125,12 @@ export class UserService {
 
     await this.userRepository.update(userId, { profilePicture: imageUrl });
   }
+
+    findByEmail(email: string): Promise<User | null> {
+    return this.userRepository.findOne({ where: { email } });
+  }
+
+  async updatePassword(id: string, password: string): Promise<void> {
+    await this.userRepository.update(id, { password });
+  }
 }

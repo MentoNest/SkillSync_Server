@@ -4,6 +4,8 @@ import { CreateUserDto } from 'src/user/dto/create-user.dto';
 import { AuthDto } from './dto/sign-in.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { SignInResponseDto } from './dto/sign-in-response.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import {
   ApiTags,
   ApiOperation,
@@ -85,5 +87,17 @@ export class AuthController {
   })
   async logout(@Req() req, @Res({ passthrough: true }) res: Response) {
     return this.authService.logout(req.user.userId, res);
+  }
+
+   @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    await this.authService.forgotPassword(dto.email);
+    return { message: 'If the email exists, a reset link has been sent.' };
+  }
+
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    await this.authService.resetPassword(dto.token, dto.newPassword);
+    return { message: 'Password successfully reset.' };
   }
 }

@@ -8,6 +8,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { UserModule } from '../user/user.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from 'src/user/entities/user.entity';
+import { RedisModule } from '../redis/redis.module';
+import { MailerModule } from '../mailer/mailer.module';
 
 @Module({
   imports: [
@@ -15,7 +17,7 @@ import { User } from 'src/user/entities/user.entity';
     PassportModule,
     ConfigModule,
     JwtModule.registerAsync({
-      imports: [ConfigModule],
+      imports: [ConfigModule, RedisModule, MailerModule],
       useFactory: async (config: ConfigService) => ({
         secret: config.get('JWT_SECRET'),
         signOptions: { expiresIn: config.get('JWT_EXPIRES_IN') || '1d' },
