@@ -5,9 +5,9 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { Role } from '../../common/enum/role.enum';
 import { Exclude } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
+import { userRole } from 'src/common/enums/role.enum';
 
 @Entity()
 export class User {
@@ -23,9 +23,9 @@ export class User {
   @Column()
   password: string;
 
-  @ApiProperty({ description: 'The role of the user', enum: Role })
-  @Column({ type: 'enum', enum: Role })
-  role: Role;
+  @ApiProperty({ description: 'The role of the user', enum: userRole })
+  @Column({ type: 'enum', enum: userRole })
+  role: userRole;
 
   @ApiProperty({ description: 'The full name of the user' })
   @Column({ nullable: true })
@@ -46,6 +46,10 @@ export class User {
   @ApiProperty({ description: "The user's preferred programming languages" })
   @Column('text', { array: true, nullable: true })
   programmingLanguages?: string[];
+
+  @Column({ default: false })
+  @ApiProperty({ description: 'Whether the user is deleted' })
+  isDeleted: boolean;
 
   @ApiProperty({ description: 'The creation timestamp' })
   @CreateDateColumn()

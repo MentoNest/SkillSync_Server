@@ -9,9 +9,9 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
-import { FileUploadService } from './fileUpload.service';
+import { FileUploadService } from './providers/fileUpload.service';
 import { UserService } from 'src/user/providers/user.service';
-import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 
 @Controller('upload')
 export class FileUploadController {

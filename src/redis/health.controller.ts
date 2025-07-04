@@ -1,5 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
-import { RedisService } from './cache.service';
+import { RedisService } from './providers/cache.service';
 
 @Controller('health')
 export class HealthController {
