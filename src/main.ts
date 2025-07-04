@@ -18,15 +18,16 @@ async function bootstrap() {
 
   // Swagger setup
   const config = new DocumentBuilder()
-    .setTitle('SkillSync API')
-    .setDescription('The SkillSync API description')
+    .setTitle('SkillSync Server')
+    .setDescription('The SkillSync Server description')
     .setVersion('1.0')
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api', app, document);
-
+  SwaggerModule.setup('skillSync_api', app, document);
+  
   await app.listen(3000);
+  console.log('Swagger is running on http://localhost:3000/skillSync_api');
 }
 bootstrap();
 

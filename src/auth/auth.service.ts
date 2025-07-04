@@ -22,6 +22,7 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
+  //FN TO REGISTER A NEW USER 
   async signup(dto: CreateUserDto) {
     const hash = await bcrypt.hash(dto.password, 10);
     const user = this.userRepo.create({
@@ -32,6 +33,7 @@ export class AuthService {
     return this.userRepo.save(user);
   }
 
+  //FN TO SIGN IN A USER 
   async signin(dto: AuthDto) {
     const user = await this.userRepo.findOne({ where: { email: dto.email } });
     if (!user || !(await bcrypt.compare(dto.password, user.password))) {
@@ -44,6 +46,7 @@ export class AuthService {
     return { access_token: token };
   }
 
+  //FN TO CHANGE A USER PASSWORD 
   async changePassword(userId: number, dto: ChangePasswordDto) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) {
@@ -71,4 +74,5 @@ export class AuthService {
     await this.userRepo.save(user);
     return { message: 'Password updated successfully' };
   }
+  
 }

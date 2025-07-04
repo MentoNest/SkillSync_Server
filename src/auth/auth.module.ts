@@ -15,7 +15,9 @@ import { User } from 'src/user/entities/user.entity';
     PassportModule,
     ConfigModule,
     JwtModule.registerAsync({
-      imports: [ConfigModule],
+      imports: [
+        // ConfigModule.forRoot({ isGlobal: true }), 
+      ],
       useFactory: async (config: ConfigService) => ({
         secret: config.get('JWT_SECRET'),
         signOptions: { expiresIn: config.get('JWT_EXPIRES_IN') || '1d' },

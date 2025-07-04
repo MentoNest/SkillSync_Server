@@ -20,16 +20,17 @@ import {
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { ProfileService } from './profile.service';
-import { UpdateProfileDto } from '../user/dto/update-profile.dto';
+
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { User } from '../user/entities/user.entity';
 import { RolesGuard } from '../common/guard/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @ApiTags('profile')
 @ApiBearerAuth()
 @Controller('profile')
-@UseGuards(RolesGuard)
+// @UseGuards(RolesGuard)
 export class ProfileController {
   constructor(private readonly profileService: ProfileService) {}
 

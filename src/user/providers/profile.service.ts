@@ -2,7 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../entities/user.entity';
-import { UpdateProfileDto } from '../dto/update-profile.dto';
+import { UpdateProfileDto } from 'src/profile/dto/update-profile.dto';
+
 
 @Injectable()
 export class ProfileService {
@@ -12,20 +13,23 @@ export class ProfileService {
   ) {}
 
   async getProfile(userId: number): Promise<User> {
-    const user = await this.userRepository.findOne({ 
-      where: { id: userId }
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
     });
-    
+
     if (!user) {
       throw new NotFoundException('User profile not found');
     }
-    
+
     return user;
   }
 
-  async updateProfile(userId: number, updateProfileDto: UpdateProfileDto): Promise<User> {
-    const user = await this.userRepository.findOne({ 
-      where: { id: userId }
+  async updateProfile(
+    userId: number,
+    updateProfileDto: UpdateProfileDto,
+  ): Promise<User> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
     });
 
     if (!user) {
@@ -39,9 +43,12 @@ export class ProfileService {
     return await this.userRepository.save(user);
   }
 
-  async updateProfilePicture(userId: number, profilePicturePath: string): Promise<User> {
-    const user = await this.userRepository.findOne({ 
-      where: { id: userId }
+  async updateProfilePicture(
+    userId: number,
+    profilePicturePath: string,
+  ): Promise<User> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
     });
 
     if (!user) {
