@@ -3,7 +3,6 @@ import {
   Get,
   Patch,
   Body,
-  UseGuards,
   UseInterceptors,
   UploadedFile,
   BadRequestException,
@@ -19,22 +18,24 @@ import {
 } from '@nestjs/swagger';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
-import { ProfileService } from './profile.service';
-import { UpdateProfileDto } from '../user/dto/update-profile.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { User } from '../user/entities/user.entity';
-import { RolesGuard } from '../common/guard/roles.guard';
-import { Roles } from '../common/decorators/roles.decorator';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ProfileService } from './providers/profile.service';
+import { RolesDecorator } from 'src/common/decorators/roles.decorator';
+import { userRole } from 'src/common/enums/role.enum';
 
 @ApiTags('profile')
 @ApiBearerAuth()
 @Controller('profile')
-@UseGuards(RolesGuard)
+// @UseGuards(RolesGuard)
 export class ProfileController {
-  constructor(private readonly profileService: ProfileService) {}
+  constructor(
+    private readonly profileService: ProfileService
+  ) {}
 
   @Get('me')
-  @Roles('MENTOR', 'MENTEE')
+  @RolesDecorator(userRole.MENTOR, userRole.MENTEE)
   @ApiOperation({ summary: 'Get current user profile' })
   @ApiResponse({
     status: 200,
@@ -48,7 +49,7 @@ export class ProfileController {
   }
 
   @Patch('me')
-  @Roles('MENTOR', 'MENTEE')
+  @RolesDecorator(userRole.MENTOR, userRole.MENTEE)
   @ApiOperation({ summary: 'Update current user profile' })
   @ApiResponse({
     status: 200,
@@ -58,7 +59,7 @@ export class ProfileController {
   @ApiResponse({ status: 400, description: 'Bad Request' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Profile not found' })
-  updateProfile(
+  public updateProfile(
     @CurrentUser() user: User,
     @Body() updateProfileDto: UpdateProfileDto,
   ) {
@@ -66,7 +67,7 @@ export class ProfileController {
   }
 
   @Patch('me/picture')
-  @Roles('MENTOR', 'MENTEE')
+  @RolesDecorator(userRole.MENTOR, userRole.MENTEE)
   @UseInterceptors(
     FileInterceptor('picture', {
       storage: diskStorage({
@@ -117,7 +118,7 @@ export class ProfileController {
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Profile not found' })
-  async uploadProfilePicture(
+  public async uploadProfilePicture(
     @CurrentUser() user: User,
     @UploadedFile() file: Express.Multer.File,
   ) {

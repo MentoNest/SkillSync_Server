@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Observable, of } from 'rxjs';
 import { tap } from 'rxjs/operators';
-import { RedisService } from '../redis/cache.service';
+import { RedisService } from '../../redis/providers/cache.service';
 
 @Injectable()
 export class CacheInterceptor implements NestInterceptor {

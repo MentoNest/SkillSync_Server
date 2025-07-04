@@ -1,5 +1,13 @@
-import { Controller, Post, Body, UseGuards, Req, Res, HttpCode, HttpStatus } from '@nestjs/common';
-import { AuthService } from './auth.service';
+import {
+  Controller,
+  Post,
+  Body,
+  UseGuards,
+  Req,
+  Res,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { CreateUserDto } from 'src/user/dto/create-user.dto';
 import { AuthDto } from './dto/sign-in.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -12,19 +20,22 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../common/guard/jwt-auth.guard';
 import { Response } from 'express';
+import { AuthService } from './providers/auth.service';
+import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) { }
+  constructor(private readonly authService: AuthService) {}
 
+  //ROUTE TO REGISTER A USER 
   @Post('signup')
   signup(@Body() dto: CreateUserDto) {
     return this.authService.signup(dto);
   }
 
+  //ROUTE TO LOG-IN A USER
   @Post('signin')
   @ApiOperation({ summary: 'Sign in user ' })
   @ApiResponse({
@@ -40,6 +51,7 @@ export class AuthController {
     return this.authService.signin(dto);
   }
 
+  //ROUTE TO CHANGE PASSWORD 
   @Post('change-password')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -62,10 +74,11 @@ export class AuthController {
     status: 401,
     description: 'Unauthorized - Invalid current password',
   })
-  async changePassword(@Req() req, @Body() dto: ChangePasswordDto) {
+  public async changePassword(@Req() req, @Body() dto: ChangePasswordDto) {
     return this.authService.changePassword(req.user.userId, dto);
   }
 
+  //ROUTE TO LOG-OUT A USER 
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
@@ -85,18 +98,20 @@ export class AuthController {
     status: 401,
     description: 'Unauthorized - Invalid or expired token',
   })
-  async logout(@Req() req, @Res({ passthrough: true }) res: Response) {
+  public async logout(@Req() req, @Res({ passthrough: true }) res: Response) {
     return this.authService.logout(req.user.userId, res);
   }
 
-   @Post('forgot-password')
-  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+  //ROUTE TO FORGOT PASSWORD
+  @Post('forgot-password')
+  public async forgotPassword(@Body() dto: ForgotPasswordDto) {
     await this.authService.forgotPassword(dto.email);
     return { message: 'If the email exists, a reset link has been sent.' };
   }
 
+  //ROUTE TO RESET PASSWORD 
   @Post('reset-password')
-  async resetPassword(@Body() dto: ResetPasswordDto) {
+  public async resetPassword(@Body() dto: ResetPasswordDto) {
     await this.authService.resetPassword(dto.token, dto.newPassword);
     return { message: 'Password successfully reset.' };
   }

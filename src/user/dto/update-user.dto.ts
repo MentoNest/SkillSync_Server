@@ -6,8 +6,8 @@ import {
   MinLength,
   Matches,
 } from 'class-validator';
-import { Role } from 'src/common/enum/role.enum';
 import { ApiProperty } from '@nestjs/swagger';
+import { userRole } from 'src/common/enums/role.enum';
 
 export class UpdateUserDto {
   @ApiProperty({
@@ -21,13 +21,13 @@ export class UpdateUserDto {
 
   @ApiProperty({
     description: 'The role of the user',
-    enum: Role,
-    example: Role.MENTOR,
+    enum: userRole,
+    example: userRole.MENTOR,
     required: false,
   })
   @IsOptional()
-  @IsEnum(Role, { message: 'Role must be either ADMIN, MENTOR or MENTEE' })
-  role?: Role;
+  @IsEnum(userRole, { message: 'Role must be either ADMIN, MENTOR or MENTEE' })
+  role?: userRole;
 
   @ApiProperty({
     description: 'The full name of the user',

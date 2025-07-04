@@ -4,14 +4,14 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
-import { CreateUserDto } from '../dto/create-user.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
-import { UpdateProfileDto } from '../dto/update-profile.dto';
 import { User } from '../entities/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { classToPlain } from 'class-transformer';
-import { Role } from '../../common/enum/role.enum';
+import { userRole } from 'src/common/enums/role.enum';
+
+
 
 @Injectable()
 export class UserService {
@@ -55,7 +55,7 @@ export class UserService {
     }
 
     // Permission check: Only allow users to edit their own profile or admins to edit any profile
-    if (currentUser.id !== user.id && currentUser.role !== Role.ADMIN) {
+    if (currentUser.id !== user.id && currentUser.role !== userRole.ADMIN) {
       throw new ForbiddenException(
         'You do not have permission to edit this user',
       );
@@ -72,7 +72,7 @@ export class UserService {
     }
 
     // Prevent role changes unless by admin
-    if (dto.role && dto.role !== user.role && currentUser.role !== Role.ADMIN) {
+    if (dto.role && dto.role !== user.role && currentUser.role !== userRole.ADMIN) {
       throw new ForbiddenException('Only administrators can change user roles');
     }
 
@@ -94,7 +94,7 @@ export class UserService {
     }
 
     // Permission check: Only allow users to delete their own account or admins to delete any account
-    if (currentUser.id !== user.id && currentUser.role !== Role.ADMIN) {
+    if (currentUser.id !== user.id && currentUser.role !== userRole.ADMIN) {
       throw new ForbiddenException(
         'You do not have permission to delete this user',
       );

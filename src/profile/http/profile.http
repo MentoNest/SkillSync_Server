@@ -1,0 +1,20 @@
+
+# ENDPOINT TO UPDATE A PROFILE 
+GET http://localhost:3000/profile/me
+
+
+PATCH http://localhost:3000/profile/me
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEsInJvbGUiOiJNRU5UT1IiLCJpYXQiOjE3NDc3MzgxMTMsImV4cCI6MTc0NzgyNDUxM30.ngBt7U8KwcjfQJwoD616QptW9umfWIBk67BvYYjv870
+Content-Type:application/json
+{
+  "firstName": "Ahmad",
+  "lastName": "Abdulkareem",
+  "phoneNumber": "+2349063801889",
+  "address": "Free town, unguan rimi lowcost kaduna "
+}
+
+PATCH http://localhost:3000/profile/me/picture
+Content-Type:application/json
+{
+  
+}

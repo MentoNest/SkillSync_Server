@@ -10,42 +10,51 @@ import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { User } from 'src/user/entities/user.entity';
-import { Role } from 'src/common/enum/role.enum';
 import { CreateUserDto } from 'src/user/dto/create-user.dto';
-import { AuthDto } from './dto/sign-in.dto';
-import { ChangePasswordDto } from './dto/change-password.dto';
-import { SignInResponseDto, UserResponseDto } from './dto/sign-in-response.dto';
 import { Response } from 'express';
-import { UserService } from '../user/providers/user.service';
-import { RedisService } from '../redis/redis.service';
-import { MailerService } from '../mailer/mailer.service';
+import { AuthDto } from '../dto/sign-in.dto';
+import { ChangePasswordDto } from '../dto/change-password.dto';
+import { SignInResponseDto } from '../dto/sign-in-response.dto';
+import { UserService } from 'src/user/providers/user.service';
+import { RedisService } from 'src/redis/providers/cache.service';
+import { MailerService } from 'src/mailer/mailer.service';
+import { userRole } from 'src/common/enums/role.enum';
+import { UserResponseDto } from '../dto/user-response.dto';
+
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
-    @InjectRepository(User) private userRepo: Repository<User>,
+    @InjectRepository(User) 
+    private userRepo: Repository<User>,
+    
     private jwtService: JwtService,
+
     private readonly usersService: UserService,
+
     private readonly redisService: RedisService,
+
     private readonly mailerService: MailerService,
   ) {}
 
+  //FN TO REGISTER A NEW USER 
   async signup(dto: CreateUserDto) {
     const hash = await bcrypt.hash(dto.password, 10);
     const user = this.userRepo.create({
       ...dto,
       password: hash,
-      role: dto.role === 'MENTOR' ? Role.MENTOR : Role.MENTEE,
+      role: dto.role === userRole.MENTOR ? userRole.MENTOR : userRole.MENTEE,
     });
     return this.userRepo.save(user);
   }
 
+  //FN TO SIGN IN A USER 
   async signin(dto: AuthDto) {
     const user = await this.userRepo.findOne({
       where: { email: dto.email },
-      select: ['id', 'email', 'password', 'role', 'fullName'], // explicitly select fields
+      select: ['id', 'email', 'password', 'role', 'fullName'], 
     });
 
     if (!user || !(await bcrypt.compare(dto.password, user.password))) {
@@ -64,6 +73,7 @@ export class AuthService {
     });
   }
 
+  //FN TO CHANGE A USER PASSWORD 
   async changePassword(userId: number, dto: ChangePasswordDto) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) {
@@ -100,17 +110,6 @@ export class AuthService {
         throw new UnauthorizedException('User not found');
       }
 
-      // If your User entity has a refreshToken field, invalidate it
-      // Uncomment and modify these lines if you have refresh tokens:
-      
-      // if (user.refreshToken) {
-      //   user.refreshToken = null;
-      //   await this.userRepo.save(user);
-      // }
-      
-
-      // Clear any authentication cookies if they exist
-      // Common cookie names for refresh tokens
       const cookiesToClear = ['refreshToken', 'refresh_token', 'jwt_refresh'];
       
       cookiesToClear.forEach(cookieName => {
@@ -147,7 +146,7 @@ export class AuthService {
     if (!userId) throw new BadRequestException('Invalid or expired token.');
 
     const hashed = await bcrypt.hash(newPassword, 10);
-    await this.usersService.updatePassword(userId, hashed);
-    await this.redisService.del(`reset:${token}`);
+    await this.usersService.updatePassword(String(userId), hashed);
+    await this.redisService.delete(`reset:${token}`);
   }
 }
