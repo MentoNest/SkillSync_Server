@@ -1,93 +1,44 @@
-# Mentorship Marketplace
+## SkillSync_Server 🖥️
 
-A robust platform built with NestJS that connects experienced professionals (mentors) with individuals (mentees) seeking guidance across technology, business, and digital skills domains.
-
-![Mentorship Marketplace Banner](https://via.placeholder.com/800x200?text=Mentorship+Marketplace)
-
-## 📋 Table of Contents
-
-- [Overview](#overview)
-- [Features](#features)
-- [Technologies Used](#technologies-used)
-- [Installation](#installation)
-- [Usage](#usage)
-- [API Documentation](#api-documentation)
-- [Contributing](#contributing)
-- [License](#license)
+*Backend services for the SkillSync platform*
 
 ## 📝 Overview
 
-Mentorship Marketplace is a platform designed to bridge the gap between knowledge seekers and experienced professionals. By leveraging modern web technologies, we've created an ecosystem where mentees can find, connect with, and learn from mentors specialized in their areas of interest.
+**SkillSync_Server** provides off-chain services that support the SkillSync ecosystem.  
+It handles indexing, user metadata, analytics, notifications, and integrations that are not suitable for on-chain execution.
 
-The platform facilitates scheduling sessions, managing payments, tracking progress, and fostering long-term professional relationships built on knowledge sharing and growth.
+The backend works alongside the Stellar network without custody of user funds.
 
 ## ✨ Features
+- User metadata management
+- Mentorship session records
+- Event indexing from Stellar
+- Notifications & emails
+- API layer for frontend
 
-- **Intelligent Mentor Matching**
-  - Advanced algorithms to match mentees with appropriate mentors based on skills, experience, and goals
-  - Search and filter capabilities with customizable parameters
-
-- **Session Management**
-  - Real-time scheduling with calendar integration
-  - Video conferencing capabilities
-  - Session history and notes tracking
-
-- **Profile Management**
-  - Comprehensive mentor profiles with experience validation
-  - Skill categorization and expertise levels
-  - Portfolio and credential verification
-
-- **Payment Processing**
-  - Secure payment gateway integration
-  - Multiple payment options
-  - Automated invoicing and receipts
-
-- **Feedback and Rating System**
-  - Post-session feedback collection
-  - Rating aggregation and display
-  - Testimonial management
-
-- **Analytics Dashboard**
-  - Progress tracking for mentees
-  - Performance metrics for mentors
-  - Platform usage statistics
 
 ## 🛠️ Technologies Used
+- Node.js
+- NestJS
+- TypeScript
+- PostgreSQL 
+- Stellar Horizon API
 
-- **Backend**
-  - [NestJS](https://nestjs.com/) - A progressive Node.js framework
-  - [TypeScript](https://www.typescriptlang.org/) - Typed JavaScript
-  - [PostgreSQL](https://www.postgresql.org/) - Database
-  - [TypeORM](https://typeorm.io/) - ORM for database interactions
 
-- **Security**
-  - [Passport.js](http://www.passportjs.org/) - Authentication middleware
-  - [JWT](https://jwt.io/) - Token-based authentication
-  - [Bcrypt](https://www.npmjs.com/package/bcrypt) - Password hashing
-
-- **Testing**
-  - [Jest](https://jestjs.io/) - Testing framework
-  - [Supertest](https://www.npmjs.com/package/supertest) - HTTP assertions
-
-- **Deployment & DevOps**
-  - [Docker](https://www.docker.com/) - Containerization
-  - [GitHub Actions](https://github.com/features/actions) - CI/CD
-
-## 💻 Installation
+## Setup & Installation
 
 ### Prerequisites
-
-- Node.js (v16 or later)
-- npm (v7 or later) or yarn
-- PostgreSQL (v13 or later)
+- Node.js ≥ 18
+- Database (PostgreSQL)
+- Environment variables configured
 
 ### Setup Instructions
 
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/your-organization/mentorship-marketplace.git
-cd mentorship-marketplace
+git clone https://github.com/MentoNest/SkillSync_Server.git
+cd SkillSync_Server
 ```
 
 2. Install dependencies:
@@ -146,53 +97,15 @@ Access the admin dashboard at `/admin` with appropriate credentials to:
 - Generate reports
 - Configure system settings
 
-## 📚 API Documentation
+## 📂 Project Structure
+  src/
+  ├── modules/
+  ├── controllers/
+  ├── services/
+  ├── entities/
+  ├── guards/
+  └── main.ts
 
-Our API follows RESTful principles and uses JWT for authentication.
-
-### Base URL
-
-```
-https://api.mentorship-marketplace.com/v1
-# or for local development
-http://localhost:3000/v1
-```
-
-### Authentication
-
-```
-POST /auth/login
-POST /auth/register
-POST /auth/refresh-token
-```
-
-### User Endpoints
-
-```
-GET /users/me
-PUT /users/me
-GET /users/:id
-```
-
-### Mentor Endpoints
-
-```
-GET /mentors
-GET /mentors/:id
-GET /mentors/:id/availability
-POST /mentors/:id/sessions
-```
-
-### Session Endpoints
-
-```
-GET /sessions
-GET /sessions/:id
-PUT /sessions/:id
-DELETE /sessions/:id
-```
-
-For complete API documentation, see our [Swagger docs](http://localhost:3000/api) when running the development server.
 
 ## 👥 Contributing
 
