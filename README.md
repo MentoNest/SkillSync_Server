@@ -98,6 +98,7 @@ Access the admin dashboard at `/admin` with appropriate credentials to:
 - Configure system settings
 
 ## 📂 Project Structure
+```
   src/
   ├── modules/
   ├── controllers/
@@ -105,6 +106,7 @@ Access the admin dashboard at `/admin` with appropriate credentials to:
   ├── entities/
   ├── guards/
   └── main.ts
+```
 
 
 ## 👥 Contributing
