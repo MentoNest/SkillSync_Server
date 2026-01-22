@@ -8,11 +8,15 @@ import {
   JoinColumn,
   ManyToMany,
   JoinTable,
+  Index,
 } from 'typeorm';
 import { MentorProfile } from '../../mentor-profiles/entities/mentor-profile.entity';
 import { Skill } from '../../skills/entities/skill.entity';
 
 @Entity('listings')
+@Index(['mentorProfileId'])
+@Index(['active'])
+@Index(['hourlyRateMinorUnits'])
 export class Listing {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
