@@ -1,5 +1,7 @@
 ## SkillSync_Server 🖥️
 
+![CI](https://github.com/Xoulomon/SkillSync_Server/actions/workflows/ci.yml/badge.svg)
+
 *Backend services for the SkillSync platform*
 
 ## 📝 Overview

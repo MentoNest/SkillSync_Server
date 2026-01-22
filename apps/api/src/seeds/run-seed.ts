@@ -1,4 +1,3 @@
-import { DataSource } from 'typeorm';
 import { AppDataSource } from '../config/data-source';
 import { User } from '../users/entities/user.entity';
 
