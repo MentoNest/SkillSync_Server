@@ -123,33 +123,32 @@ export class ListingsService {
     const limit = searchDto.limit ?? 10;
     const skip = (page - 1) * limit;
 
-    const queryBuilder = this.listingRepository
+    let filterQuery = this.listingRepository
       .createQueryBuilder('listing')
-      .leftJoinAndSelect('listing.skills', 'skill')
-      .leftJoinAndSelect('listing.mentorProfile', 'mentorProfile');
+      .select('listing.id');
 
     if (searchDto.active !== undefined) {
-      queryBuilder.andWhere('listing.active = :active', {
+      filterQuery.andWhere('listing.active = :active', {
         active: searchDto.active,
       });
     } else {
-      queryBuilder.andWhere('listing.active = :active', { active: true });
+      filterQuery.andWhere('listing.active = :active', { active: true });
     }
 
     if (searchDto.minRate !== undefined) {
-      queryBuilder.andWhere('listing.hourly_rate_minor_units >= :minRate', {
+      filterQuery.andWhere('listing.hourly_rate_minor_units >= :minRate', {
         minRate: searchDto.minRate,
       });
     }
 
     if (searchDto.maxRate !== undefined) {
-      queryBuilder.andWhere('listing.hourly_rate_minor_units <= :maxRate', {
+      filterQuery.andWhere('listing.hourly_rate_minor_units <= :maxRate', {
         maxRate: searchDto.maxRate,
       });
     }
 
     if (searchDto.skillIds && searchDto.skillIds.length > 0) {
-      queryBuilder.andWhere((qb) => {
+      filterQuery.andWhere((qb) => {
         const subQuery = qb
           .subQuery()
           .select('ls.listing_id')
@@ -167,15 +166,42 @@ export class ListingsService {
       });
     }
 
-    queryBuilder.orderBy('listing.created_at', 'DESC');
+    // Get total count
+    const total = await filterQuery.getCount();
 
-    const [listings, total] = await queryBuilder
+    // Get paginated listing IDs
+    const listingIds = await filterQuery
+      .orderBy('listing.created_at', 'DESC')
       .skip(skip)
       .take(limit)
-      .getManyAndCount();
+      .getMany()
+      .then((results) => results.map((r: any) => r.id));
+
+    // Fetch full listings with relations
+    if (listingIds.length === 0) {
+      return {
+        items: [],
+        total,
+        page,
+        limit,
+      };
+    }
+
+    const listings = await this.listingRepository
+      .createQueryBuilder('listing')
+      .leftJoinAndSelect('listing.skills', 'skill')
+      .leftJoinAndSelect('listing.mentorProfile', 'mentorProfile')
+      .whereInIds(listingIds)
+      .getMany();
+
+    // Sort by the original order
+    const listingsMap = new Map(listings.map((l) => [l.id, l]));
+    const sortedListings = listingIds
+      .map((id: string) => listingsMap.get(id))
+      .filter((l): l is Listing => l !== undefined);
 
     return {
-      items: listings.map((listing) => this.toResponseDto(listing)),
+      items: sortedListings.map((listing) => this.toResponseDto(listing)),
       total,
       page,
       limit,

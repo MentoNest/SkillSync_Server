@@ -3,12 +3,11 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { HealthModule } from './health/health.module';
 import { DatabaseModule } from './database/database.module';
-import { ListingService } from './listings/listings.service';
-import { ListingController } from './listings/mentor-listings.controller';
+import { ListingsModule } from './listings/listings.module';
 
 @Module({
-  imports: [DatabaseModule, HealthModule],
-  controllers: [AppController, ListingController],
-  providers: [AppService, ListingService],
+  imports: [DatabaseModule, HealthModule, ListingsModule],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}

@@ -6,7 +6,7 @@ import {
   IsBoolean,
   Min,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class SearchListingsDto {
@@ -14,9 +14,15 @@ export class SearchListingsDto {
     description: 'Filter by skill IDs (AND logic)',
     type: [String],
     required: false,
+    isArray: true,
     example: ['123e4567-e89b-12d3-a456-426614174000'],
   })
   @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) return value;
+    return [value];
+  })
   @IsArray()
   @IsUUID('4', { each: true })
   skillIds?: string[];
