@@ -1,5 +1,9 @@
 import { DataSource } from 'typeorm';
 import { DataSourceOptions } from 'typeorm/data-source/DataSourceOptions';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+
+dotenv.config({ path: path.resolve(__dirname, '../../../..', '.env') });
 
 const config: DataSourceOptions = {
   type: 'postgres',
