@@ -12,13 +12,18 @@ import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/s
 import { SkillService } from '../services/skill.service';
 import { CreateSkillDto } from '../dtos/skill.dto';
 import { Skill } from '../entities/skill.entity';
-
+import { UseGuards } from '@nestjs/common';
+import { RbacGuard } from '../auth/decorators/rbac.guard';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 @ApiTags('skills')
 @Controller('skills')
+@UseGuards(JwtAuthGuard, RbacGuard)
 export class SkillController {
   constructor(private readonly skillService: SkillService) {}
 
   @Post()
+  @Roles('admin') 
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new skill' })
   @ApiBody({ type: CreateSkillDto })
@@ -54,6 +59,7 @@ export class SkillController {
   }
 
   @Delete(':id')
+  @Roles('admin') 
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a skill' })
   @ApiParam({ name: 'id', description: 'Skill ID' })
