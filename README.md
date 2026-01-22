@@ -130,6 +130,17 @@ We welcome contributions from the community! Please follow these steps:
    ```
 5. Open a pull request
 
+
+## Global API Behavior
+
+This project enforces consistent API behavior via:
+- Global validation pipe (DTO validation)
+- Global exception filter (standard error schema)
+- Logging interceptor (structured request logs)
+
+These utilities are applied at application bootstrap.
+
+
 Please read our [Contributing Guide](CONTRIBUTING.md) for more details.
 
 ## 📄 License

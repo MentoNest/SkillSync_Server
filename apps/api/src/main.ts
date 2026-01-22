@@ -8,17 +8,16 @@ import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { DEFAULT_PORT } from '@app/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { GlobalValidationPipe } from '@app/common/pipes/global-validation.pipe';
+import { GlobalExceptionFilter } from '@app/common/filters/global-exception.filter';
+import { LoggingInterceptor } from '@app/common/interceptors/logging.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      transform: true,
-      whitelist: true,
-      forbidNonWhitelisted: true,
-    }),
-  );
+ app.useGlobalPipes(new GlobalValidationPipe());
+  app.useGlobalFilters(new GlobalExceptionFilter());
+  app.useGlobalInterceptors(new LoggingInterceptor());
 
   
   // Swagger setup
