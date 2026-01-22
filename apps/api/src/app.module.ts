@@ -8,10 +8,14 @@ import { ListingsModule } from './listings/listings.module';
 import { MentorProfilesModule } from './mentor-profiles/mentor-profiles.module';
 import { SkillsModule } from './skills/skills.module';
 import { UsersModule } from './users/users.module';
+import rateLimitConfig from './config/rate-limit.config'; // Import the rate limit config
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [rateLimitConfig], // Load the rate limit configuration
+    }),
     DatabaseModule,
     HealthModule,
     UsersModule,
