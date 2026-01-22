@@ -44,3 +44,6 @@ Thumbs.db
 *.tmp
 .cache/
 .temp/
+# Uploads
+uploads/*
+!uploads/.gitkeep
