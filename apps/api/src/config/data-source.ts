@@ -5,6 +5,8 @@ import * as path from 'path';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../..', '.env') });
 
+console.log('Database URL:', process.env.DATABASE_URL);
+
 const config: DataSourceOptions = {
   type: 'postgres',
   url: process.env.DATABASE_URL,
