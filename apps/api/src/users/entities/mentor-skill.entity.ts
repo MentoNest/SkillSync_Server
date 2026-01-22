@@ -24,9 +24,13 @@ export class MentorSkill {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @ManyToOne(() => MentorProfile, (mentorProfile: MentorProfile) => mentorProfile.mentorSkills, {
-    onDelete: 'CASCADE',
-  })
+  @ManyToOne(
+    () => MentorProfile,
+    (mentorProfile: MentorProfile) => mentorProfile.mentorSkills,
+    {
+      onDelete: 'CASCADE',
+    },
+  )
   @JoinColumn({ name: 'mentor_profile_id' })
   mentorProfile!: MentorProfile;
 

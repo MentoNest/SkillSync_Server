@@ -1,5 +1,12 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn } from "typeorm";
-import { MentorProfile } from "../entities/mentor-profile.entity";
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
+import { MentorProfile } from '../mentor-profiles/entities/mentor-profile.entity';
 
 @Entity('availability_exceptions')
 @Index(['mentorProfile', 'startDate', 'endDate'])

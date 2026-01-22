@@ -4,7 +4,6 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { DEFAULT_PORT } from '@app/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -15,11 +14,10 @@ import { LoggingInterceptor } from '@app/common/interceptors/logging.interceptor
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
- app.useGlobalPipes(new GlobalValidationPipe());
+  app.useGlobalPipes(new GlobalValidationPipe());
   app.useGlobalFilters(new GlobalExceptionFilter());
   app.useGlobalInterceptors(new LoggingInterceptor());
 
-  
   // Swagger setup
   const config = new DocumentBuilder()
     .setTitle('SkillSync API')
@@ -30,10 +28,10 @@ async function bootstrap() {
     .addTag('mentors', 'Mentor discovery and filtering')
     .addBearerAuth()
     .build();
-  
+
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
-  
+
   await app.listen(process.env.PORT || DEFAULT_PORT);
 }
 void bootstrap();
