@@ -10,7 +10,7 @@ import {
   Index,
 } from 'typeorm';
 import { User } from '../../entities/user.entity';
-import { Listing } from '../../listing/entities/listing.entity';
+import { Listing } from '../../listings/entities/listing.entity';
 
 @Entity('mentor_profiles')
 @Index(['userId'])

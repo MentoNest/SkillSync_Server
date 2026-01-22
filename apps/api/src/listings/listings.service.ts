@@ -41,14 +41,10 @@ export class ListingsService {
     });
 
     const savedListing = await this.listingRepository.save(listing);
-    return this.toResponseDto(
-      await this.findOneWithRelations(savedListing.id),
-    );
+    return this.toResponseDto(await this.findOneWithRelations(savedListing.id));
   }
 
-  async findAll(
-    mentorProfileId: string,
-  ): Promise<ListingResponseDto[]> {
+  async findAll(mentorProfileId: string): Promise<ListingResponseDto[]> {
     const listings = await this.listingRepository.find({
       where: { mentorProfileId },
       relations: ['skills', 'mentorProfile'],
@@ -105,9 +101,7 @@ export class ListingsService {
     }
 
     await this.listingRepository.save(listing);
-    return this.toResponseDto(
-      await this.findOneWithRelations(listing.id),
-    );
+    return this.toResponseDto(await this.findOneWithRelations(listing.id));
   }
 
   async remove(id: string, mentorProfileId: string): Promise<void> {
@@ -143,17 +137,15 @@ export class ListingsService {
     }
 
     if (searchDto.minRate !== undefined) {
-      queryBuilder.andWhere(
-        'listing.hourly_rate_minor_units >= :minRate',
-        { minRate: searchDto.minRate },
-      );
+      queryBuilder.andWhere('listing.hourly_rate_minor_units >= :minRate', {
+        minRate: searchDto.minRate,
+      });
     }
 
     if (searchDto.maxRate !== undefined) {
-      queryBuilder.andWhere(
-        'listing.hourly_rate_minor_units <= :maxRate',
-        { maxRate: searchDto.maxRate },
-      );
+      queryBuilder.andWhere('listing.hourly_rate_minor_units <= :maxRate', {
+        maxRate: searchDto.maxRate,
+      });
     }
 
     if (searchDto.skillIds && searchDto.skillIds.length > 0) {
