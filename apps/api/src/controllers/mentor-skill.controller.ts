@@ -24,14 +24,20 @@ import { MentorSkillService } from '../services/mentor-skill.service';
 import { AttachSkillDto, UpdateSkillDto } from '../dtos/mentor-skill.dto';
 import { MentorSkill } from '../entities/mentor-skill.entity';
 import { MentorProfile } from '../entities/mentor-profile.entity';
+import { UseGuards } from '@nestjs/common';
+import { RbacGuard } from '../auth/decorators/rbac.guard';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 
 @ApiTags('mentor-skills')
 @ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RbacGuard)
 @Controller('mentor-skills')
 export class MentorSkillController {
   constructor(private readonly mentorSkillService: MentorSkillService) {}
 
   @Post('attach')
+  @Roles('mentor') 
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Attach a skill to mentor profile' })
   @ApiBody({ type: AttachSkillDto })
@@ -53,6 +59,7 @@ export class MentorSkillController {
   @ApiBody({ type: UpdateSkillDto })
   @ApiResponse({ status: 200, description: 'Skill updated successfully' })
   @ApiResponse({ status: 404, description: 'Mentor skill not found' })
+  @Roles('mentor')
   async updateSkill(
     @Request() req: any,
     @Param('skillId') skillId: string,
@@ -80,6 +87,7 @@ export class MentorSkillController {
   @ApiOperation({ summary: 'Get all skills for current mentor' })
   @ApiResponse({ status: 200, description: 'List of mentor skills' })
   @ApiResponse({ status: 404, description: 'Mentor profile not found' })
+  @Roles('mentor')
   async getMentorSkills(@Request() req: any): Promise<MentorSkill[]> {
     const userId = req.user?.sub || 'mock-user-id';
     return await this.mentorSkillService.getMentorSkills(userId);
