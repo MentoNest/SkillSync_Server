@@ -9,9 +9,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
         url: configService.get('DATABASE_URL'),
-        ssl: configService.get('DB_SSL') === 'true' 
-          ? { rejectUnauthorized: false } 
-          : false,
+        ssl:
+          configService.get('DB_SSL') === 'true'
+            ? { rejectUnauthorized: false }
+            : false,
         logging: configService.get('DB_LOGGING') === 'true',
         autoLoadEntities: true, // Let NestJS auto-discover entities
         synchronize: false,

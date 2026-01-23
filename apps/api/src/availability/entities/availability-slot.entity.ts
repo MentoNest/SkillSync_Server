@@ -1,33 +1,44 @@
-// @Entity('availability_slots')
-// @Index(['mentorProfile', 'weekday'])
-// @Index(['active'])
-// export class AvailabilitySlot {
-//   @PrimaryGeneratedColumn('uuid')
-//   id: string;
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  ManyToOne,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+} from 'typeorm';
+import { MentorProfile } from '../../mentor-profiles/entities/mentor-profile.entity';
 
-//   @ManyToOne(() => MentorProfile, { onDelete: 'CASCADE' })
-//   mentorProfile: MentorProfile;
+@Entity('availability_slots')
+@Index(['mentorProfile', 'weekday'])
+@Index(['active'])
+export class AvailabilitySlot {
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
-//   // ISO weekday: 1 (Mon) → 7 (Sun)
-//   @Column({ type: 'int' })
-//   weekday: number;
+  @ManyToOne(() => MentorProfile, { onDelete: 'CASCADE' })
+  mentorProfile!: MentorProfile;
 
-//   // Minutes from midnight (e.g. 10:00 = 600)
-//   @Column({ type: 'int' })
-//   startMinutes: number;
+  // ISO weekday: 1 (Mon) → 7 (Sun)
+  @Column({ type: 'int' })
+  weekday!: number;
 
-//   @Column({ type: 'int' })
-//   endMinutes: number;
+  // Minutes from midnight (e.g. 10:00 = 600)
+  @Column({ type: 'int' })
+  startMinutes!: number;
 
-//   @Column()
-//   timezone: string;
+  @Column({ type: 'int' })
+  endMinutes!: number;
 
-//   @Column({ default: true })
-//   active: boolean;
+  @Column()
+  timezone!: string;
 
-//   @CreateDateColumn()
-//   createdAt: Date;
+  @Column({ default: true })
+  active!: boolean;
 
-//   @UpdateDateColumn()
-//   updatedAt: Date;
-// }
+  @CreateDateColumn()
+  createdAt!: Date;
+
+  @UpdateDateColumn()
+  updatedAt!: Date;
+}

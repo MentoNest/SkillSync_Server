@@ -1,12 +1,16 @@
-import { Injectable } from "@nestjs/common";
-import { Repository } from "typeorm";
-import { AvailabilityException } from "../availability-exception.entity";
-import { AvailabilitySlot } from "../entities/availability-slot.entity";
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { AvailabilityException } from '../availability-exception.entity';
+import { AvailabilitySlot } from '../entities/availability-slot.entity';
+import { DateTime } from 'luxon';
 
 @Injectable()
 export class AvailabilityWindowService {
   constructor(
+    @InjectRepository(AvailabilitySlot)
     private readonly slotRepo: Repository<AvailabilitySlot>,
+    @InjectRepository(AvailabilityException)
     private readonly exceptionRepo: Repository<AvailabilityException>,
   ) {}
 
@@ -61,7 +65,7 @@ export class AvailabilityWindowService {
             continue;
           }
 
-          if (!this.isBlackout(cursor, exceptions, tz)) {
+          if (!this.isBlackout(cursor, exceptions)) {
             results.push({
               start: cursor.toISO(),
               end: cursor.plus({ minutes: slotLength }).toISO(),
@@ -76,22 +80,16 @@ export class AvailabilityWindowService {
     return results;
   }
 
-  private isBlackout(
-    dt: DateTime,
-    exceptions: AvailabilityException[],
-    tz: string,
-  ) {
+  private isBlackout(dt: DateTime, exceptions: AvailabilityException[]) {
     return exceptions.some((ex) => {
       const day = dt.toISODate();
+      if (!day) return false;
       if (day < ex.startDate || day > ex.endDate) return false;
 
       if (ex.payload.type === 'FULL_DAY') return true;
 
       const mins = dt.hour * 60 + dt.minute;
-      return (
-        mins >= ex.payload.startMinutes &&
-        mins < ex.payload.endMinutes
-      );
+      return mins >= ex.payload.startMinutes && mins < ex.payload.endMinutes;
     });
   }
 }

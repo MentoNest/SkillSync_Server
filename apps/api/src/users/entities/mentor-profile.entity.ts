@@ -35,7 +35,10 @@ export class MentorProfile {
   @Column({ default: true })
   isAvailable!: boolean;
 
-  @OneToMany(() => MentorSkill, (mentorSkill: MentorSkill) => mentorSkill.mentorProfile)
+  @OneToMany(
+    () => MentorSkill,
+    (mentorSkill: MentorSkill) => mentorSkill.mentorProfile,
+  )
   mentorSkills!: MentorSkill[];
 
   @CreateDateColumn()

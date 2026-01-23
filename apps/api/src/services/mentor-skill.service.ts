@@ -2,13 +2,12 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
-  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
-import { MentorSkill } from '../entities/mentor-skill.entity';
-import { MentorProfile } from '../entities/mentor-profile.entity';
-import { Skill } from '../entities/skill.entity';
+import { MentorSkill } from '../users/entities/mentor-skill.entity';
+import { MentorProfile } from '../users/entities/mentor-profile.entity';
+import { Skill } from '../users/entities/skill.entity';
 import { AttachSkillDto, UpdateSkillDto } from '../dtos/mentor-skill.dto';
 
 @Injectable()
@@ -60,6 +59,7 @@ export class MentorSkillService {
     const mentorSkill = this.mentorSkillRepository.create({
       mentorProfileId: mentorProfile.id,
       skillId: attachSkillDto.skillId,
+
       level: attachSkillDto.level,
       yearsExperience: attachSkillDto.yearsExperience,
     });
@@ -146,7 +146,10 @@ export class MentorSkillService {
       })
       .getRawMany();
 
-    const mentorProfileIds = mentorSkills.map((ms) => ms.mentorSkill_mentorProfileId);
+    const mentorProfileIds = mentorSkills.map(
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return
+      (ms) => ms.mentorSkill_mentorProfileId,
+    );
 
     if (mentorProfileIds.length === 0) {
       return [];

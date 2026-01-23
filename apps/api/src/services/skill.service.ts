@@ -1,7 +1,11 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Skill } from '../entities/skill.entity';
+import { Skill } from '../users/entities/skill.entity';
 import { CreateSkillDto } from '../dtos/skill.dto';
 
 @Injectable()

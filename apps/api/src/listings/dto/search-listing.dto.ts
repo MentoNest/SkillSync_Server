@@ -20,7 +20,9 @@ export class SearchListingsDto {
   @IsOptional()
   @Transform(({ value }) => {
     if (!value) return undefined;
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     if (Array.isArray(value)) return value;
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return [value];
   })
   @IsArray()
