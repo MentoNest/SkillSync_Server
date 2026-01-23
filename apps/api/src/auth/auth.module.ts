@@ -12,6 +12,8 @@ import { RefreshToken } from './entities/refresh-token.entity';
 import { EmailVerificationToken } from './entities/email-verification-token.entity';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { MockMailer } from '../../../libs/common/src/mailer/mock-mailer';
+import { UserService } from './services/user.service';
+import { UserRepository } from './repositories/user.repository';
 
 /* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
 
@@ -42,7 +44,14 @@ import { MockMailer } from '../../../libs/common/src/mailer/mock-mailer';
     ConfigModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, JwtRefreshStrategy, MockMailer],
-  exports: [AuthService, JwtStrategy, PassportModule],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    JwtRefreshStrategy,
+    MockMailer,
+    UserService,
+    UserRepository,
+  ],
+  exports: [AuthService, JwtStrategy, PassportModule, UserService],
 })
 export class AuthModule {}
