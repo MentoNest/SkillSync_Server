@@ -3,15 +3,14 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../app.module';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Skill } from '../entities/skill.entity';
-import { MentorSkill, SkillLevel } from '../entities/mentor-skill.entity';
-import { MentorProfile } from '../entities/mentor-profile.entity';
+import { Skill } from '../users/entities/skill.entity';
+import { SkillLevel } from '../users/entities/mentor-skill.entity';
+
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument */
 
 describe('Skills and Mentor Skills E2E', () => {
   let app: INestApplication;
   let skillRepository: any;
-  let mentorSkillRepository: any;
-  let mentorProfileRepository: any;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -23,8 +22,6 @@ describe('Skills and Mentor Skills E2E', () => {
     await app.init();
 
     skillRepository = moduleFixture.get(getRepositoryToken(Skill));
-    mentorSkillRepository = moduleFixture.get(getRepositoryToken(MentorSkill));
-    mentorProfileRepository = moduleFixture.get(getRepositoryToken(MentorProfile));
   });
 
   afterAll(async () => {

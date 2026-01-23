@@ -123,7 +123,7 @@ export class ListingsService {
     const limit = searchDto.limit ?? 10;
     const skip = (page - 1) * limit;
 
-    let filterQuery = this.listingRepository
+    const filterQuery = this.listingRepository
       .createQueryBuilder('listing')
       .select('listing.id');
 
@@ -175,6 +175,7 @@ export class ListingsService {
       .skip(skip)
       .take(limit)
       .getMany()
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
       .then((results) => results.map((r: any) => r.id));
 
     // Fetch full listings with relations

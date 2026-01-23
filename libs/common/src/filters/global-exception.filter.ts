@@ -29,8 +29,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
       errorResponse = {
         statusCode: status,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         error: res['error'] ?? exception.name,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         message: res['message'] ?? exception.message,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         details: res['details'],
         path: request.url,
         timestamp: new Date().toISOString(),
