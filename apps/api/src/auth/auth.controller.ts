@@ -1,9 +1,18 @@
-import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  HttpCode,
+  HttpStatus,
+  Ip,
+  Headers,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -45,7 +54,33 @@ export class AuthController {
     status: 400,
     description: 'Validation error',
   })
-  async login(@Body() loginDto: LoginDto): Promise<AuthResponseDto> {
-    return this.authService.login(loginDto);
+  async login(
+    @Body() loginDto: LoginDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<AuthResponseDto> {
+    return this.authService.login(loginDto, ip, userAgent);
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Refresh access token' })
+  @ApiResponse({ status: 200, description: 'Tokens refreshed' })
+  @ApiResponse({ status: 401, description: 'Invalid or expired refresh token' })
+  async refresh(
+    @Body() dto: RefreshTokenDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
+  ) {
+    return this.authService.rotateRefreshToken(dto.refreshToken, ip, userAgent);
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Logout and revoke refresh token' })
+  @ApiResponse({ status: 200, description: 'Logged out successfully' })
+  async logout(@Body() dto: RefreshTokenDto) {
+    await this.authService.revokeRefreshToken(dto.refreshToken);
+    return { message: 'Logged out successfully' };
   }
 }
