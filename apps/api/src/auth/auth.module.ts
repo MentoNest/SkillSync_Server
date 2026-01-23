@@ -9,11 +9,21 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
 import { User } from '../users/entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { EmailVerificationToken } from './entities/email-verification-token.entity';
+import { PasswordResetToken } from './entities/password-reset-token.entity';
+import { MockMailer } from '../../../libs/common/src/mailer/mock-mailer';
+
+/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
 
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([RefreshToken, User]),
+    TypeOrmModule.forFeature([
+      RefreshToken,
+      User,
+      EmailVerificationToken,
+      PasswordResetToken,
+    ]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.register({}), // Config is per-token in the service
     JwtModule.registerAsync({
@@ -32,7 +42,7 @@ import { RefreshToken } from './entities/refresh-token.entity';
     ConfigModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, JwtRefreshStrategy],
+  providers: [AuthService, JwtStrategy, JwtRefreshStrategy, MockMailer],
   exports: [AuthService, JwtStrategy, PassportModule],
 })
 export class AuthModule {}

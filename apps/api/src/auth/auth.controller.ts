@@ -13,6 +13,10 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { RequestVerificationDto } from './dto/request-verification.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
+import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -82,5 +86,46 @@ export class AuthController {
   async logout(@Body() dto: RefreshTokenDto) {
     await this.authService.revokeRefreshToken(dto.refreshToken);
     return { message: 'Logged out successfully' };
+  }
+
+  @Post('request-verification')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Request email verification' })
+  @ApiResponse({
+    status: 200,
+    description: 'Verification email sent if user exists',
+  })
+  async requestVerification(@Body() dto: RequestVerificationDto) {
+    await this.authService.requestVerification(dto);
+    return { message: 'Verification email sent' };
+  }
+
+  @Post('verify-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify email with token' })
+  @ApiResponse({ status: 200, description: 'Email verified successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid or expired token' })
+  async verifyEmail(@Body() dto: VerifyEmailDto) {
+    await this.authService.verifyEmail(dto);
+    return { message: 'Email verified successfully' };
+  }
+
+  @Post('request-password-reset')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Request password reset' })
+  @ApiResponse({ status: 200, description: 'Reset email sent if user exists' })
+  async requestPasswordReset(@Body() dto: RequestPasswordResetDto) {
+    await this.authService.requestPasswordReset(dto);
+    return { message: 'Password reset email sent' };
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reset password with token' })
+  @ApiResponse({ status: 200, description: 'Password reset successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid or expired token' })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    await this.authService.resetPassword(dto);
+    return { message: 'Password reset successfully' };
   }
 }
