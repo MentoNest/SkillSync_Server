@@ -8,6 +8,8 @@ import { ListingsModule } from './listings/listings.module';
 import { MentorProfilesModule } from './mentor-profiles/mentor-profiles.module';
 import { SkillsModule } from './skills/skills.module';
 import { UsersModule } from './users/users.module';
+import { SessionsModule } from './sessions/sessions.module';
+import { BookingsModule } from './bookings/bookings.module';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { UsersModule } from './users/users.module';
     MentorProfilesModule,
     SkillsModule,
     ListingsModule,
+    SessionsModule,
+    BookingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
