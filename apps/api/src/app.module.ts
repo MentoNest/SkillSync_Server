@@ -1,12 +1,36 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { RedisModule } from './redis/redis.module';
 import { HealthModule } from './health/health.module';
 import { DatabaseModule } from './database/database.module';
-import { SkillModule } from './modules/skill.module';
+import { ListingsModule } from './listings/listings.module';
+import { MentorProfilesModule } from './mentor-profiles/mentor-profiles.module';
+import { SkillsModule } from './skills/skills.module';
+import { UsersModule } from './users/users.module';
+import { AuthModule } from './auth/auth.module';
+import { VerifyModule } from './verify/verify.module';
+import rateLimitConfig from './config/rate-limit.config'; // Import the rate limit config
+import { BookingsModule } from './bookings/bookings.module';
 
 @Module({
-  imports: [DatabaseModule, HealthModule, SkillModule],
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [rateLimitConfig], // Load the rate limit configuration
+    }),
+    DatabaseModule,
+      RedisModule,
+    HealthModule,
+    AuthModule,
+    UsersModule,
+    MentorProfilesModule,
+    SkillsModule,
+    ListingsModule,
+    VerifyModule,
+    BookingsModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })

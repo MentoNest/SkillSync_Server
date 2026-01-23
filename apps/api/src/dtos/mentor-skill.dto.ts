@@ -1,6 +1,6 @@
 import { IsEnum, IsInt, IsUUID, Min, Max } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import { SkillLevel } from '../entities/mentor-skill.entity';
+import { SkillLevel } from '../users/entities/mentor-skill.entity';
 
 export class AttachSkillDto {
   @ApiProperty({

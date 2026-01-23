@@ -1,0 +1,4 @@
+
+# Uploads
+uploads/*
+!uploads/.gitkeep
