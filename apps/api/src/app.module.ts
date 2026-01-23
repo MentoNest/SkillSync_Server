@@ -8,6 +8,7 @@ import { ListingsModule } from './listings/listings.module';
 import { MentorProfilesModule } from './mentor-profiles/mentor-profiles.module';
 import { SkillsModule } from './skills/skills.module';
 import { UsersModule } from './users/users.module';
+import { VerifyModule } from './verify/verify.module';
 import rateLimitConfig from './config/rate-limit.config'; // Import the rate limit config
 import { BookingsModule } from './bookings/bookings.module';
 
@@ -23,6 +24,7 @@ import { BookingsModule } from './bookings/bookings.module';
     MentorProfilesModule,
     SkillsModule,
     ListingsModule,
+    VerifyModule,
     BookingsModule,
   ],
   controllers: [AppController],
