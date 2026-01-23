@@ -55,6 +55,10 @@ async function bootstrap() {
     .addTag('skills', 'Skill taxonomy management')
     .addTag('mentor-skills', 'Mentor skill attachments')
     .addTag('mentors', 'Mentor discovery and filtering')
+    .addTag(
+      'Sessions',
+      'Session lifecycle management. Sessions represent actual mentorship meetings and are auto-created from accepted bookings.',
+    )
     .addBearerAuth()
     .build();
 

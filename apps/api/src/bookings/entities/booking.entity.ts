@@ -6,27 +6,43 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  OneToOne,
   Index,
 } from 'typeorm';
 import { ApiProperty } from '@nestjs/swagger';
+import { Listing } from '../../listings/entities/listing.entity';
 import { MentorProfile } from '../../mentor-profiles/entities/mentor-profile.entity';
 import { User } from '../../users/entities/user.entity';
+import { Session } from '../../sessions/entities/session.entity';
 
 export enum BookingStatus {
-  REQUESTED = 'requested',
+  DRAFT = 'draft',
   ACCEPTED = 'accepted',
   DECLINED = 'declined',
   CANCELLED = 'cancelled',
 }
 
 @Entity('bookings')
-@Index(['mentorProfile', 'start', 'end'])
-@Index(['menteeUser'])
+@Index(['listingId'])
+@Index(['menteeUserId'])
+@Index(['mentorProfileId'])
 @Index(['status'])
+@Index(['startTime'])
 export class Booking {
   @ApiProperty({ description: 'The unique identifier of the booking' })
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  @ApiProperty({
+    description: 'The listing associated with this booking',
+  })
+  @ManyToOne(() => Listing, { nullable: false, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'listing_id' })
+  listing!: Listing;
+
+  @ApiProperty({ description: 'The ID of the listing' })
+  @Column({ name: 'listing_id' })
+  listingId!: string;
 
   @ApiProperty({
     description: 'The mentor profile associated with this booking',
@@ -49,12 +65,18 @@ export class Booking {
   menteeUserId!: string;
 
   @ApiProperty({ description: 'The start time of the booking' })
-  @Column({ type: 'timestamptz' })
-  start!: Date;
+  @Column({
+    name: 'start_time',
+    type: 'timestamptz',
+  })
+  startTime!: Date;
 
   @ApiProperty({ description: 'The end time of the booking' })
-  @Column({ type: 'timestamptz' })
-  end!: Date;
+  @Column({
+    name: 'end_time',
+    type: 'timestamptz',
+  })
+  endTime!: Date;
 
   @ApiProperty({
     enum: BookingStatus,
@@ -63,9 +85,21 @@ export class Booking {
   @Column({
     type: 'enum',
     enum: BookingStatus,
-    default: BookingStatus.REQUESTED,
+    default: BookingStatus.DRAFT,
   })
   status!: BookingStatus;
+
+  @ApiProperty({ description: 'Additional notes for this booking' })
+  @Column({ type: 'text', nullable: true })
+  notes?: string;
+
+  @ApiProperty({
+    description: 'The session associated with this booking',
+  })
+  @OneToOne(() => Session, (session: Session) => session.booking, {
+    nullable: true,
+  })
+  session?: Session;
 
   @ApiProperty({ description: 'The date the booking was created' })
   @CreateDateColumn({ name: 'created_at' })

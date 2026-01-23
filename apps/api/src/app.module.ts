@@ -9,9 +9,13 @@ import { ListingsModule } from './listings/listings.module';
 import { MentorProfilesModule } from './mentor-profiles/mentor-profiles.module';
 import { SkillsModule } from './skills/skills.module';
 import { UsersModule } from './users/users.module';
+<<<<<<< HEAD
+import { SessionsModule } from './sessions/sessions.module';
+=======
 import { AuthModule } from './auth/auth.module';
 import { VerifyModule } from './verify/verify.module';
 import rateLimitConfig from './config/rate-limit.config'; // Import the rate limit config
+>>>>>>> upstream/main
 import { BookingsModule } from './bookings/bookings.module';
 
 @Module({
@@ -28,7 +32,11 @@ import { BookingsModule } from './bookings/bookings.module';
     MentorProfilesModule,
     SkillsModule,
     ListingsModule,
+<<<<<<< HEAD
+    SessionsModule,
+=======
     VerifyModule,
+>>>>>>> upstream/main
     BookingsModule,
   ],
   controllers: [AppController],
