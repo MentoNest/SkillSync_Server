@@ -13,7 +13,7 @@ export class SkillService {
 
   async create(createSkillDto: CreateSkillDto): Promise<Skill> {
     const slug = this.generateSlug(createSkillDto.name);
-    
+
     const existingSkill = await this.skillRepository.findOne({
       where: [{ name: createSkillDto.name }, { slug }],
     });
@@ -36,7 +36,7 @@ export class SkillService {
 
   async findOne(id: string): Promise<Skill> {
     const skill = await this.skillRepository.findOne({ where: { id } });
-    
+
     if (!skill) {
       throw new NotFoundException(`Skill with ID ${id} not found`);
     }
@@ -46,7 +46,7 @@ export class SkillService {
 
   async findBySlug(slug: string): Promise<Skill> {
     const skill = await this.skillRepository.findOne({ where: { slug } });
-    
+
     if (!skill) {
       throw new NotFoundException(`Skill with slug ${slug} not found`);
     }
@@ -56,7 +56,7 @@ export class SkillService {
 
   async delete(id: string): Promise<void> {
     const result = await this.skillRepository.delete(id);
-    
+
     if (result.affected === 0) {
       throw new NotFoundException(`Skill with ID ${id} not found`);
     }
