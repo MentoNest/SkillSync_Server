@@ -23,6 +23,9 @@ export class User {
   @Column({ nullable: true, length: 500 })
   avatarUrl?: string;
 
+  @Column({ nullable: true })
+  password_hash?: string;
+
   @Column({ default: true })
   isActive!: boolean;
 

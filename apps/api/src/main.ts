@@ -51,6 +51,7 @@ async function bootstrap() {
     .setTitle('SkillSync API')
     .setDescription('SkillSync - Mentorship Marketplace API')
     .setVersion('1.0')
+    .addTag('auth', 'Authentication endpoints')
     .addTag('skills', 'Skill taxonomy management')
     .addTag('mentor-skills', 'Mentor skill attachments')
     .addTag('mentors', 'Mentor discovery and filtering')
