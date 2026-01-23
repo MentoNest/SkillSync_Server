@@ -2,7 +2,7 @@
 
 ![CI](https://github.com/Xoulomon/SkillSync_Server/actions/workflows/ci.yml/badge.svg)
 
-*Backend services for the SkillSync platform*
+_Backend services for the SkillSync platform_
 
 ## 📝 Overview
 
@@ -12,24 +12,26 @@ It handles indexing, user metadata, analytics, notifications, and integrations t
 The backend works alongside the Stellar network without custody of user funds.
 
 ## ✨ Features
+
 - User metadata management
 - Mentorship session records
 - Event indexing from Stellar
 - Notifications & emails
+- Email verification and password reset
 - API layer for frontend
 
-
 ## 🛠️ Technologies Used
+
 - Node.js
 - NestJS
 - TypeScript
-- PostgreSQL 
+- PostgreSQL
 - Stellar Horizon API
-
 
 ## Setup & Installation
 
 ### Prerequisites
+
 - Node.js ≥ 18
 - Database (PostgreSQL)
 - Environment variables configured
@@ -57,7 +59,9 @@ yarn install
 cp .env.example .env
 # Edit .env with your configuration details
 ```
+
 **Environment Variables:**
+
 - `RATE_LIMIT_WINDOW_MS`: The time window in milliseconds for rate limiting (default: 60000ms / 1 minute).
 - `RATE_LIMIT_MAX`: The maximum number of requests allowed per IP within the `RATE_LIMIT_WINDOW_MS` (default: 100).
 - `CORS_ORIGINS`: A comma-separated list of allowed origins for CORS. Use `*` for all origins (default: `*`).
@@ -98,12 +102,14 @@ yarn start:dev
 ### Admin Dashboard
 
 Access the admin dashboard at `/admin` with appropriate credentials to:
+
 - Manage users
 - Monitor platform activity
 - Generate reports
 - Configure system settings
 
 ## 📂 Project Structure
+
 ```
   src/
   ├── modules/
@@ -113,7 +119,6 @@ Access the admin dashboard at `/admin` with appropriate credentials to:
   ├── guards/
   └── main.ts
 ```
-
 
 ## 👥 Contributing
 
@@ -134,17 +139,16 @@ We welcome contributions from the community! Please follow these steps:
    ```
 5. Open a pull request
 
-
 ## Global API Behavior
 
 This project enforces consistent API behavior via:
+
 - Global validation pipe (DTO validation)
 - Global exception filter (standard error schema)
 - Logging interceptor (structured request logs)
 - **Security Middleware:** Helmet for secure HTTP headers, dynamic CORS configuration, and rate limiting to protect against excessive traffic.
 
 These utilities are applied at application bootstrap.
-
 
 Please read our [Contributing Guide](CONTRIBUTING.md) for more details.
 

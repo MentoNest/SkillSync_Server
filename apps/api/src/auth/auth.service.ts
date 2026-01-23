@@ -3,6 +3,7 @@ import {
   ConflictException,
   UnauthorizedException,
   Logger,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -16,24 +17,156 @@ import { AuthResponseDto, AuthTokensDto } from './dto/auth-response.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 import * as crypto from 'crypto';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { EmailVerificationToken } from './entities/email-verification-token.entity';
+import { PasswordResetToken } from './entities/password-reset-token.entity';
+import { MockMailer } from '../../../libs/common/src/mailer/mock-mailer';
+import { TokenUtil } from '../../../libs/common/src/utils/token.util';
+import { RequestVerificationDto } from './dto/request-verification.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
+import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly BCRYPT_SALT_ROUNDS = 10;
+  private readonly TOKEN_EXPIRY_HOURS = 24; // for verification and reset
 
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
     @InjectRepository(RefreshToken)
     private refreshTokenRepository: Repository<RefreshToken>,
+    @InjectRepository(EmailVerificationToken)
+    private emailVerificationTokenRepository: Repository<EmailVerificationToken>,
+    @InjectRepository(PasswordResetToken)
+    private passwordResetTokenRepository: Repository<PasswordResetToken>,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private mailer: MockMailer,
   ) {}
 
   // Helper: Hash token
   private hashToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  private async sendVerificationEmail(user: User): Promise<void> {
+    const token = TokenUtil.generateToken();
+    const tokenHash = TokenUtil.hashToken(token);
+    const expiresAt = new Date(
+      Date.now() + this.TOKEN_EXPIRY_HOURS * 60 * 60 * 1000,
+    );
+
+    const verificationToken = this.emailVerificationTokenRepository.create({
+      userId: user.id,
+      tokenHash,
+      expiresAt,
+    });
+
+    await this.emailVerificationTokenRepository.save(verificationToken);
+
+    const subject = 'Verify your email';
+    const html = `Click here to verify: http://localhost:3000/auth/verify-email?token=${token}`;
+
+    await this.mailer.send(user.email, subject, html);
+  }
+
+  async requestVerification(dto: RequestVerificationDto): Promise<void> {
+    const user = await this.userRepository.findOne({
+      where: { email: dto.email },
+    });
+    if (!user) {
+      // Don't leak if user exists
+      return;
+    }
+    if (user.emailVerifiedAt) {
+      return;
+    }
+    await this.sendVerificationEmail(user);
+  }
+
+  async verifyEmail(dto: VerifyEmailDto): Promise<void> {
+    const tokenHash = TokenUtil.hashToken(dto.token);
+
+    const tokenEntity = await this.emailVerificationTokenRepository.findOne({
+      where: { tokenHash },
+      relations: ['user'],
+    });
+
+    if (!tokenEntity || TokenUtil.isExpired(tokenEntity.expiresAt)) {
+      throw new BadRequestException('Invalid or expired token');
+    }
+
+    const user = tokenEntity.user;
+    if (user.emailVerifiedAt) {
+      throw new BadRequestException('Email already verified');
+    }
+
+    user.emailVerifiedAt = new Date();
+    await this.userRepository.save(user);
+
+    // Delete the token
+    await this.emailVerificationTokenRepository.delete(tokenEntity.id);
+  }
+
+  async requestPasswordReset(dto: RequestPasswordResetDto): Promise<void> {
+    const user = await this.userRepository.findOne({
+      where: { email: dto.email },
+    });
+    if (!user) {
+      // Don't leak
+      return;
+    }
+
+    const token = TokenUtil.generateToken();
+    const tokenHash = TokenUtil.hashToken(token);
+    const expiresAt = new Date(
+      Date.now() + this.TOKEN_EXPIRY_HOURS * 60 * 60 * 1000,
+    );
+
+    const resetToken = this.passwordResetTokenRepository.create({
+      userId: user.id,
+      tokenHash,
+      expiresAt,
+    });
+
+    await this.passwordResetTokenRepository.save(resetToken);
+
+    const subject = 'Reset your password';
+    const html = `Click here to reset: http://localhost:3000/auth/reset-password?token=${token}`;
+
+    await this.mailer.send(user.email, subject, html);
+  }
+
+  async resetPassword(dto: ResetPasswordDto): Promise<void> {
+    const tokenHash = TokenUtil.hashToken(dto.token);
+
+    const tokenEntity = await this.passwordResetTokenRepository.findOne({
+      where: { tokenHash },
+      relations: ['user'],
+    });
+
+    if (!tokenEntity || TokenUtil.isExpired(tokenEntity.expiresAt)) {
+      throw new BadRequestException('Invalid or expired token');
+    }
+
+    const user = tokenEntity.user;
+    const newPasswordHash = await bcrypt.hash(
+      dto.newPassword,
+      this.BCRYPT_SALT_ROUNDS,
+    );
+
+    user.password_hash = newPasswordHash;
+    await this.userRepository.save(user);
+
+    // Delete the token
+    await this.passwordResetTokenRepository.delete(tokenEntity.id);
+
+    // Revoke all sessions
+    await this.revokeAllUserTokens(user.id);
   }
 
   async register(registerDto: RegisterDto): Promise<AuthResponseDto> {
@@ -57,6 +190,9 @@ export class AuthService {
     });
 
     const savedUser = await this.userRepository.save(user);
+
+    // Send verification email
+    await this.sendVerificationEmail(savedUser);
 
     const tokens = await this.generateTokens(savedUser);
 
@@ -92,6 +228,10 @@ export class AuthService {
 
     if (!user.isActive) {
       throw new UnauthorizedException('Account is inactive');
+    }
+
+    if (!user.emailVerifiedAt) {
+      throw new UnauthorizedException('Email not verified');
     }
 
     const tokens = await this.generateTokens(user, ip, userAgent);
