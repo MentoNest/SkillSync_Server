@@ -8,5 +8,7 @@ import { ProfilesService } from './profile.service';
   imports: [TypeOrmModule.forFeature([User, Profile])],
   controllers:  [ProfilesController],
   providers: [ProfilesService],
+  imports: [TypeOrmModule.forFeature([User])],
+  exports: [TypeOrmModule],
 })
 export class UsersModule {}

@@ -1,13 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { SkillService } from '../services/skill.service';
-import { Skill } from '../entities/skill.entity';
+import { Skill } from '../users/entities/skill.entity';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 
 describe('SkillService', () => {
   let service: SkillService;
-  let repository: Repository<Skill>;
 
   const mockSkillRepository = {
     create: jest.fn(),
@@ -39,7 +37,6 @@ describe('SkillService', () => {
     }).compile();
 
     service = module.get<SkillService>(SkillService);
-    repository = module.get<Repository<Skill>>(getRepositoryToken(Skill));
   });
 
   afterEach(() => {
@@ -67,7 +64,9 @@ describe('SkillService', () => {
 
       mockSkillRepository.findOne.mockResolvedValue(mockSkill);
 
-      await expect(service.create(createSkillDto)).rejects.toThrow(ConflictException);
+      await expect(service.create(createSkillDto)).rejects.toThrow(
+        ConflictException,
+      );
     });
   });
 
@@ -90,7 +89,9 @@ describe('SkillService', () => {
       const result = await service.findOne('1');
 
       expect(result).toEqual(mockSkill);
-      expect(mockSkillRepository.findOne).toHaveBeenCalledWith({ where: { id: '1' } });
+      expect(mockSkillRepository.findOne).toHaveBeenCalledWith({
+        where: { id: '1' },
+      });
     });
 
     it('should throw NotFoundException if skill not found', async () => {
@@ -107,13 +108,17 @@ describe('SkillService', () => {
       const result = await service.findBySlug('nestjs');
 
       expect(result).toEqual(mockSkill);
-      expect(mockSkillRepository.findOne).toHaveBeenCalledWith({ where: { slug: 'nestjs' } });
+      expect(mockSkillRepository.findOne).toHaveBeenCalledWith({
+        where: { slug: 'nestjs' },
+      });
     });
 
     it('should throw NotFoundException if skill not found', async () => {
       mockSkillRepository.findOne.mockResolvedValue(null);
 
-      await expect(service.findBySlug('nestjs')).rejects.toThrow(NotFoundException);
+      await expect(service.findBySlug('nestjs')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 

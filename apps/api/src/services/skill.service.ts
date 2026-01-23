@@ -1,7 +1,11 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Skill } from '../entities/skill.entity';
+import { Skill } from '../users/entities/skill.entity';
 import { CreateSkillDto } from '../dtos/skill.dto';
 
 @Injectable()
@@ -13,7 +17,7 @@ export class SkillService {
 
   async create(createSkillDto: CreateSkillDto): Promise<Skill> {
     const slug = this.generateSlug(createSkillDto.name);
-    
+
     const existingSkill = await this.skillRepository.findOne({
       where: [{ name: createSkillDto.name }, { slug }],
     });
@@ -36,7 +40,7 @@ export class SkillService {
 
   async findOne(id: string): Promise<Skill> {
     const skill = await this.skillRepository.findOne({ where: { id } });
-    
+
     if (!skill) {
       throw new NotFoundException(`Skill with ID ${id} not found`);
     }
@@ -46,7 +50,7 @@ export class SkillService {
 
   async findBySlug(slug: string): Promise<Skill> {
     const skill = await this.skillRepository.findOne({ where: { slug } });
-    
+
     if (!skill) {
       throw new NotFoundException(`Skill with slug ${slug} not found`);
     }
@@ -56,7 +60,7 @@ export class SkillService {
 
   async delete(id: string): Promise<void> {
     const result = await this.skillRepository.delete(id);
-    
+
     if (result.affected === 0) {
       throw new NotFoundException(`Skill with ID ${id} not found`);
     }
