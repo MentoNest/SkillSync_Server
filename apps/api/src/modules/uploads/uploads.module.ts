@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+// import { TypeOrmModule } from '@nestjs/typeorm';
 import { UploadsController } from './controllers/uploads.controller';
 import { UploadsService } from './services/uploads.service';
 import { LocalFileStorageAdapter } from './adapters/local-file-storage.adapter';
