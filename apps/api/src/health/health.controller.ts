@@ -1,17 +1,3 @@
-// import { Controller, Get } from '@nestjs/common';
-// import { HealthService } from './health.service';
-// import type { HealthStatus } from '@app/common';
-
-// @Controller()
-// export class HealthController {
-//   constructor(private readonly healthService: HealthService) {}
-
-//   @Get('healthz')
-//   getHealth(): HealthStatus {
-//     return this.healthService.check();
-//   }
-// }
-
 import { Controller, Get, HttpCode } from '@nestjs/common';
 import { HealthService } from './health.service';
 import type { LivenessResponse, ReadinessResponse } from './health.interface';
