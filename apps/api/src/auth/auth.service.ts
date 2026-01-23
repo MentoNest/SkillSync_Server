@@ -2,6 +2,7 @@ import {
   Injectable,
   ConflictException,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -13,22 +14,31 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { AuthResponseDto, AuthTokensDto } from './dto/auth-response.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
+import * as crypto from 'crypto';
+import { RefreshToken } from './entities/refresh-token.entity';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly BCRYPT_SALT_ROUNDS = 10;
 
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(RefreshToken)
+    private refreshTokenRepository: Repository<RefreshToken>,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {}
 
+  // Helper: Hash token
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
   async register(registerDto: RegisterDto): Promise<AuthResponseDto> {
     const { email, password, firstName, lastName } = registerDto;
 
-    // Check if user already exists
     const existingUser = await this.userRepository.findOne({
       where: { email },
     });
@@ -37,10 +47,8 @@ export class AuthService {
       throw new ConflictException('User with this email already exists');
     }
 
-    // Hash password with bcrypt
     const password_hash = await bcrypt.hash(password, this.BCRYPT_SALT_ROUNDS);
 
-    // Create new user
     const user = this.userRepository.create({
       email,
       firstName,
@@ -50,8 +58,7 @@ export class AuthService {
 
     const savedUser = await this.userRepository.save(user);
 
-    // Generate tokens
-    const tokens = await this.generateTokens(savedUser.id, savedUser.email);
+    const tokens = await this.generateTokens(savedUser);
 
     return {
       id: savedUser.id,
@@ -62,10 +69,13 @@ export class AuthService {
     };
   }
 
-  async login(loginDto: LoginDto): Promise<AuthResponseDto> {
+  async login(
+    loginDto: LoginDto,
+    ip?: string,
+    userAgent?: string,
+  ): Promise<AuthResponseDto> {
     const { email, password } = loginDto;
 
-    // Find user by email
     const user = await this.userRepository.findOne({
       where: { email },
     });
@@ -74,20 +84,17 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
 
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    // Check if user is active
     if (!user.isActive) {
       throw new UnauthorizedException('Account is inactive');
     }
 
-    // Generate tokens
-    const tokens = await this.generateTokens(user.id, user.email);
+    const tokens = await this.generateTokens(user, ip, userAgent);
 
     return {
       id: user.id,
@@ -98,41 +105,114 @@ export class AuthService {
     };
   }
 
+  async rotateRefreshToken(
+    oldToken: string,
+    ip?: string,
+    userAgent?: string,
+  ): Promise<AuthTokensDto> {
+    const oldTokenHash = this.hashToken(oldToken);
+
+    const tokenRecord = await this.refreshTokenRepository.findOne({
+      where: { tokenHash: oldTokenHash },
+      relations: ['user'],
+    });
+
+    if (!tokenRecord) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    if (tokenRecord.revokedAt) {
+      this.logger.warn(
+        `Refresh token reuse detected for user ${tokenRecord.userId}. Revoking all tokens.`,
+      );
+      await this.revokeAllUserTokens(tokenRecord.userId);
+      throw new UnauthorizedException('Refresh token reused - Security alert');
+    }
+
+    if (tokenRecord.expiresAt < new Date()) {
+      throw new UnauthorizedException('Refresh token expired');
+    }
+
+    if (tokenRecord.replacedByTokenHash) {
+      this.logger.warn(
+        `Refresh token reuse (replaced) detected for user ${tokenRecord.userId}. Revoking all tokens.`,
+      );
+      await this.revokeAllUserTokens(tokenRecord.userId);
+      throw new UnauthorizedException('Refresh token reused - Security alert');
+    }
+
+    // Generate new tokens
+    const tokens = await this.generateTokens(tokenRecord.user, ip, userAgent);
+    const newTokenHash = this.hashToken(tokens.refreshToken);
+
+    // Update old token
+    tokenRecord.revokedAt = new Date();
+    tokenRecord.replacedByTokenHash = newTokenHash;
+    await this.refreshTokenRepository.save(tokenRecord);
+
+    return tokens;
+  }
+
+  async revokeRefreshToken(token: string): Promise<void> {
+    const tokenHash = this.hashToken(token);
+    const tokenRecord = await this.refreshTokenRepository.findOne({
+      where: { tokenHash },
+    });
+
+    if (!tokenRecord) {
+      return;
+    }
+
+    tokenRecord.revokedAt = new Date();
+    await this.refreshTokenRepository.save(tokenRecord);
+  }
+
+  async revokeAllUserTokens(userId: string): Promise<void> {
+    await this.refreshTokenRepository.update(
+      { userId, revokedAt: undefined },
+      { revokedAt: new Date() },
+    );
+  }
+
   private async generateTokens(
-    userId: string,
-    email: string,
+    user: User,
+    ip?: string,
+    userAgent?: string,
   ): Promise<AuthTokensDto> {
     const accessTokenPayload: JwtPayload = {
-      sub: userId,
-      email,
+      sub: user.id,
+      email: user.email,
       type: 'access',
-    };
-
-    const refreshTokenPayload: JwtPayload = {
-      sub: userId,
-      email,
-      type: 'refresh',
     };
 
     const accessSecret = this.configService.get<string>('JWT_ACCESS_SECRET');
     const accessTtl = this.configService.get<string>('JWT_ACCESS_TTL');
-    const refreshSecret = this.configService.get<string>('JWT_REFRESH_SECRET');
-    const refreshTtl = this.configService.get<string>('JWT_REFRESH_TTL');
+    const refreshTtl =
+      this.configService.get<string>('JWT_REFRESH_TTL') || '604800';
 
-    if (!accessSecret || !refreshSecret) {
-      throw new Error('JWT secrets are not configured');
+    if (!accessSecret) {
+      throw new Error('JWT_ACCESS_SECRET is not configured');
     }
 
-    const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(accessTokenPayload, {
-        secret: accessSecret,
-        expiresIn: accessTtl || '15m',
-      }),
-      this.jwtService.signAsync(refreshTokenPayload, {
-        secret: refreshSecret,
-        expiresIn: refreshTtl || '7d',
-      }),
-    ]);
+    const accessToken = await this.jwtService.signAsync(accessTokenPayload, {
+      secret: accessSecret,
+      expiresIn: accessTtl || '15m',
+    });
+
+    // Generate Opaque Refresh Token
+    const refreshToken = crypto.randomBytes(32).toString('hex');
+    const refreshTokenHash = this.hashToken(refreshToken);
+    const expiresAt = new Date(Date.now() + parseInt(refreshTtl, 10) * 1000);
+
+    const refreshTokenRecord = this.refreshTokenRepository.create({
+      userId: user.id,
+      tokenHash: refreshTokenHash,
+      expiresAt,
+      ip,
+      userAgent,
+    });
+
+    await this.refreshTokenRepository.save(refreshTokenRecord);
 
     return {
       accessToken,
