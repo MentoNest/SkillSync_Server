@@ -1,4 +1,4 @@
-import { IsDateString, IsObject } from "class-validator";
+import { IsDateString, IsObject } from 'class-validator';
 
 export class CreateAvailabilityExceptionDto {
   @IsDateString()

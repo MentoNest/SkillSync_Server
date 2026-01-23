@@ -3,7 +3,6 @@ import {
   Post,
   UploadedFile,
   UseInterceptors,
-  UseGuards,
   Request,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -49,8 +48,10 @@ export class UploadsController {
     @UploadedFile() file: Express.Multer.File,
     @Request() req: any,
   ) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
     const userId = req.user?.id || '1';
     this.uploadsService.validateFile(file, ALLOWED_IMAGE_TYPES);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     const url = await this.uploadsService.uploadAvatar(file, userId);
 
     return {

@@ -18,7 +18,6 @@ import * as rateLimit from 'express-rate-limit'; // Import rateLimit
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService); // Get ConfigService instance
-
   // Enable Helmet for security headers
   app.use(helmet());
 
@@ -41,13 +40,12 @@ async function bootstrap() {
   app.use(limiter);
   
 // eslint-disable-next-line @typescript-eslint/no-unsafe-call
- app.useGlobalPipes(new GlobalValidationPipe());
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+  app.useGlobalPipes(new GlobalValidationPipe());
+
   app.useGlobalFilters(new GlobalExceptionFilter());
   // eslint-disable-next-line @typescript-eslint/no-unsafe-call
   app.useGlobalInterceptors(new LoggingInterceptor());
 
-  
   // Swagger setup
   const config = new DocumentBuilder()
     .setTitle('SkillSync API')
@@ -58,10 +56,10 @@ async function bootstrap() {
     .addTag('mentors', 'Mentor discovery and filtering')
     .addBearerAuth()
     .build();
-  
+
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
-  
+
   await app.listen(process.env.PORT || DEFAULT_PORT);
 }
 void bootstrap();

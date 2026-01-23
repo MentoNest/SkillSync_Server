@@ -18,6 +18,7 @@ export class MentorGuard implements CanActivate {
       );
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     (request as any).mentorProfileId = mentorProfileId;
     return true;
   }

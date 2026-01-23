@@ -12,7 +12,10 @@ export class LocalFileStorageAdapter implements FileStoragePort {
     this.uploadDir = this.configService.get<string>('UPLOAD_DIR', './uploads');
   }
 
-  async save(file: Express.Multer.File, destinationPath: string): Promise<string> {
+  async save(
+    file: Express.Multer.File,
+    destinationPath: string,
+  ): Promise<string> {
     const fullPath = path.join(this.uploadDir, destinationPath);
     const directory = path.dirname(fullPath);
 
@@ -38,7 +41,8 @@ export class LocalFileStorageAdapter implements FileStoragePort {
       await fs.unlink(fullPath);
     } catch (error) {
       // File might not exist, ignore
-      if (error.code !== 'ENOENT') {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      if ((error as any).code !== 'ENOENT') {
         throw error;
       }
     }
