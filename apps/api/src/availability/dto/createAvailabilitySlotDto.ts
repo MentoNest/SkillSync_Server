@@ -1,4 +1,4 @@
-import { IsInt, IsString, Max, Min } from "class-validator";
+import { IsInt, IsString, Max, Min } from 'class-validator';
 
 export class CreateAvailabilitySlotDto {
   @IsInt()

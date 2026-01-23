@@ -57,6 +57,10 @@ yarn install
 cp .env.example .env
 # Edit .env with your configuration details
 ```
+**Environment Variables:**
+- `RATE_LIMIT_WINDOW_MS`: The time window in milliseconds for rate limiting (default: 60000ms / 1 minute).
+- `RATE_LIMIT_MAX`: The maximum number of requests allowed per IP within the `RATE_LIMIT_WINDOW_MS` (default: 100).
+- `CORS_ORIGINS`: A comma-separated list of allowed origins for CORS. Use `*` for all origins (default: `*`).
 
 4. Set up the database:
 
@@ -137,6 +141,7 @@ This project enforces consistent API behavior via:
 - Global validation pipe (DTO validation)
 - Global exception filter (standard error schema)
 - Logging interceptor (structured request logs)
+- **Security Middleware:** Helmet for secure HTTP headers, dynamic CORS configuration, and rate limiting to protect against excessive traffic.
 
 These utilities are applied at application bootstrap.
 

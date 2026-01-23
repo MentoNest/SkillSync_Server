@@ -1,17 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { MentorSkillService } from '../services/mentor-skill.service';
-import { MentorSkill, SkillLevel } from '../entities/mentor-skill.entity';
-import { MentorProfile } from '../entities/mentor-profile.entity';
-import { Skill } from '../entities/skill.entity';
+import { MentorSkill, SkillLevel } from '../users/entities/mentor-skill.entity';
+import { MentorProfile } from '../users/entities/mentor-profile.entity';
+import { Skill } from '../users/entities/skill.entity';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 
 describe('MentorSkillService', () => {
   let service: MentorSkillService;
-  let mentorSkillRepository: Repository<MentorSkill>;
-  let mentorProfileRepository: Repository<MentorProfile>;
-  let skillRepository: Repository<Skill>;
+  // let mentorSkillRepository: Repository<MentorSkill>;
+  // let mentorProfileRepository: Repository<MentorProfile>;
+  // let skillRepository: Repository<Skill>;
 
   const mockMentorSkillRepository = {
     create: jest.fn(),
@@ -47,6 +46,7 @@ describe('MentorSkillService', () => {
     id: 'ms-1',
     mentorProfileId: 'mentor-1',
     skillId: 'skill-1',
+
     level: SkillLevel.INTERMEDIATE,
     yearsExperience: 3,
   };
@@ -71,13 +71,13 @@ describe('MentorSkillService', () => {
     }).compile();
 
     service = module.get<MentorSkillService>(MentorSkillService);
-    mentorSkillRepository = module.get<Repository<MentorSkill>>(
-      getRepositoryToken(MentorSkill),
-    );
-    mentorProfileRepository = module.get<Repository<MentorProfile>>(
-      getRepositoryToken(MentorProfile),
-    );
-    skillRepository = module.get<Repository<Skill>>(getRepositoryToken(Skill));
+    // mentorSkillRepository = module.get<Repository<MentorSkill>>(
+    //   getRepositoryToken(MentorSkill),
+    // );
+    // mentorProfileRepository = module.get<Repository<MentorProfile>>(
+    //   getRepositoryToken(MentorProfile),
+    // );
+    // skillRepository = module.get<Repository<Skill>>(getRepositoryToken(Skill));
   });
 
   afterEach(() => {
@@ -88,6 +88,7 @@ describe('MentorSkillService', () => {
     it('should attach a skill to a mentor profile', async () => {
       const attachSkillDto = {
         skillId: 'skill-1',
+
         level: SkillLevel.INTERMEDIATE,
         yearsExperience: 3,
       };
@@ -115,9 +116,9 @@ describe('MentorSkillService', () => {
 
       mockMentorProfileRepository.findOne.mockResolvedValue(null);
 
-      await expect(service.attachSkill('user-1', attachSkillDto)).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.attachSkill('user-1', attachSkillDto),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('should throw ConflictException if skill already attached', async () => {
@@ -131,9 +132,9 @@ describe('MentorSkillService', () => {
       mockSkillRepository.findOne.mockResolvedValue(mockSkill);
       mockMentorSkillRepository.findOne.mockResolvedValue(mockMentorSkill);
 
-      await expect(service.attachSkill('user-1', attachSkillDto)).rejects.toThrow(
-        ConflictException,
-      );
+      await expect(
+        service.attachSkill('user-1', attachSkillDto),
+      ).rejects.toThrow(ConflictException);
     });
   });
 
@@ -151,7 +152,11 @@ describe('MentorSkillService', () => {
         ...updateSkillDto,
       });
 
-      const result = await service.updateSkill('user-1', 'skill-1', updateSkillDto);
+      const result = await service.updateSkill(
+        'user-1',
+        'skill-1',
+        updateSkillDto,
+      );
 
       expect(result.level).toBe(SkillLevel.EXPERT);
       expect(result.yearsExperience).toBe(5);

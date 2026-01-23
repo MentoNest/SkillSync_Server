@@ -22,8 +22,8 @@ import {
 } from '@nestjs/swagger';
 import { MentorSkillService } from '../services/mentor-skill.service';
 import { AttachSkillDto, UpdateSkillDto } from '../dtos/mentor-skill.dto';
-import { MentorSkill } from '../entities/mentor-skill.entity';
-import { MentorProfile } from '../entities/mentor-profile.entity';
+import { MentorSkill } from '../users/entities/mentor-skill.entity';
+import { MentorProfile } from '../users/entities/mentor-profile.entity';
 import { UseGuards } from '@nestjs/common';
 import { RbacGuard } from '../auth/decorators/rbac.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -37,19 +37,23 @@ export class MentorSkillController {
   constructor(private readonly mentorSkillService: MentorSkillService) {}
 
   @Post('attach')
-  @Roles('mentor') 
+  @Roles('mentor')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Attach a skill to mentor profile' })
   @ApiBody({ type: AttachSkillDto })
   @ApiResponse({ status: 201, description: 'Skill attached successfully' })
-  @ApiResponse({ status: 404, description: 'Mentor profile or skill not found' })
+  @ApiResponse({
+    status: 404,
+    description: 'Mentor profile or skill not found',
+  })
   @ApiResponse({ status: 409, description: 'Skill already attached' })
   async attachSkill(
     @Request() req: any,
     @Body() attachSkillDto: AttachSkillDto,
   ): Promise<MentorSkill> {
-    // In a real application, req.user.sub would come from JWT auth guard
-    const userId = req.user?.sub || 'mock-user-id';
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
+    const userId = req.user.sub;
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     return await this.mentorSkillService.attachSkill(userId, attachSkillDto);
   }
 
@@ -65,8 +69,14 @@ export class MentorSkillController {
     @Param('skillId') skillId: string,
     @Body() updateSkillDto: UpdateSkillDto,
   ): Promise<MentorSkill> {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
     const userId = req.user?.sub || 'mock-user-id';
-    return await this.mentorSkillService.updateSkill(userId, skillId, updateSkillDto);
+    return await this.mentorSkillService.updateSkill(
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+      userId,
+      skillId,
+      updateSkillDto,
+    );
   }
 
   @Delete(':skillId')
@@ -79,7 +89,9 @@ export class MentorSkillController {
     @Request() req: any,
     @Param('skillId') skillId: string,
   ): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
     const userId = req.user?.sub || 'mock-user-id';
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     return await this.mentorSkillService.detachSkill(userId, skillId);
   }
 
@@ -89,7 +101,9 @@ export class MentorSkillController {
   @ApiResponse({ status: 404, description: 'Mentor profile not found' })
   @Roles('mentor')
   async getMentorSkills(@Request() req: any): Promise<MentorSkill[]> {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
     const userId = req.user?.sub || 'mock-user-id';
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     return await this.mentorSkillService.getMentorSkills(userId);
   }
 }
@@ -105,9 +119,13 @@ export class MentorController {
     name: 'skills',
     description: 'Comma-separated skill IDs',
     required: false,
-    example: 'c5f5e3d5-8b7a-4f2d-9c1e-3f4a5b6c7d8e,d6g6f4e6-9c8b-5g3e-0d2f-4g5b6c7d8e9f',
+    example:
+      'c5f5e3d5-8b7a-4f2d-9c1e-3f4a5b6c7d8e,d6g6f4e6-9c8b-5g3e-0d2f-4g5b6c7d8e9f',
   })
-  @ApiResponse({ status: 200, description: 'List of mentors with required skills' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of mentors with required skills',
+  })
   async findMentorsBySkills(
     @Query('skills') skills?: string,
   ): Promise<MentorProfile[]> {

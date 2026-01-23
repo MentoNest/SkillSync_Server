@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { FileStoragePort } from '../interfaces/file-storage.port';
 import { FILE_STORAGE_PORT, UPLOAD_PATHS } from '../uploads.constants';
-import { User } from '../../../entities/user.entity';
+import { User } from '../../../users/entities/user.entity';
 
 @Injectable()
 export class UploadsService {
@@ -53,22 +53,25 @@ export class UploadsService {
     return `${timestamp}-${random}${prefix ? `-${prefix}` : ''}.${extension}`;
   }
 
-async uploadAvatar(file: Express.Multer.File, userId: string): Promise<string> {
-  const filename = this.generateFilename(file.originalname, 'avatar');
-  const destinationPath = `${UPLOAD_PATHS.AVATARS}/${filename}`;
+  async uploadAvatar(
+    file: Express.Multer.File,
+    userId: string,
+  ): Promise<string> {
+    const filename = this.generateFilename(file.originalname, 'avatar');
+    const destinationPath = `${UPLOAD_PATHS.AVATARS}/${filename}`;
 
-  const user = await this.userRepository.findOne({ where: { id: userId } });
-  if (!user) {
-    throw new NotFoundException('User not found');
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.avatarUrl) {
+      await this.fileStorage.delete(user.avatarUrl).catch(() => {});
+    }
+
+    const url = await this.fileStorage.save(file, destinationPath);
+    await this.userRepository.update(userId, { avatarUrl: url });
+
+    return url;
   }
-
-  if (user.avatarUrl) {
-    await this.fileStorage.delete(user.avatarUrl).catch(() => {});
-  }
-
-  const url = await this.fileStorage.save(file, destinationPath);
-  await this.userRepository.update(userId, { avatarUrl: url });
-
-  return url;
-}
 }
