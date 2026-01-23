@@ -8,7 +8,13 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiParam,
+  ApiBody,
+} from '@nestjs/swagger';
 import { SkillService } from '../services/skill.service';
 import { CreateSkillDto } from '../dtos/skill.dto';
 import { Skill } from '../entities/skill.entity';
@@ -23,7 +29,7 @@ export class SkillController {
   constructor(private readonly skillService: SkillService) {}
 
   @Post()
-  @Roles('admin') 
+  @Roles('admin')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new skill' })
   @ApiBody({ type: CreateSkillDto })
@@ -59,7 +65,7 @@ export class SkillController {
   }
 
   @Delete(':id')
-  @Roles('admin') 
+  @Roles('admin')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a skill' })
   @ApiParam({ name: 'id', description: 'Skill ID' })

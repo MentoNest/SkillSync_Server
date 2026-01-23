@@ -13,10 +13,13 @@ export class GlobalValidationPipe implements PipeTransform {
     const { metatype } = metadata;
 
     if (!metatype || !this.toValidate(metatype)) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
       return value;
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const object = plainToInstance(metatype, value);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     const errors = await validate(object, {
       whitelist: true,
       forbidNonWhitelisted: true,
@@ -36,10 +39,13 @@ export class GlobalValidationPipe implements PipeTransform {
       });
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return object;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
   private toValidate(metatype: Function): boolean {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
     const types: Function[] = [String, Boolean, Number, Array, Object];
     return !types.includes(metatype);
   }
