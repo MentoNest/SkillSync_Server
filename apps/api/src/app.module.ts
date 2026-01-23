@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { RedisModule } from './redis/redis.module';
 import { HealthModule } from './health/health.module';
 import { DatabaseModule } from './database/database.module';
 import { ListingsModule } from './listings/listings.module';
@@ -20,6 +21,7 @@ import { BookingsModule } from './bookings/bookings.module';
       load: [rateLimitConfig], // Load the rate limit configuration
     }),
     DatabaseModule,
+      RedisModule,
     HealthModule,
     AuthModule,
     UsersModule,
