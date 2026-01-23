@@ -9,6 +9,7 @@ import { ListingsModule } from './listings/listings.module';
 import { MentorProfilesModule } from './mentor-profiles/mentor-profiles.module';
 import { SkillsModule } from './skills/skills.module';
 import { UsersModule } from './users/users.module';
+import { NotificationsModule } from './notifications/notifications.module';
 <<<<<<< HEAD
 import { SessionsModule } from './sessions/sessions.module';
 =======
@@ -29,6 +30,7 @@ import { BookingsModule } from './bookings/bookings.module';
     HealthModule,
     AuthModule,
     UsersModule,
+    NotificationsModule,
     MentorProfilesModule,
     SkillsModule,
     ListingsModule,
