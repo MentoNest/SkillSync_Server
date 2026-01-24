@@ -1,14 +1,17 @@
 import {
   Controller,
   Post,
+  Get,
   Body,
   HttpCode,
   HttpStatus,
   Ip,
   Headers,
+  Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
+import { UserService } from './services/user.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
@@ -17,11 +20,18 @@ import { RequestVerificationDto } from './dto/request-verification.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { CreateUserDto } from './dto/create-user.dto';
+import { ListUsersQueryDto } from './dto/list-users-query.dto';
+import { UserResponseDto } from './dto/user-response.dto';
+import { ListUsersResponseDto } from './dto/list-users-response.dto';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly userService: UserService,
+  ) {}
 
   @Post('register')
   @ApiOperation({ summary: 'Register a new user' })
@@ -127,5 +137,59 @@ export class AuthController {
   async resetPassword(@Body() dto: ResetPasswordDto) {
     await this.authService.resetPassword(dto);
     return { message: 'Password reset successfully' };
+  }
+
+  // ========== TEMPORARY ADMIN-ONLY ENDPOINTS ==========
+
+  @Post('admin/users')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Create a new user (temporary admin endpoint for testing)',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'User created successfully',
+    type: UserResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation error or user already exists',
+  })
+  async createUser(@Body() createUserDto: CreateUserDto): Promise<UserResponseDto> {
+    const user = await this.userService.createUser(
+      createUserDto.email,
+      createUserDto.password,
+      createUserDto.roles,
+      createUserDto.status,
+      createUserDto.firstName,
+      createUserDto.lastName,
+    );
+    return new UserResponseDto(user);
+  }
+
+  @Get('admin/users')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'List all users with pagination (temporary admin endpoint for testing)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Users retrieved successfully',
+    type: ListUsersResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid pagination parameters',
+  })
+  async listUsers(
+    @Query() queryDto: ListUsersQueryDto,
+  ): Promise<ListUsersResponseDto> {
+    const { users, total, page, limit } = await this.userService.listUsers(
+      queryDto.page,
+      queryDto.limit,
+    );
+
+    const userDtos = users.map((user) => new UserResponseDto(user));
+    return new ListUsersResponseDto(userDtos, total, page, limit);
   }
 }
