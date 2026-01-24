@@ -3,6 +3,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Booking, BookingStatus } from './entities/booking.entity';
+import { EmailNotificationService } from '../notifications/email/services/email-notification.service';
 =======
 import {
   BadRequestException,
@@ -19,6 +20,7 @@ import { MentorProfile } from '../mentor-profiles/entities/mentor-profile.entity
 import { AvailabilitySlot } from '../availability/entities/availability-slot.entity';
 import { AvailabilityException } from '../availability/availability-exception.entity';
 import { DateTime } from 'luxon';
+import { EmailNotificationService } from '../notifications/email/services/email-notification.service';
 >>>>>>> upstream/main
 
 @Injectable()
@@ -348,5 +350,37 @@ export class BookingsService {
       );
     }
 >>>>>>> upstream/main
+  }
+
+  /**
+   * Send booking accepted email notification
+   * Async method that doesn't block the main request
+   */
+  private async sendBookingAcceptedEmail(booking: Booking): Promise<void> {
+    try {
+      // TODO: Load booking details with relations (mentee, mentor, listing, skill)
+      // For now, this is a placeholder
+      // In production, fetch full booking details including:
+      // - mentee user name and email
+      // - mentor name
+      // - skill name
+      // - session date/time
+      // - listing details
+
+      // Example implementation when data is available:
+      // await this.emailNotificationService.sendBookingAcceptedEmail({
+      //   menteeName: booking.mentee.firstName,
+      //   menteeEmail: booking.mentee.email,
+      //   mentorName: booking.mentorProfile.user.firstName,
+      //   skillName: booking.listing.skill.name,
+      //   sessionDateTime: booking.startTime.toLocaleString(),
+      //   duration: calculateDuration(booking.startTime, booking.endTime),
+      //   sessionLink: buildSessionLink(booking.id),
+      //   dashboardLink: this.emailNotificationService.buildDashboardLink('bookings'),
+      // });
+    } catch (error) {
+      console.error('Failed to send booking accepted email:', error);
+      // Don't throw - email failures shouldn't block main flow
+    }
   }
 }

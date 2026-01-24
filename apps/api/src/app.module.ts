@@ -9,6 +9,7 @@ import { ListingsModule } from './listings/listings.module';
 import { MentorProfilesModule } from './mentor-profiles/mentor-profiles.module';
 import { SkillsModule } from './skills/skills.module';
 import { UsersModule } from './users/users.module';
+import { NotificationsModule } from './notifications/notifications.module';
 <<<<<<< HEAD
 import { SessionsModule } from './sessions/sessions.module';
 =======
@@ -17,6 +18,7 @@ import { VerifyModule } from './verify/verify.module';
 import rateLimitConfig from './config/rate-limit.config'; // Import the rate limit config
 >>>>>>> upstream/main
 import { BookingsModule } from './bookings/bookings.module';
+import { MentorsProfileModule } from './mentors-profile/mentors-profile.module';
 
 @Module({
   imports: [
@@ -29,6 +31,7 @@ import { BookingsModule } from './bookings/bookings.module';
     HealthModule,
     AuthModule,
     UsersModule,
+    NotificationsModule,
     MentorProfilesModule,
     SkillsModule,
     ListingsModule,
@@ -38,6 +41,7 @@ import { BookingsModule } from './bookings/bookings.module';
     VerifyModule,
 >>>>>>> upstream/main
     BookingsModule,
+MentorsProfileModule,
   ],
   controllers: [AppController],
   providers: [AppService],
