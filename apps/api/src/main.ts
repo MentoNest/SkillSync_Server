@@ -23,11 +23,13 @@ async function bootstrap() {
 
   // Configure CORS dynamically
   const corsOrigins = configService.get<string>('CORS_ORIGINS', '*');
-  app.use(cors({
-    origin: corsOrigins.split(',').map(origin => origin.trim()), // Split origins and trim whitespace
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    credentials: true,
-  }));
+  app.use(
+    cors({
+      origin: corsOrigins.split(',').map((origin) => origin.trim()), // Split origins and trim whitespace
+      methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+      credentials: true,
+    }),
+  );
 
   // Configure rate limiting
   const limiter = rateLimit({
@@ -38,12 +40,11 @@ async function bootstrap() {
     legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   });
   app.use(limiter);
-  
-// eslint-disable-next-line @typescript-eslint/no-unsafe-call
+
   app.useGlobalPipes(new GlobalValidationPipe());
 
   app.useGlobalFilters(new GlobalExceptionFilter());
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+
   app.useGlobalInterceptors(new LoggingInterceptor());
 
   // Swagger setup

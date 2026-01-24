@@ -39,7 +39,10 @@ export class BookingLifecycleOrchestrator {
     } catch (error) {
       // If session creation fails, we have a data consistency issue
       // Log it and re-throw so the error is visible
-      console.error(`Failed to create session for booking ${bookingId}:`, error);
+      console.error(
+        `Failed to create session for booking ${bookingId}:`,
+        error,
+      );
       throw error;
     }
 

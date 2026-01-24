@@ -84,8 +84,8 @@ describe('SessionsService', () => {
     it('should create a session from an accepted booking', async () => {
       jest.spyOn(bookingRepository, 'findOne').mockResolvedValue(mockBooking);
       jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(null);
-      jest.spyOn(sessionRepository, 'create').mockReturnValue(mockSession as Session);
-      jest.spyOn(sessionRepository, 'save').mockResolvedValue(mockSession as Session);
+      jest.spyOn(sessionRepository, 'create').mockReturnValue(mockSession);
+      jest.spyOn(sessionRepository, 'save').mockResolvedValue(mockSession);
 
       const result = await service.createFromBooking(mockBooking.id);
 
@@ -117,26 +117,26 @@ describe('SessionsService', () => {
       const draftBooking = { ...mockBooking, status: BookingStatus.DRAFT };
       jest.spyOn(bookingRepository, 'findOne').mockResolvedValue(draftBooking);
 
-      await expect(
-        service.createFromBooking(draftBooking.id),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.createFromBooking(draftBooking.id)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should prevent duplicate session creation', async () => {
       jest.spyOn(bookingRepository, 'findOne').mockResolvedValue(mockBooking);
-      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession as Session);
+      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession);
 
-      await expect(
-        service.createFromBooking(mockBooking.id),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.createFromBooking(mockBooking.id)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should throw NotFoundException for non-existent booking', async () => {
       jest.spyOn(bookingRepository, 'findOne').mockResolvedValue(null);
 
-      await expect(
-        service.createFromBooking('invalid-id'),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.createFromBooking('invalid-id')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -147,8 +147,10 @@ describe('SessionsService', () => {
         status: SessionStatus.IN_PROGRESS,
       };
 
-      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession as Session);
-      jest.spyOn(sessionRepository, 'save').mockResolvedValue(startedSession as Session);
+      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession);
+      jest
+        .spyOn(sessionRepository, 'save')
+        .mockResolvedValue(startedSession as Session);
 
       const result = await service.startSession(
         mockSession.id,
@@ -165,8 +167,10 @@ describe('SessionsService', () => {
         status: SessionStatus.IN_PROGRESS,
       };
 
-      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession as Session);
-      jest.spyOn(sessionRepository, 'save').mockResolvedValue(startedSession as Session);
+      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession);
+      jest
+        .spyOn(sessionRepository, 'save')
+        .mockResolvedValue(startedSession as Session);
 
       const result = await service.startSession(
         mockSession.id,
@@ -178,7 +182,7 @@ describe('SessionsService', () => {
     });
 
     it('should prevent unauthorized user from starting session', async () => {
-      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession as Session);
+      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession);
 
       await expect(
         service.startSession(mockSession.id, 'unauthorized-user-id'),
@@ -215,7 +219,9 @@ describe('SessionsService', () => {
       jest
         .spyOn(sessionRepository, 'findOne')
         .mockResolvedValue(inProgressSession as Session);
-      jest.spyOn(sessionRepository, 'save').mockResolvedValue(completedSession as Session);
+      jest
+        .spyOn(sessionRepository, 'save')
+        .mockResolvedValue(completedSession as Session);
 
       const result = await service.completeSession(
         mockSession.id,
@@ -241,7 +247,7 @@ describe('SessionsService', () => {
     });
 
     it('should prevent completing non-in_progress session', async () => {
-      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession as Session);
+      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession);
 
       await expect(
         service.completeSession(mockSession.id, mockSession.mentorProfileId),
@@ -251,7 +257,7 @@ describe('SessionsService', () => {
 
   describe('findOne', () => {
     it('should find session for authorized mentee', async () => {
-      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession as Session);
+      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession);
 
       const result = await service.findOne(
         mockSession.id,
@@ -263,7 +269,7 @@ describe('SessionsService', () => {
     });
 
     it('should find session for authorized mentor', async () => {
-      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession as Session);
+      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession);
 
       const result = await service.findOne(
         mockSession.id,
@@ -275,7 +281,7 @@ describe('SessionsService', () => {
     });
 
     it('should deny access to unauthorized user', async () => {
-      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession as Session);
+      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession);
 
       await expect(
         service.findOne(mockSession.id, 'unauthorized-user-id'),
@@ -307,7 +313,9 @@ describe('SessionsService', () => {
       jest
         .spyOn(sessionRepository, 'findOne')
         .mockResolvedValueOnce(scheduledSession as Session);
-      jest.spyOn(sessionRepository, 'save').mockResolvedValueOnce(inProgressSession as Session);
+      jest
+        .spyOn(sessionRepository, 'save')
+        .mockResolvedValueOnce(inProgressSession as Session);
 
       const step1 = await service.startSession(
         mockSession.id,
@@ -319,7 +327,9 @@ describe('SessionsService', () => {
       jest
         .spyOn(sessionRepository, 'findOne')
         .mockResolvedValueOnce(inProgressSession as Session);
-      jest.spyOn(sessionRepository, 'save').mockResolvedValueOnce(completedSession as Session);
+      jest
+        .spyOn(sessionRepository, 'save')
+        .mockResolvedValueOnce(completedSession as Session);
 
       const step2 = await service.completeSession(
         mockSession.id,
@@ -349,12 +359,13 @@ describe('SessionsService', () => {
     it('should copy timestamps exactly from booking', async () => {
       jest.spyOn(bookingRepository, 'findOne').mockResolvedValue(mockBooking);
       jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(null);
-      jest.spyOn(sessionRepository, 'create').mockReturnValue(mockSession as Session);
-      jest.spyOn(sessionRepository, 'save').mockResolvedValue(mockSession as Session);
+      jest.spyOn(sessionRepository, 'create').mockReturnValue(mockSession);
+      jest.spyOn(sessionRepository, 'save').mockResolvedValue(mockSession);
 
       await service.createFromBooking(mockBooking.id);
 
-      const createCall = jest.spyOn(sessionRepository, 'create').mock.calls[0][0];
+      const createCall = jest.spyOn(sessionRepository, 'create').mock
+        .calls[0][0];
       expect(createCall.startTime).toEqual(mockBooking.startTime);
       expect(createCall.endTime).toEqual(mockBooking.endTime);
     });

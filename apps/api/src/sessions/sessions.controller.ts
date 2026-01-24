@@ -64,7 +64,10 @@ export class SessionsController {
     type: SessionResponseDto,
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden - not session participant' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - not session participant',
+  })
   @ApiResponse({ status: 404, description: 'Session not found' })
   @ApiResponse({
     status: 400,

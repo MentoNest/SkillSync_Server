@@ -4,7 +4,11 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  OneToMany,
 } from 'typeorm';
+
+import { Thread } from '../../chat/entities/thread.entity';
+import { Message } from '../../chat/entities/message.entity';
 
 @Entity('users')
 export class User {
@@ -31,6 +35,15 @@ export class User {
 
   @Column({ nullable: true })
   emailVerifiedAt?: Date;
+
+  @OneToMany(() => Thread, (thread) => thread.mentor)
+  mentorThreads: Thread[] = [];
+
+  @OneToMany(() => Thread, (thread) => thread.mentee)
+  menteeThreads: Thread[] = [];
+
+  @OneToMany(() => Message, (message) => message.sender)
+  sentMessages: Message[] = [];
 
   @CreateDateColumn()
   createdAt!: Date;

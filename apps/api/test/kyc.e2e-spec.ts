@@ -33,9 +33,9 @@ describe('KYC E2E Tests', () => {
     user.lastName = 'User';
     user.avatarUrl = undefined;
     user.isActive = true;
-    
+
     user = await dataSource.getRepository(User).save(user);
-    
+
     // In a real scenario, we would need to create a proper JWT token for testing
     // For now, we'll mock authentication
     authToken = 'mock-token';
@@ -56,7 +56,7 @@ describe('KYC E2E Tests', () => {
         .get('/verify/kyc/me')
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200)
-        .then(response => {
+        .then((response) => {
           expect(response.body).toEqual({
             id: expect.any(String),
             user: {
@@ -102,7 +102,7 @@ describe('KYC E2E Tests', () => {
         })
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200)
-        .then(response => {
+        .then((response) => {
           expect(response.body.status).toBe(KycStatus.VERIFIED);
           expect(response.body.reason).toBe('Document verified');
           expect(response.body.provider).toBe('mock-provider');
@@ -132,11 +132,13 @@ describe('KYC E2E Tests', () => {
           reason: 'Successfully verified by external provider',
         })
         .expect(200)
-        .then(response => {
+        .then((response) => {
           expect(response.body.status).toBe(KycStatus.VERIFIED);
           expect(response.body.provider).toBe('external-provider');
           expect(response.body.externalRef).toBe('ext-ref-123');
-          expect(response.body.reason).toBe('Successfully verified by external provider');
+          expect(response.body.reason).toBe(
+            'Successfully verified by external provider',
+          );
         });
     });
 
