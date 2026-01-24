@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
+import { CacheModule } from '@nestjs/cache-manager';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import * as redisStore from 'cache-manager-redis-store';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AppConfigModule } from './config/config.module';
@@ -8,6 +10,17 @@ import { AppConfigService } from './config/config.service';
 @Module({
   imports: [
     AppConfigModule,
+    CacheModule.registerAsync({
+      inject: [AppConfigService],
+      useFactory: (configService: AppConfigService) => ({
+        store: redisStore,
+        host: configService.redisHost,
+        port: configService.redisPort,
+        password: configService.redisPassword,
+        db: configService.redisDb,
+        ttl: 60 * 5, // 5 minutes default TTL
+      }),
+    }),
     TypeOrmModule.forRootAsync({
       inject: [AppConfigService],
       useFactory: (configService: AppConfigService) => ({
