@@ -14,6 +14,16 @@ async function bootstrap() {
     }),
   );
 
+  const { DocumentBuilder, SwaggerModule } = await import('@nestjs/swagger');
+  const config = new DocumentBuilder()
+    .setTitle('SkillSync Drips API')
+    .setDescription('The SkillSync Drips API documentation')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('docs', app, document);
+
   await app.listen(process.env.PORT ?? 3000, () => {
     console.log(`Server running on http://localhost:${process.env.PORT ?? 3000}`);
   });
