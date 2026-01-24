@@ -17,6 +17,7 @@ import { VerifyModule } from './verify/verify.module';
 import rateLimitConfig from './config/rate-limit.config'; // Import the rate limit config
 >>>>>>> upstream/main
 import { BookingsModule } from './bookings/bookings.module';
+import { MentorsProfileModule } from './mentors-profile/mentors-profile.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { BookingsModule } from './bookings/bookings.module';
     VerifyModule,
 >>>>>>> upstream/main
     BookingsModule,
+MentorsProfileModule,
   ],
   controllers: [AppController],
   providers: [AppService],
