@@ -118,7 +118,8 @@ export class SessionsService {
 
     // Ownership check: user must be part of the session
     const isMentee = session.menteeUserId === userId;
-    const isMentor = mentorProfileId && session.mentorProfileId === mentorProfileId;
+    const isMentor =
+      mentorProfileId && session.mentorProfileId === mentorProfileId;
 
     if (!isMentee && !isMentor) {
       throw new ForbiddenException(
@@ -159,9 +160,7 @@ export class SessionsService {
 
     // Ownership check: only the mentor can complete
     if (session.mentorProfileId !== mentorProfileId) {
-      throw new ForbiddenException(
-        'Only the mentor can complete this session',
-      );
+      throw new ForbiddenException('Only the mentor can complete this session');
     }
 
     // State validation: only in_progress sessions can be completed
@@ -216,7 +215,9 @@ export class SessionsService {
       query.andWhere('session.id = :sessionId', { sessionId });
     }
 
-    const sessions = await query.orderBy('session.start_time', 'DESC').getMany();
+    const sessions = await query
+      .orderBy('session.start_time', 'DESC')
+      .getMany();
 
     if (sessionId && sessions.length === 0) {
       throw new NotFoundException('Session not found');
@@ -245,7 +246,9 @@ export class SessionsService {
       query.andWhere('session.id = :sessionId', { sessionId });
     }
 
-    const sessions = await query.orderBy('session.start_time', 'DESC').getMany();
+    const sessions = await query
+      .orderBy('session.start_time', 'DESC')
+      .getMany();
 
     if (sessionId && sessions.length === 0) {
       throw new NotFoundException('Session not found');

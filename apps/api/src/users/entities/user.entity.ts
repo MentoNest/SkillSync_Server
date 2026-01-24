@@ -4,9 +4,12 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  Index,
+  OneToMany,
 } from 'typeorm';
 import { UserRole, UserStatus } from '@libs/common';
+
+import { Thread } from '../../chat/entities/thread.entity';
+import { Message } from '../../chat/entities/message.entity';
 
 @Entity('users')
 @Index(['email'])
@@ -48,6 +51,15 @@ export class User {
 
   @Column({ nullable: true })
   emailVerifiedAt?: Date;
+
+  @OneToMany(() => Thread, (thread) => thread.mentor)
+  mentorThreads: Thread[] = [];
+
+  @OneToMany(() => Thread, (thread) => thread.mentee)
+  menteeThreads: Thread[] = [];
+
+  @OneToMany(() => Message, (message) => message.sender)
+  sentMessages: Message[] = [];
 
   @CreateDateColumn()
   createdAt!: Date;

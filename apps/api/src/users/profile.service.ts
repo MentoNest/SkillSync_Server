@@ -53,17 +53,13 @@ export class ProfilesService {
 
     for (const key of Object.keys(socials)) {
       if (!allowed.includes(key)) {
-        throw new BadRequestException(
-          `Unsupported social key: ${key}`,
-        );
+        throw new BadRequestException(`Unsupported social key: ${key}`);
       }
 
       try {
         new URL(socials[key]);
       } catch {
-        throw new BadRequestException(
-          `Invalid URL for ${key}`,
-        );
+        throw new BadRequestException(`Invalid URL for ${key}`);
       }
     }
   }

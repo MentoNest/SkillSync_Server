@@ -92,8 +92,12 @@ describe('Session Lifecycle Integration', () => {
         status: BookingStatus.ACCEPTED,
       });
       jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(null);
-      jest.spyOn(sessionRepository, 'create').mockReturnValue(mockSession as Session);
-      jest.spyOn(sessionRepository, 'save').mockResolvedValue(mockSession as Session);
+      jest
+        .spyOn(sessionRepository, 'create')
+        .mockReturnValue(mockSession as Session);
+      jest
+        .spyOn(sessionRepository, 'save')
+        .mockResolvedValue(mockSession as Session);
 
       await bookingsService.acceptBooking(mockBookingId);
 
@@ -181,7 +185,9 @@ describe('Session Lifecycle Integration', () => {
       jest
         .spyOn(sessionRepository, 'findOne')
         .mockResolvedValue(scheduledSession as Session);
-      jest.spyOn(sessionRepository, 'save').mockResolvedValue(inProgressSession as Session);
+      jest
+        .spyOn(sessionRepository, 'save')
+        .mockResolvedValue(inProgressSession as Session);
 
       const startResult = await sessionsService.startSession(
         mockSessionId,
@@ -217,7 +223,9 @@ describe('Session Lifecycle Integration', () => {
       jest
         .spyOn(sessionRepository, 'findOne')
         .mockResolvedValue(scheduledSession as Session);
-      jest.spyOn(sessionRepository, 'save').mockResolvedValue(inProgressSession as Session);
+      jest
+        .spyOn(sessionRepository, 'save')
+        .mockResolvedValue(inProgressSession as Session);
 
       const startResult = await sessionsService.startSession(
         mockSessionId,
@@ -230,7 +238,9 @@ describe('Session Lifecycle Integration', () => {
       jest
         .spyOn(sessionRepository, 'findOne')
         .mockResolvedValue(inProgressSession as Session);
-      jest.spyOn(sessionRepository, 'save').mockResolvedValue(completedSession as Session);
+      jest
+        .spyOn(sessionRepository, 'save')
+        .mockResolvedValue(completedSession as Session);
 
       const completeResult = await sessionsService.completeSession(
         mockSessionId,
@@ -240,7 +250,9 @@ describe('Session Lifecycle Integration', () => {
     });
 
     it('should prevent unauthorized users from accessing sessions', async () => {
-      jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(mockSession as Session);
+      jest
+        .spyOn(sessionRepository, 'findOne')
+        .mockResolvedValue(mockSession as Session);
 
       const unauthorizedUserId = '550e8400-e29b-41d4-a716-446655440099';
       const unauthorizedMentorId = '550e8400-e29b-41d4-a716-446655440099';
@@ -295,7 +307,9 @@ describe('Session Lifecycle Integration', () => {
       jest
         .spyOn(sessionRepository, 'findOne')
         .mockResolvedValue(scheduledSession as Session);
-      jest.spyOn(sessionRepository, 'save').mockResolvedValue(inProgressSession as Session);
+      jest
+        .spyOn(sessionRepository, 'save')
+        .mockResolvedValue(inProgressSession as Session);
 
       const result1 = await sessionsService.startSession(
         mockSessionId,
@@ -324,12 +338,17 @@ describe('Session Lifecycle Integration', () => {
     it('should ensure session timestamps exactly match booking times', async () => {
       jest.spyOn(bookingRepository, 'findOne').mockResolvedValue(mockBooking);
       jest.spyOn(sessionRepository, 'findOne').mockResolvedValue(null);
-      jest.spyOn(sessionRepository, 'create').mockReturnValue(mockSession as Session);
-      jest.spyOn(sessionRepository, 'save').mockResolvedValue(mockSession as Session);
+      jest
+        .spyOn(sessionRepository, 'create')
+        .mockReturnValue(mockSession as Session);
+      jest
+        .spyOn(sessionRepository, 'save')
+        .mockResolvedValue(mockSession as Session);
 
       await sessionsService.createFromBooking(mockBookingId);
 
-      const createCall = jest.spyOn(sessionRepository, 'create').mock.calls[0][0];
+      const createCall = jest.spyOn(sessionRepository, 'create').mock
+        .calls[0][0];
       expect(createCall.startTime).toEqual(mockBooking.startTime);
       expect(createCall.endTime).toEqual(mockBooking.endTime);
       expect(createCall.startTime).toEqual(mockSession.startTime);

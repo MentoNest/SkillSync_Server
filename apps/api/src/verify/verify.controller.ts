@@ -41,6 +41,10 @@ export class VerifyController {
     @CurrentMentorProfile() currentUser: User,
   ) {
     this.logger.log(`Admin ${currentUser.id} updating KYC for user ${userId}`);
-    return await this.verifyService.updateKycByAdmin(userId, updateKycDto, currentUser.id);
+    return await this.verifyService.updateKycByAdmin(
+      userId,
+      updateKycDto,
+      currentUser.id,
+    );
   }
 }
