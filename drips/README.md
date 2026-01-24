@@ -93,6 +93,40 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 - Website - [https://nestjs.com](https://nestjs.com/)
 - Twitter - [@nestframework](https://twitter.com/nestframework)
 
+## Configuration
+
+The application uses a centralized configuration module with environment variable validation using Joi.
+
+### Environment Files
+The application loads environment variables from `.env` files. You can use different files for different environments:
+- `.env`: Default environment variables
+- `.env.development`: Development-specific variables
+- `.env.test`: Test-specific variables
+
+### Required Variables
+See [.env.example](.env.example) for the list of required environment variables. Key variables include:
+- `PORT`: Server port (default: 3000)
+- `NODE_ENV`: Environment mode (`development`, `production`, `test`)
+- `DATABASE_HOST`: Database host
+- `DATABASE_PORT`: Database port
+- `DATABASE_USER`: Database user
+- `DATABASE_PASSWORD`: Database password
+- `DATABASE_NAME`: Database name
+
+### Validation
+Environment variables are validated at startup. If any required variable is missing or malformed, the application will fail to boot with a descriptive error message.
+
+### Usage
+To access configuration in other modules, inject `AppConfigService`:
+
+```typescript
+import { AppConfigService } from './config/config.service';
+
+constructor(private configService: AppConfigService) {
+  const port = this.configService.port;
+}
+```
+
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).

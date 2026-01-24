@@ -9,6 +9,7 @@ import { ListingsModule } from './listings/listings.module';
 import { MentorProfilesModule } from './mentor-profiles/mentor-profiles.module';
 import { SkillsModule } from './skills/skills.module';
 import { UsersModule } from './users/users.module';
+import { SessionsModule } from './sessions/sessions.module';
 import { AuthModule } from './auth/auth.module';
 import { VerifyModule } from './verify/verify.module';
 import rateLimitConfig from './config/rate-limit.config'; // Import the rate limit config
@@ -26,6 +27,7 @@ import { ChatModule } from './chat/chat.module';
     HealthModule,
     AuthModule,
     UsersModule,
+    NotificationsModule,
     MentorProfilesModule,
     SkillsModule,
     ListingsModule,

@@ -1,0 +1,35 @@
+Your payment has been released
+
+Hello {{recipientName}},
+
+Your payment has been successfully processed and released. See the details below.
+
+---
+
+AMOUNT: {{amount}}
+
+---
+
+PAYMENT DETAILS
+Listing: {{listingName}}
+Transaction ID: {{transactionId}}
+Date: {{transactionDate}}
+{{#if bankAccount}}
+Destination: {{bankAccount}}
+{{/if}}
+{{#if referenceNumber}}
+Reference: {{referenceNumber}}
+{{/if}}
+
+---
+
+The funds have been transferred to your associated bank account. Please allow 1-3 business days for the payment to appear in your account, depending on your bank.
+
+If you have any questions or concerns about this payment, please visit your dashboard or contact our support team.
+
+View Payment Details: {{dashboardLink}}
+
+---
+
+© {{currentYear}} SkillSync. All rights reserved.
+This is an automated message. Please do not reply to this email.
