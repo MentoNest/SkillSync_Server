@@ -41,32 +41,19 @@
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
-<<<<<<< HEAD
-=======
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",
->>>>>>> upstream/main
     "@nestjs/platform-express": "^11.1.12",
     "@nestjs/swagger": "^11.2.5",
     "@nestjs/typeorm": "^11.0.0",
-    "@nestjs/platform-express": "^11.1.12",
-    "@nestjs/swagger": "^11.2.5",
     "@types/express-rate-limit": "^6.0.2",
-    "@types/multer": "^2.0.0",
-    "class-transformer": "^0.5.1",
-    "class-validator": "^0.14.3",
-<<<<<<< HEAD
-=======
     "ioredis": "^5.9.2",
     "cors": "^2.8.6",
     "express-rate-limit": "^8.2.1",
     "helmet": "^8.1.0",
     "@types/luxon": "^3.7.1",
     "@types/multer": "^2.0.0",
-    "class-transformer": "^0.5.1",
-    "class-validator": "^0.14.3",
     "luxon": "^3.7.2",
->>>>>>> upstream/main
     "multer": "^2.0.2",
     "pg": "^8.17.2",
     "reflect-metadata": "^0.2.2",
