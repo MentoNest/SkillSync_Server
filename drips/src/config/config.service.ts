@@ -49,6 +49,30 @@ export class AppConfigService {
     return this.configService.get<number>('REDIS_DB')!;
   }
 
+  get jwtSecret(): string {
+    return this.configService.get<string>('JWT_SECRET')!;
+  }
+
+  get jwtExpiresIn(): string {
+    return this.configService.get<string>('JWT_EXPIRES_IN', '24h')!;
+  }
+
+  get googleClientId(): string {
+    return this.configService.get<string>('GOOGLE_CLIENT_ID')!;
+  }
+
+  get googleClientSecret(): string {
+    return this.configService.get<string>('GOOGLE_CLIENT_SECRET')!;
+  }
+
+  get googleCallbackUrl(): string {
+    return this.configService.get<string>('GOOGLE_CALLBACK_URL')!;
+  }
+
+  get appUrl(): string {
+    return this.configService.get<string>('APP_URL', 'http://localhost:3000')!;
+  }
+
   get(key: string): any {
     return this.configService.get(key);
   }
