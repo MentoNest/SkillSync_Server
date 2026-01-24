@@ -59,8 +59,12 @@ describe('Authentication E2E', () => {
       expect(response.body.tokens).toHaveProperty('refreshToken');
 
       // Verify tokens are valid JWT
-      expect(response.body.tokens.accessToken).toMatch(/^[\w-]+\.[\w-]+\.[\w-]+$/);
-      expect(response.body.tokens.refreshToken).toMatch(/^[\w-]+\.[\w-]+\.[\w-]+$/);
+      expect(response.body.tokens.accessToken).toMatch(
+        /^[\w-]+\.[\w-]+\.[\w-]+$/,
+      );
+      expect(response.body.tokens.refreshToken).toMatch(
+        /^[\w-]+\.[\w-]+\.[\w-]+$/,
+      );
     });
 
     it('should fail when registering with duplicate email', async () => {
@@ -163,9 +167,7 @@ describe('Authentication E2E', () => {
   describe('/auth/login (POST)', () => {
     beforeEach(async () => {
       // Register a user before each login test
-      await request(app.getHttpServer())
-        .post('/auth/register')
-        .send(testUser);
+      await request(app.getHttpServer()).post('/auth/register').send(testUser);
     });
 
     it('should successfully login with valid credentials', async () => {
@@ -318,7 +320,9 @@ describe('Authentication E2E', () => {
         .expect(201);
 
       const accessToken = registerResponse.body.tokens.accessToken;
-      const accessSecret = process.env.JWT_ACCESS_SECRET || 'your-super-secret-access-key-change-in-production';
+      const accessSecret =
+        process.env.JWT_ACCESS_SECRET ||
+        'your-super-secret-access-key-change-in-production';
 
       // This should not throw
       const decoded = jwt.verify(accessToken, accessSecret) as any;
@@ -334,7 +338,9 @@ describe('Authentication E2E', () => {
         .expect(201);
 
       const refreshToken = registerResponse.body.tokens.refreshToken;
-      const refreshSecret = process.env.JWT_REFRESH_SECRET || 'your-super-secret-refresh-key-change-in-production';
+      const refreshSecret =
+        process.env.JWT_REFRESH_SECRET ||
+        'your-super-secret-refresh-key-change-in-production';
 
       // This should not throw
       const decoded = jwt.verify(refreshToken, refreshSecret) as any;

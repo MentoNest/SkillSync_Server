@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
@@ -36,7 +41,7 @@ export class VerifyService {
     const user = await this.userRepository.findOne({
       where: { id: userId },
     });
-    
+
     if (!user) {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
@@ -52,11 +57,15 @@ export class VerifyService {
     return await this.kycRepository.save(kyc);
   }
 
-  async updateKycByAdmin(userId: string, updateKycDto: UpdateKycDto, adminId: string): Promise<Kyc> {
+  async updateKycByAdmin(
+    userId: string,
+    updateKycDto: UpdateKycDto,
+    adminId: string,
+  ): Promise<Kyc> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
     });
-    
+
     if (!user) {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
@@ -97,7 +106,7 @@ export class VerifyService {
     const user = await this.userRepository.findOne({
       where: { id: userId },
     });
-    
+
     if (!user) {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }

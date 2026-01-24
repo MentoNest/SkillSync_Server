@@ -109,12 +109,10 @@ describe('Sessions E2E', () => {
         status: SessionStatus.IN_PROGRESS,
       };
 
-      jest
-        .spyOn(sessionsService, 'completeSession')
-        .mockResolvedValue({
-          ...completedSession,
-          status: SessionStatus.COMPLETED,
-        });
+      jest.spyOn(sessionsService, 'completeSession').mockResolvedValue({
+        ...completedSession,
+        status: SessionStatus.COMPLETED,
+      });
 
       const response = await request(app.getHttpServer())
         .patch(`/sessions/${mockSessionId}/complete`)
@@ -146,9 +144,7 @@ describe('Sessions E2E', () => {
     });
 
     it('should prevent mentee from accessing other mentee sessions', async () => {
-      jest
-        .spyOn(sessionsService, 'findMenteeSession')
-        .mockResolvedValue([]);
+      jest.spyOn(sessionsService, 'findMenteeSession').mockResolvedValue([]);
 
       await request(app.getHttpServer())
         .get(`/sessions/mentee/${mockSessionId}`)
@@ -172,9 +168,7 @@ describe('Sessions E2E', () => {
     });
 
     it('should prevent mentor from accessing other mentor sessions', async () => {
-      jest
-        .spyOn(sessionsService, 'findMentorSession')
-        .mockResolvedValue([]);
+      jest.spyOn(sessionsService, 'findMentorSession').mockResolvedValue([]);
 
       await request(app.getHttpServer())
         .get(`/sessions/mentor/${mockSessionId}`)
