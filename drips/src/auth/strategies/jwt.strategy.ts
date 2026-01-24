@@ -1,32 +1,27 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
-import { ExtractJwt, Strategy } from 'passport-jwt';
-import { ConfigService } from '@nestjs/config';
-
-export interface JwtPayload {
-  sub: string;
-  email: string;
-  type: 'access' | 'refresh';
-}
+import { Strategy, ExtractJwt } from 'passport-jwt';
+import { AppConfigService } from '../../config/config.service';
+import { UsersService } from '../../users/users.service';
 
 @Injectable()
-export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
-  constructor(private configService: ConfigService) {
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor(
+    configService: AppConfigService,
+    private usersService: UsersService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_ACCESS_SECRET'),
+      secretOrKey: configService.jwtSecret,
     });
   }
 
-  async validate(payload: JwtPayload) {
-    if (payload.type !== 'access') {
-      throw new UnauthorizedException('Invalid token type');
+  async validate(payload: any) {
+    const user = await this.usersService.findById(payload.sub);
+    if (!user) {
+      return null;
     }
-
-    return {
-      sub: payload.sub,
-      email: payload.email,
-    };
+    return { ...payload, user };
   }
 }

@@ -51,6 +51,7 @@ import { UserRepository } from './repositories/user.repository';
     MockMailer,
     UserService,
     UserRepository,
+    GoogleStrategy
   ],
   exports: [AuthService, JwtStrategy, PassportModule, UserService],
 })

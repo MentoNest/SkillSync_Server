@@ -24,6 +24,10 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { ListUsersQueryDto } from './dto/list-users-query.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { ListUsersResponseDto } from './dto/list-users-response.dto';
+import { Controller, Get, UseGuards, Req, Res } from '@nestjs/common';
+import { Response } from 'express';
+import { AuthService } from './auth.service';
+import { GoogleAuthGuard } from './guards/google-auth.guard';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -51,6 +55,24 @@ export class AuthController {
   async register(@Body() registerDto: RegisterDto): Promise<AuthResponseDto> {
     return this.authService.register(registerDto);
   }
+  
+  @Get('google')
+  @UseGuards(GoogleAuthGuard)
+  async googleAuth() {
+    // Guard handles redirect to Google
+  }
+
+  @Get('google/callback')
+  @UseGuards(GoogleAuthGuard)
+  async googleAuthCallback(@Req() req, @Res() res: Response) {
+    const user = req.user;
+    const { access_token, user: userPayload } = this.authService.issueToken(user);
+    
+    // Return JWT token and user info
+    return res.json({
+      access_token,
+      user: userPayload,
+    });
 
   @Post('login')
   @HttpCode(HttpStatus.OK)

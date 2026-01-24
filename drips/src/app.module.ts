@@ -6,6 +6,8 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AppConfigModule } from './config/config.module';
 import { AppConfigService } from './config/config.service';
+import { AuthModule } from './auth/auth.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -34,9 +36,10 @@ import { AppConfigService } from './config/config.service';
         migrations: ['dist/migrations/*{.ts,.js}'],
         synchronize: configService.nodeEnv === 'development',
         logging: configService.nodeEnv === 'development',
-        // namingStrategy: new (require('typeorm').SnakeNamingStrategy)(),
       }),
     }),
+    UsersModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
