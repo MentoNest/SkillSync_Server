@@ -67,7 +67,9 @@ describe('BookingLifecycleOrchestrator', () => {
         status: BookingStatus.ACCEPTED,
       };
 
-      jest.spyOn(bookingsService, 'acceptBooking').mockResolvedValue(acceptedBooking);
+      jest
+        .spyOn(bookingsService, 'acceptBooking')
+        .mockResolvedValue(acceptedBooking);
       jest.spyOn(sessionsService, 'createFromBooking').mockResolvedValue({
         id: '550e8400-e29b-41d4-a716-446655440000',
         bookingId: mockBooking.id,
@@ -85,8 +87,12 @@ describe('BookingLifecycleOrchestrator', () => {
       const result = await orchestrator.acceptBooking(mockBooking.id);
 
       expect(result.status).toBe(BookingStatus.ACCEPTED);
-      expect(bookingsService.acceptBooking).toHaveBeenCalledWith(mockBooking.id);
-      expect(sessionsService.createFromBooking).toHaveBeenCalledWith(mockBooking.id);
+      expect(bookingsService.acceptBooking).toHaveBeenCalledWith(
+        mockBooking.id,
+      );
+      expect(sessionsService.createFromBooking).toHaveBeenCalledWith(
+        mockBooking.id,
+      );
     });
 
     it('should fail if session creation fails', async () => {
@@ -95,14 +101,16 @@ describe('BookingLifecycleOrchestrator', () => {
         status: BookingStatus.ACCEPTED,
       };
 
-      jest.spyOn(bookingsService, 'acceptBooking').mockResolvedValue(acceptedBooking);
+      jest
+        .spyOn(bookingsService, 'acceptBooking')
+        .mockResolvedValue(acceptedBooking);
       jest
         .spyOn(sessionsService, 'createFromBooking')
         .mockRejectedValue(new Error('Session creation failed'));
 
-      await expect(
-        orchestrator.acceptBooking(mockBooking.id),
-      ).rejects.toThrow('Session creation failed');
+      await expect(orchestrator.acceptBooking(mockBooking.id)).rejects.toThrow(
+        'Session creation failed',
+      );
     });
   });
 
@@ -113,12 +121,16 @@ describe('BookingLifecycleOrchestrator', () => {
         status: BookingStatus.DECLINED,
       };
 
-      jest.spyOn(bookingsService, 'declineBooking').mockResolvedValue(declinedBooking);
+      jest
+        .spyOn(bookingsService, 'declineBooking')
+        .mockResolvedValue(declinedBooking);
 
       const result = await orchestrator.declineBooking(mockBooking.id);
 
       expect(result.status).toBe(BookingStatus.DECLINED);
-      expect(bookingsService.declineBooking).toHaveBeenCalledWith(mockBooking.id);
+      expect(bookingsService.declineBooking).toHaveBeenCalledWith(
+        mockBooking.id,
+      );
       expect(sessionsService.createFromBooking).not.toHaveBeenCalled();
     });
   });
@@ -130,12 +142,16 @@ describe('BookingLifecycleOrchestrator', () => {
         status: BookingStatus.CANCELLED,
       };
 
-      jest.spyOn(bookingsService, 'cancelBooking').mockResolvedValue(cancelledBooking);
+      jest
+        .spyOn(bookingsService, 'cancelBooking')
+        .mockResolvedValue(cancelledBooking);
 
       const result = await orchestrator.cancelBooking(mockBooking.id);
 
       expect(result.status).toBe(BookingStatus.CANCELLED);
-      expect(bookingsService.cancelBooking).toHaveBeenCalledWith(mockBooking.id);
+      expect(bookingsService.cancelBooking).toHaveBeenCalledWith(
+        mockBooking.id,
+      );
     });
   });
 
@@ -146,7 +162,9 @@ describe('BookingLifecycleOrchestrator', () => {
         status: BookingStatus.ACCEPTED,
       };
 
-      jest.spyOn(bookingsService, 'acceptBooking').mockResolvedValue(acceptedBooking);
+      jest
+        .spyOn(bookingsService, 'acceptBooking')
+        .mockResolvedValue(acceptedBooking);
       jest.spyOn(sessionsService, 'createFromBooking').mockResolvedValue({
         id: '550e8400-e29b-41d4-a716-446655440000',
         bookingId: mockBooking.id,
@@ -163,8 +181,12 @@ describe('BookingLifecycleOrchestrator', () => {
 
       await orchestrator.acceptBooking(mockBooking.id);
 
-      expect(bookingsService.acceptBooking).toHaveBeenCalledWith(mockBooking.id);
-      expect(sessionsService.createFromBooking).toHaveBeenCalledWith(mockBooking.id);
+      expect(bookingsService.acceptBooking).toHaveBeenCalledWith(
+        mockBooking.id,
+      );
+      expect(sessionsService.createFromBooking).toHaveBeenCalledWith(
+        mockBooking.id,
+      );
     });
   });
 });
