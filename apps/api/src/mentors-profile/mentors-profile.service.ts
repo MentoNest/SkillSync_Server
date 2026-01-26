@@ -1,4 +1,3 @@
-// src/mentors/mentors.service.ts
 import {
   Injectable,
   NotFoundException,
@@ -14,12 +13,12 @@ import {
 } from './entities/mentors-profile.entity';
 import { CreateMentorProfileDto } from './dto/create-mentors-profile.dto';
 import { UpdateMentorProfileDto } from './dto/update-mentors-profile.dto';
+import { QueryMentorProfileDto } from './dto/query-mentors-profile.dto';
 
 @Injectable()
 export class MentorsService {
   private readonly logger = new Logger(MentorsService.name);
 
-  // Allowed status transitions
   private readonly allowedTransitions: Record<
     MentorProfileStatus,
     MentorProfileStatus[]
@@ -42,7 +41,6 @@ export class MentorsService {
     userId: string,
     dto: CreateMentorProfileDto,
   ): Promise<MentorProfile> {
-    // Check if profile already exists
     const existing = await this.mentorProfileRepository.findOne({
       where: { userId },
     });
@@ -64,6 +62,72 @@ export class MentorsService {
     return saved;
   }
 
+  async findAll(queryDto: QueryMentorProfileDto) {
+    const { expertise, minPrice, maxPrice, page = 1, limit = 10 } = queryDto;
+    const skip = (page - 1) * limit;
+
+    const queryBuilder = this.mentorProfileRepository
+      .createQueryBuilder('mentor_profile')
+      .leftJoinAndSelect('mentor_profile.user', 'user')
+      .where('mentor_profile.status = :status', { status: MentorProfileStatus.APPROVED });
+
+    // Filter by expertise (search in headline)
+    if (expertise) {
+      queryBuilder.andWhere(
+        'LOWER(mentor_profile.headline) LIKE LOWER(:expertise)',
+        { expertise: `%${expertise}%` }
+      );
+    }
+
+    // Filter by price range (convert from NGN to kobo for comparison)
+    if (minPrice !== undefined && maxPrice !== undefined) {
+      const minPriceKobo = minPrice * 100;
+      const maxPriceKobo = maxPrice * 100;
+      queryBuilder.andWhere(
+        'mentor_profile.rateMinor BETWEEN :minPrice AND :maxPrice',
+        { minPrice: minPriceKobo, maxPrice: maxPriceKobo }
+      );
+    } else if (minPrice !== undefined) {
+      const minPriceKobo = minPrice * 100;
+      queryBuilder.andWhere('mentor_profile.rateMinor >= :minPrice', { 
+        minPrice: minPriceKobo 
+      });
+    } else if (maxPrice !== undefined) {
+      const maxPriceKobo = maxPrice * 100;
+      queryBuilder.andWhere('mentor_profile.rateMinor <= :maxPrice', { 
+        maxPrice: maxPriceKobo 
+      });
+    }
+
+    queryBuilder.orderBy('mentor_profile.createdAt', 'DESC');
+
+    const [data, total] = await queryBuilder
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async findOne(id: string): Promise<MentorProfile> {
+    const mentorProfile = await this.mentorProfileRepository.findOne({
+      where: { id },
+      relations: ['user'],
+    });
+
+    if (!mentorProfile) {
+      throw new NotFoundException(`Mentor profile with ID ${id} not found`);
+    }
+
+    return mentorProfile;
+  }
+
   async getProfileByUserId(userId: string): Promise<MentorProfile> {
     const profile = await this.mentorProfileRepository.findOne({
       where: { userId },
@@ -83,7 +147,6 @@ export class MentorsService {
   ): Promise<MentorProfile> {
     const profile = await this.getProfileByUserId(userId);
 
-    // Only allow updates in draft status
     if (profile.status !== MentorProfileStatus.DRAFT) {
       throw new BadRequestException(
         `Cannot update profile in ${profile.status} status. Profile must be in draft status.`,
@@ -95,6 +158,32 @@ export class MentorsService {
 
     this.logger.log(`Updated mentor profile ${updated.id}`);
     return updated;
+  }
+
+  async updateProfileById(
+    id: string,
+    userId: string,
+    dto: UpdateMentorProfileDto,
+  ): Promise<MentorProfile> {
+    const profile = await this.findOne(id);
+    this.validateOwnership(userId, profile);
+
+    if (profile.status !== MentorProfileStatus.DRAFT) {
+      throw new BadRequestException(
+        `Cannot update profile in ${profile.status} status. Profile must be in draft status.`,
+      );
+    }
+
+    Object.assign(profile, dto);
+    return await this.mentorProfileRepository.save(profile);
+  }
+
+  async remove(id: string, userId: string): Promise<void> {
+    const profile = await this.findOne(id);
+    this.validateOwnership(userId, profile);
+
+    await this.mentorProfileRepository.softDelete(id);
+    this.logger.log(`Soft deleted mentor profile ${id}`);
   }
 
   async submitProfile(userId: string): Promise<MentorProfile> {

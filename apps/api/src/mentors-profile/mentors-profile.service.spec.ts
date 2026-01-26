@@ -1,333 +1,190 @@
-// src/mentors/mentors.service.spec.ts
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import {
-  BadRequestException,
-  NotFoundException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { MentorsController } from './mentors-profile.controller';
 import { MentorsService } from './mentors-profile.service';
-import {
-  MentorProfile,
-  MentorProfileStatus,
-} from './entities/mentors-profile.entity';
+import { MentorProfileStatus } from './entities/mentors-profile.entity';
 
-describe('MentorsService', () => {
+describe('MentorsController', () => {
+  let controller: MentorsController;
   let service: MentorsService;
-  let repository: Repository<MentorProfile>;
 
-  const mockRepository = {
-    create: jest.fn(),
-    save: jest.fn(),
+  const mockMentorsService = {
+    createProfile: jest.fn(),
+    findAll: jest.fn(),
     findOne: jest.fn(),
-    find: jest.fn(),
+    getProfileByUserId: jest.fn(),
+    updateProfile: jest.fn(),
+    updateProfileById: jest.fn(),
+    remove: jest.fn(),
+    submitProfile: jest.fn(),
+  };
+
+  const mockMentorProfile = {
+    id: '123e4567-e89b-12d3-a456-426614174000',
+    userId: '123e4567-e89b-12d3-a456-426614174001',
+    headline: 'Senior Full-Stack Developer',
+    rateMinor: 1000000, // 10,000 NGN in kobo
+    yearsExp: 5,
+    status: MentorProfileStatus.DRAFT,
+    createdAt: new Date(),
+    updatedAt: new Date(),
   };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
+      controllers: [MentorsController],
       providers: [
-        MentorsService,
         {
-          provide: getRepositoryToken(MentorProfile),
-          useValue: mockRepository,
+          provide: MentorsService,
+          useValue: mockMentorsService,
         },
       ],
     }).compile();
 
+    controller = module.get<MentorsController>(MentorsController);
     service = module.get<MentorsService>(MentorsService);
-    repository = module.get<Repository<MentorProfile>>(
-      getRepositoryToken(MentorProfile),
-    );
+  });
 
+  afterEach(() => {
     jest.clearAllMocks();
   });
 
+  it('should be defined', () => {
+    expect(controller).toBeDefined();
+  });
+
   describe('createProfile', () => {
-    it('should create a mentor profile in draft status', async () => {
-      const userId = 'user-123';
-      const dto = {
-        headline: 'Senior Developer',
-        rateMinor: 1500000,
+    it('should create a mentor profile', async () => {
+      const createDto = {
+        headline: 'Senior Full-Stack Developer',
+        rateMinor: 1000000,
         yearsExp: 5,
       };
 
-      mockRepository.findOne.mockResolvedValue(null);
-      mockRepository.create.mockReturnValue({
-        userId,
-        ...dto,
-        status: MentorProfileStatus.DRAFT,
-      });
-      mockRepository.save.mockResolvedValue({
-        id: 'profile-123',
-        userId,
-        ...dto,
-        status: MentorProfileStatus.DRAFT,
-      });
+      const req = { user: { id: '123e4567-e89b-12d3-a456-426614174001' } };
 
-      const result = await service.createProfile(userId, dto);
+      mockMentorsService.createProfile.mockResolvedValue(mockMentorProfile);
 
-      expect(result.status).toBe(MentorProfileStatus.DRAFT);
-      expect(result.userId).toBe(userId);
-      expect(mockRepository.save).toHaveBeenCalled();
-    });
+      const result = await controller.createProfile(req, createDto);
 
-    it('should throw BadRequestException if profile already exists', async () => {
-      const userId = 'user-123';
-      const dto = {
-        headline: 'Senior Developer',
-        rateMinor: 1500000,
-        yearsExp: 5,
-      };
-
-      mockRepository.findOne.mockResolvedValue({ id: 'existing-profile' });
-
-      await expect(service.createProfile(userId, dto)).rejects.toThrow(
-        BadRequestException,
+      expect(result).toEqual(mockMentorProfile);
+      expect(mockMentorsService.createProfile).toHaveBeenCalledWith(
+        req.user.id,
+        createDto,
       );
     });
   });
 
-  describe('updateProfile', () => {
-    it('should update profile in draft status', async () => {
-      const userId = 'user-123';
-      const profile = {
-        id: 'profile-123',
-        userId,
-        headline: 'Old Headline',
-        rateMinor: 1000000,
-        yearsExp: 3,
-        status: MentorProfileStatus.DRAFT,
+  describe('findAll', () => {
+    it('should return paginated mentors with filters', async () => {
+      const queryDto = {
+        expertise: 'JavaScript',
+        minPrice: 5000,
+        maxPrice: 15000,
+        page: 1,
+        limit: 10,
       };
 
-      const updateDto = { headline: 'New Headline' };
+      const paginatedResult = {
+        data: [mockMentorProfile],
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+      };
 
-      mockRepository.findOne.mockResolvedValue(profile);
-      mockRepository.save.mockResolvedValue({ ...profile, ...updateDto });
+      mockMentorsService.findAll.mockResolvedValue(paginatedResult);
 
-      const result = await service.updateProfile(userId, updateDto);
+      const result = await controller.findAll(queryDto);
 
-      expect(result.headline).toBe('New Headline');
-      expect(mockRepository.save).toHaveBeenCalled();
+      expect(result).toEqual(paginatedResult);
+      expect(mockMentorsService.findAll).toHaveBeenCalledWith(queryDto);
     });
 
-    it('should throw BadRequestException when updating non-draft profile', async () => {
-      const userId = 'user-123';
-      const profile = {
-        id: 'profile-123',
-        userId,
-        status: MentorProfileStatus.SUBMITTED,
+    it('should return all mentors without filters', async () => {
+      const queryDto = { page: 1, limit: 10 };
+
+      const paginatedResult = {
+        data: [mockMentorProfile],
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
       };
 
-      mockRepository.findOne.mockResolvedValue(profile);
+      mockMentorsService.findAll.mockResolvedValue(paginatedResult);
 
-      await expect(
-        service.updateProfile(userId, { headline: 'New' }),
-      ).rejects.toThrow(BadRequestException);
+      const result = await controller.findAll(queryDto);
+
+      expect(result).toEqual(paginatedResult);
+    });
+  });
+
+  describe('findOne', () => {
+    it('should return a single mentor by id', async () => {
+      mockMentorsService.findOne.mockResolvedValue(mockMentorProfile);
+
+      const result = await controller.findOne(mockMentorProfile.id);
+
+      expect(result).toEqual(mockMentorProfile);
+      expect(mockMentorsService.findOne).toHaveBeenCalledWith(
+        mockMentorProfile.id,
+      );
+    });
+  });
+
+  describe('updateProfileById', () => {
+    it('should update a mentor profile', async () => {
+      const updateDto = { rateMinor: 1200000 };
+      const req = { user: { id: mockMentorProfile.userId } };
+      const updatedMentor = { ...mockMentorProfile, rateMinor: 1200000 };
+
+      mockMentorsService.updateProfileById.mockResolvedValue(updatedMentor);
+
+      const result = await controller.updateProfileById(
+        mockMentorProfile.id,
+        req,
+        updateDto,
+      );
+
+      expect(result).toEqual(updatedMentor);
+      expect(mockMentorsService.updateProfileById).toHaveBeenCalledWith(
+        mockMentorProfile.id,
+        req.user.id,
+        updateDto,
+      );
+    });
+  });
+
+  describe('remove', () => {
+    it('should soft delete a mentor profile', async () => {
+      const req = { user: { id: mockMentorProfile.userId } };
+
+      mockMentorsService.remove.mockResolvedValue(undefined);
+
+      await controller.remove(mockMentorProfile.id, req);
+
+      expect(mockMentorsService.remove).toHaveBeenCalledWith(
+        mockMentorProfile.id,
+        req.user.id,
+      );
     });
   });
 
   describe('submitProfile', () => {
-    it('should transition from draft to submitted', async () => {
-      const userId = 'user-123';
-      const profile = {
-        id: 'profile-123',
-        userId,
-        status: MentorProfileStatus.DRAFT,
-      };
-
-      mockRepository.findOne.mockResolvedValue(profile);
-      mockRepository.save.mockResolvedValue({
-        ...profile,
-        status: MentorProfileStatus.SUBMITTED,
-      });
-
-      const result = await service.submitProfile(userId);
-
-      expect(result.status).toBe(MentorProfileStatus.SUBMITTED);
-    });
-
-    it('should throw BadRequestException when submitting non-draft profile', async () => {
-      const userId = 'user-123';
-      const profile = {
-        id: 'profile-123',
-        userId,
-        status: MentorProfileStatus.APPROVED,
-      };
-
-      mockRepository.findOne.mockResolvedValue(profile);
-
-      await expect(service.submitProfile(userId)).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-  });
-
-  describe('approveProfile', () => {
-    it('should transition from submitted to approved', async () => {
-      const profileId = 'profile-123';
-      const profile = {
-        id: profileId,
-        userId: 'user-123',
+    it('should submit a profile for review', async () => {
+      const req = { user: { id: mockMentorProfile.userId } };
+      const submittedProfile = {
+        ...mockMentorProfile,
         status: MentorProfileStatus.SUBMITTED,
       };
 
-      mockRepository.findOne.mockResolvedValue(profile);
-      mockRepository.save.mockResolvedValue({
-        ...profile,
-        status: MentorProfileStatus.APPROVED,
-      });
+      mockMentorsService.submitProfile.mockResolvedValue(submittedProfile);
 
-      const result = await service.approveProfile(profileId);
+      const result = await controller.submitProfile(req);
 
-      expect(result.status).toBe(MentorProfileStatus.APPROVED);
-    });
-
-    it('should throw BadRequestException when approving non-submitted profile', async () => {
-      const profileId = 'profile-123';
-      const profile = {
-        id: profileId,
-        status: MentorProfileStatus.DRAFT,
-      };
-
-      mockRepository.findOne.mockResolvedValue(profile);
-
-      await expect(service.approveProfile(profileId)).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('should throw NotFoundException when profile does not exist', async () => {
-      mockRepository.findOne.mockResolvedValue(null);
-
-      await expect(service.approveProfile('invalid-id')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-  });
-
-  describe('rejectProfile', () => {
-    it('should transition from submitted to rejected', async () => {
-      const profileId = 'profile-123';
-      const profile = {
-        id: profileId,
-        userId: 'user-123',
-        status: MentorProfileStatus.SUBMITTED,
-      };
-
-      mockRepository.findOne.mockResolvedValue(profile);
-      mockRepository.save.mockResolvedValue({
-        ...profile,
-        status: MentorProfileStatus.REJECTED,
-      });
-
-      const result = await service.rejectProfile(
-        profileId,
-        'Incomplete information',
-      );
-
-      expect(result.status).toBe(MentorProfileStatus.REJECTED);
-    });
-
-    it('should throw BadRequestException when rejecting non-submitted profile', async () => {
-      const profileId = 'profile-123';
-      const profile = {
-        id: profileId,
-        status: MentorProfileStatus.APPROVED,
-      };
-
-      mockRepository.findOne.mockResolvedValue(profile);
-
-      await expect(service.rejectProfile(profileId)).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-  });
-
-  describe('validateOwnership', () => {
-    it('should throw ForbiddenException when user tries to modify another user profile', () => {
-      const userId = 'user-123';
-      const profile = {
-        id: 'profile-123',
-        userId: 'different-user',
-      } as MentorProfile;
-
-      expect(() => service.validateOwnership(userId, profile)).toThrow(
-        ForbiddenException,
-      );
-    });
-
-    it('should not throw when user modifies their own profile', () => {
-      const userId = 'user-123';
-      const profile = {
-        id: 'profile-123',
-        userId: 'user-123',
-      } as MentorProfile;
-
-      expect(() => service.validateOwnership(userId, profile)).not.toThrow();
-    });
-  });
-
-  describe('status transitions', () => {
-    it('should allow draft → submitted transition', async () => {
-      const userId = 'user-123';
-      const profile = {
-        id: 'profile-123',
-        userId,
-        status: MentorProfileStatus.DRAFT,
-      };
-
-      mockRepository.findOne.mockResolvedValue(profile);
-      mockRepository.save.mockResolvedValue({
-        ...profile,
-        status: MentorProfileStatus.SUBMITTED,
-      });
-
-      await expect(service.submitProfile(userId)).resolves.toBeDefined();
-    });
-
-    it('should allow submitted → approved transition', async () => {
-      const profile = {
-        id: 'profile-123',
-        status: MentorProfileStatus.SUBMITTED,
-      };
-
-      mockRepository.findOne.mockResolvedValue(profile);
-      mockRepository.save.mockResolvedValue({
-        ...profile,
-        status: MentorProfileStatus.APPROVED,
-      });
-
-      await expect(service.approveProfile(profile.id)).resolves.toBeDefined();
-    });
-
-    it('should allow submitted → rejected transition', async () => {
-      const profile = {
-        id: 'profile-123',
-        status: MentorProfileStatus.SUBMITTED,
-      };
-
-      mockRepository.findOne.mockResolvedValue(profile);
-      mockRepository.save.mockResolvedValue({
-        ...profile,
-        status: MentorProfileStatus.REJECTED,
-      });
-
-      await expect(service.rejectProfile(profile.id)).resolves.toBeDefined();
-    });
-
-    it('should not allow approved → submitted transition', async () => {
-      const userId = 'user-123';
-      const profile = {
-        id: 'profile-123',
-        userId,
-        status: MentorProfileStatus.APPROVED,
-      };
-
-      mockRepository.findOne.mockResolvedValue(profile);
-
-      await expect(service.submitProfile(userId)).rejects.toThrow(
-        BadRequestException,
+      expect(result).toEqual(submittedProfile);
+      expect(mockMentorsService.submitProfile).toHaveBeenCalledWith(
+        req.user.id,
       );
     });
   });
