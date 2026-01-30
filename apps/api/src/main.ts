@@ -11,6 +11,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { GlobalValidationPipe } from '@app/common/pipes/global-validation.pipe';
 import { GlobalExceptionFilter } from '@app/common/filters/global-exception.filter';
 import { LoggingInterceptor } from '@app/common/interceptors/logging.interceptor';
+import { ErrorResponse } from '@app/common/dto/error-response.dto';
 import helmet from 'helmet'; // Import Helmet
 import * as cors from 'cors'; // Import CORS
 import * as rateLimit from 'express-rate-limit'; // Import rateLimit
@@ -63,8 +64,16 @@ async function bootstrap() {
     .addBearerAuth()
     .build();
 
-  const document = SwaggerModule.createDocument(app, config);
+  const document = SwaggerModule.createDocument(app, config, {
+    extraModels: [ErrorResponse],
+  });
   SwaggerModule.setup('api/docs', app, document);
+
+  // Ensure unhandled promise rejections are logged and do not crash silently
+  process.on('unhandledRejection', (reason) => {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+    console.error('Unhandled Rejection at:', reason);
+  });
 
   await app.listen(process.env.PORT || DEFAULT_PORT);
 }
