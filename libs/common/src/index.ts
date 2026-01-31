@@ -3,3 +3,8 @@ export * from './constants';
 export * from './interfaces';
 export * from './mailer';
 export * from './enums';
+export * from './dto/error-response.dto';
+export * from './exceptions/app-error';
+export * from './exceptions/error-codes.enum';
+export * from './exceptions/insufficient-balance.exception';
+export * from './exceptions/invalid-trade.exception';
