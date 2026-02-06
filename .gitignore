@@ -1,49 +1,56 @@
-# Dependencies
-node_modules/
+# compiled output
+/dist
+/node_modules
+/build
+
+# Logs
+logs
+*.log
 npm-debug.log*
+pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
-.pnpm-debug.log*
 
-# Build outputs
-dist/
-build/
-*.tsbuildinfo
+# OS
+.DS_Store
 
-# Environment variables
+# Tests
+/coverage
+/.nyc_output
+
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# dotenv environment variable files
 .env
-.env.local
-.env.*.local
 .env.development.local
 .env.test.local
 .env.production.local
+.env.local
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-.next
+# temp directory
+.temp
+.tmp
 
-# Testing
-coverage/
-*.lcov
-.nyc_output
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
 
-# Logs
-logs/
-*.log
-
-# OS
-Thumbs.db
-
-# Temporary files
-*.tmp
-.cache/
-.temp/
-# Uploads
-uploads/*
-!uploads/.gitkeep
+# Diagnostic reports (https://nodejs.org/api/report.html)
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json

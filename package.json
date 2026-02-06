@@ -1,5 +1,5 @@
 {
-  "name": "monorepo",
+  "name": "NEW",
   "version": "0.0.1",
   "description": "",
   "author": "",
@@ -7,65 +7,33 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
-    "format": "prettier --write \"apps/**/*.ts\" \"libs/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/apps/api/main",
-    "lint": "eslint \"{apps,libs}/**/*.ts\" --fix",
-    "prepare": "husky install",
+    "start:prod": "node dist/main",
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./apps/api/test/jest-e2e.json",
-    "migration:generate": "typeorm-ts-node-commonjs migration:generate -d apps/api/src/config/data-source.ts",
-    "migration:run": "typeorm-ts-node-commonjs migration:run -d apps/api/src/config/data-source.ts",
-    "migration:revert": "typeorm-ts-node-commonjs migration:revert -d apps/api/src/config/data-source.ts",
-    "seed": "ts-node apps/api/src/seeds/run-seed.ts"
-  },
-  "lint-staged": {
-    "apps/**/*.{ts,js}": [
-      "eslint --fix",
-      "prettier --write"
-    ],
-    "libs/**/*.{ts,js}": [
-      "eslint --fix",
-      "prettier --write"
-    ],
-    "*.{json,md,yml,yaml,js}": [
-      "prettier --write"
-    ]
+    "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
-    "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
-    "@nestjs/platform-express": "^11.1.12",
-    "@nestjs/swagger": "^11.2.5",
-    "@nestjs/typeorm": "^11.0.0",
-    "@types/express-rate-limit": "^6.0.2",
-    "@types/multer": "^2.0.0",
-    "class-transformer": "^0.5.1",
-    "class-validator": "^0.14.3",
-    "handlebars": "^4.7.8",
-    "multer": "^2.0.2",
-    "pg": "^8.17.2",
+    "@nestjs/mapped-types": "*",
+    "@nestjs/platform-express": "^11.0.1",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1",
-    "swagger-ui-express": "^5.0.1",
-    "typeorm": "^0.3.28"
+    "rxjs": "^7.8.1"
   },
   "devDependencies": {
-    "@commitlint/cli": "^20.3.1",
-    "@commitlint/config-conventional": "^20.3.1",
     "@eslint/eslintrc": "^3.2.0",
     "@eslint/js": "^9.18.0",
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
     "@types/express": "^5.0.0",
-    "@types/ioredis": "^4.28.10",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.10.7",
     "@types/supertest": "^6.0.2",
@@ -73,18 +41,14 @@
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",
     "globals": "^16.0.0",
-    "husky": "^9.1.7",
     "jest": "^30.0.0",
-    "lint-staged": "^16.2.7",
     "prettier": "^3.4.2",
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
     "ts-jest": "^29.2.5",
     "ts-loader": "^9.5.2",
     "ts-node": "^10.9.2",
-    "ts-node-dev": "^2.0.0",
     "tsconfig-paths": "^4.2.0",
-    "typeorm-extension": "^3.7.1",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0"
   },
@@ -94,7 +58,7 @@
       "json",
       "ts"
     ],
-    "rootDir": ".",
+    "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
@@ -102,14 +66,7 @@
     "collectCoverageFrom": [
       "**/*.(t|j)s"
     ],
-    "coverageDirectory": "./coverage",
-    "testEnvironment": "node",
-    "roots": [
-      "<rootDir>/apps/",
-      "<rootDir>/libs/"
-    ],
-    "moduleNameMapper": {
-      "^@app/common(|/.*)$": "<rootDir>/libs/common/src/$1"
-    }
+    "coverageDirectory": "../coverage",
+    "testEnvironment": "node"
   }
 }
