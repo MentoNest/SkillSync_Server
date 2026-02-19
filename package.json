@@ -26,6 +26,7 @@
     "@nestjs/mapped-types": "*",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/typeorm": "^11.0.0",
+    "helmet": "^8.1.0",
     "joi": "^18.0.2",
     "pg": "^8.18.0",
     "reflect-metadata": "^0.2.2",

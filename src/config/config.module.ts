@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule as NestConfigModule } from '@nestjs/config';
 import * as Joi from 'joi';
+import { ConfigService } from './config.service';
 
 @Module({
   imports: [
@@ -20,8 +21,18 @@ import * as Joi from 'joi';
         DB_PASSWORD: Joi.string().required(),
         DB_NAME: Joi.string().required(),
         DB_SSL: Joi.boolean().default(false),
+
+        /**
+         * 🌍 CORS Configuration
+         */
+        CORS_ORIGINS: Joi.string().required(),
+        CORS_METHODS: Joi.string()
+          .default('GET,POST,PUT,PATCH,DELETE'),
+        CORS_CREDENTIALS: Joi.boolean().default(true),
       }),
     }),
   ],
+  providers: [ConfigService],
+  exports: [ConfigService],
 })
 export class ConfigModule {}
