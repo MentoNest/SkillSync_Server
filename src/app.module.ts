@@ -13,9 +13,29 @@ import { RatingsModule } from './modules/ratings/ratings.module';
 import { RedisModule } from './modules/redis/redis.module';
 import { MailModule } from './modules/mail/mail.module';
 import { PaginationModule } from './modules/pagination/pagination.module';
+import { ConfigModule } from '@nestjs/config';
+import { DatabaseModule } from './modules/database/database.module';
 
 @Module({
-  imports: [UserModule, AuthModule, ProfileModule, NotificationModule, BookingsModule, PaymentsModule, AuditModule, ReviewsModule, RatingsModule, RedisModule, MailModule, PaginationModule],
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: '.env',
+    }),
+    DatabaseModule,
+    UserModule,
+    AuthModule,
+    ProfileModule,
+    NotificationModule,
+    BookingsModule,
+    PaymentsModule,
+    AuditModule,
+    ReviewsModule,
+    RatingsModule,
+    RedisModule,
+    MailModule,
+    PaginationModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })
