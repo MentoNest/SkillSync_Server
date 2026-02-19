@@ -13,15 +13,12 @@ import { RatingsModule } from './modules/ratings/ratings.module';
 import { RedisModule } from './modules/redis/redis.module';
 import { MailModule } from './modules/mail/mail.module';
 import { PaginationModule } from './modules/pagination/pagination.module';
-import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from './modules/database/database.module';
+import { ConfigModule } from './config/config.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: '.env',
-    }),
+    ConfigModule,
     DatabaseModule,
     UserModule,
     AuthModule,
