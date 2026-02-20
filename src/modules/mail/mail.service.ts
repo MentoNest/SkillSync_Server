@@ -20,4 +20,9 @@ export class MailService {
     // For now, just simulate success
     return Promise.resolve();
   }
+
+  async sendWelcomeEmail(email: string, userName?: string): Promise<void> {
+    this.logger.log(`Welcome email would be sent to: ${email}`);
+    return Promise.resolve();
+  }
 }
