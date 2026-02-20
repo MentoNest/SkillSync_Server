@@ -22,12 +22,16 @@ import { ConfigService } from './config.service';
         DB_NAME: Joi.string().required(),
         DB_SSL: Joi.boolean().default(false),
 
+        REDIS_HOST: Joi.string().default('localhost'),
+        REDIS_PORT: Joi.number().default(6379),
+        REDIS_PASSWORD: Joi.string().allow('').optional(),
+        REDIS_DB: Joi.number().default(0),
+
         /**
          * 🌍 CORS Configuration
          */
         CORS_ORIGINS: Joi.string().required(),
-        CORS_METHODS: Joi.string()
-          .default('GET,POST,PUT,PATCH,DELETE'),
+        CORS_METHODS: Joi.string().default('GET,POST,PUT,PATCH,DELETE'),
         CORS_CREDENTIALS: Joi.boolean().default(true),
       }),
     }),
