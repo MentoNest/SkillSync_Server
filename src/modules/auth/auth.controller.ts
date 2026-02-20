@@ -10,10 +10,16 @@ import {
 import { AuthService } from './providers/auth.service';
 import { CreateAuthDto } from './dto/create-auth.dto';
 import { UpdateAuthDto } from './dto/update-auth.dto';
+import { NonceResponseDto } from './dto/nonce-response.dto';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  @Get('nonce')
+  async generateNonce(): Promise<NonceResponseDto> {
+    return this.authService.generateNonce();
+  }
 
   @Post()
   create(@Body() createAuthDto: CreateAuthDto) {
