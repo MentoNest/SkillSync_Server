@@ -5,7 +5,6 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ValidationExceptionFilter } from './common/filters/validation-exception.filter';
 import helmet from 'helmet';
 import { ConfigService } from './config/config.service';
-import { RateLimitService } from './common/cache/rate-limit.service';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -59,6 +58,7 @@ async function bootstrap() {
       new ValidationExceptionFilter(),
       new HttpExceptionFilter(),
     );
+
 
     // 🚦 Global Rate Limiting will be applied via guards on individual routes
     if (configService.rateLimitEnabled) {
