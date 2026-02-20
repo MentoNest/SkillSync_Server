@@ -4,6 +4,7 @@ import { Logger } from '@nestjs/common';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import helmet from 'helmet';
 import { ConfigService } from './config/config.service';
+import { RateLimitService } from './common/cache/rate-limit.service';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -41,6 +42,13 @@ async function bootstrap() {
     });
 
     app.useGlobalFilters(new HttpExceptionFilter());
+
+    // 🚦 Global Rate Limiting will be applied via guards on individual routes
+    if (configService.rateLimitEnabled) {
+      logger.log('✅ Global rate limiting available via guards');
+    } else {
+      logger.log('⚠️  Global rate limiting disabled');
+    }
 
     await app.listen(configService.port);
 

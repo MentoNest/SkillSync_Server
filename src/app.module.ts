@@ -15,11 +15,15 @@ import { MailModule } from './modules/mail/mail.module';
 import { PaginationModule } from './modules/pagination/pagination.module';
 import { DatabaseModule } from './modules/database/database.module';
 import { ConfigModule } from './config/config.module';
+import { CacheModule } from './common/cache/cache.module';
+import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
     ConfigModule,
     DatabaseModule,
+    CacheModule,
+    HealthModule,
     UserModule,
     AuthModule,
     ProfileModule,
