@@ -31,6 +31,14 @@ export class ConfigService {
   }
 
   /**
+   * 🔐 JWT Configuration
+   */
+  get jwtSecret(): string {
+    return process.env.JWT_SECRET ?? 'default-secret-change-in-production';
+  }
+
+  get jwtExpiresIn(): string {
+    return process.env.JWT_EXPIRES_IN ?? '1h';
    * 🚦 Rate Limiting Configuration
    */
   get rateLimitEnabled(): boolean {
