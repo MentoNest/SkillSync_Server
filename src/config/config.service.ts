@@ -29,4 +29,58 @@ export class ConfigService {
   get corsCredentials(): boolean {
     return process.env.CORS_CREDENTIALS === 'true';
   }
+
+  /**
+   * 🚦 Rate Limiting Configuration
+   */
+  get rateLimitEnabled(): boolean {
+    return process.env.RATE_LIMIT_ENABLED !== 'false';
+  }
+
+  get rateLimitGlobalWindowMs(): number {
+    return parseInt(process.env.RATE_LIMIT_GLOBAL_WINDOW_MS ?? '60000', 10);
+  }
+
+  get rateLimitGlobalMax(): number {
+    return parseInt(process.env.RATE_LIMIT_GLOBAL_MAX ?? '100', 10);
+  }
+
+  get rateLimitPerIpWindowMs(): number {
+    return parseInt(process.env.RATE_LIMIT_PER_IP_WINDOW_MS ?? '60000', 10);
+  }
+
+  get rateLimitPerIpMax(): number {
+    return parseInt(process.env.RATE_LIMIT_PER_IP_MAX ?? '100', 10);
+  }
+
+  get rateLimitPerWalletWindowMs(): number {
+    return parseInt(process.env.RATE_LIMIT_PER_WALLET_WINDOW_MS ?? '60000', 10);
+  }
+
+  get rateLimitPerWalletMax(): number {
+    return parseInt(process.env.RATE_LIMIT_PER_WALLET_MAX ?? '50', 10);
+  }
+
+  get rateLimitPerUserWindowMs(): number {
+    return parseInt(process.env.RATE_LIMIT_PER_USER_WINDOW_MS ?? '60000', 10);
+  }
+
+  get rateLimitPerUserMax(): number {
+    return parseInt(process.env.RATE_LIMIT_PER_USER_MAX ?? '200', 10);
+  }
+
+  get rateLimitStrictMax(): number {
+    return parseInt(process.env.RATE_LIMIT_STRICT_MAX ?? '10', 10);
+  }
+
+  get rateLimitRelaxedMax(): number {
+    return parseInt(process.env.RATE_LIMIT_RELAXED_MAX ?? '1000', 10);
+  }
+
+  get rateLimitExemptPaths(): string[] {
+    return (process.env.RATE_LIMIT_EXEMPT_PATHS ?? '/health,/health/redis')
+      .split(',')
+      .map((path) => path.trim())
+      .filter(Boolean);
+  }
 }
