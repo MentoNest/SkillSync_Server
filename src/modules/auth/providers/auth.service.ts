@@ -86,7 +86,10 @@ export class AuthService {
 
     // Send login notification email (fire and forget)
     this.mailService
-      .sendLoginEmail(user.email, user.firstName)
+      .sendLoginEmail(
+        { email: user.email, firstName: user.firstName },
+        { time: new Date() }
+      )
       .catch((err) => {
         this.logger.error(`Failed to send login email: ${err.message}`);
       });
@@ -131,7 +134,7 @@ export class AuthService {
     this.logger.log(`New user registered: ${email}`);
 
     this.mailService
-      .sendWelcomeEmail(user.email, user.firstName)
+      .sendWelcomeEmail({ email: user.email, firstName: user.firstName })
       .catch((err) => {
         this.logger.error(`Failed to send welcome email: ${err.message}`);
       });

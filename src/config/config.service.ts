@@ -40,4 +40,39 @@ export class ConfigService {
   get jwtExpiresIn(): string {
     return process.env.JWT_EXPIRES_IN ?? '1h';
   }
+
+  /**
+   * 📧 Mail Configuration
+   */
+  get mailSender(): string {
+    return process.env.MAIL_SENDER ?? 'noreply@skillsync.com';
+  }
+
+  get mailSubjectPrefix(): string {
+    return process.env.MAIL_SUBJECT_PREFIX ?? '[SkillSync]';
+  }
+
+  get mailAppName(): string {
+    return process.env.MAIL_APP_NAME ?? 'SkillSync';
+  }
+
+  get smtpHost(): string {
+    return process.env.SMTP_HOST ?? 'smtp.example.com';
+  }
+
+  get smtpPort(): number {
+    return parseInt(process.env.SMTP_PORT ?? '587', 10);
+  }
+
+  get smtpUser(): string {
+    return process.env.SMTP_USER ?? '';
+  }
+
+  get smtpPassword(): string {
+    return process.env.SMTP_PASSWORD ?? '';
+  }
+
+  get smtpSecure(): boolean {
+    return process.env.SMTP_SECURE === 'true';
+  }
 }
