@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { Logger } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import helmet from 'helmet';
 import { ConfigService } from './config/config.service';
@@ -43,6 +43,17 @@ async function bootstrap() {
 
     app.useGlobalFilters(new HttpExceptionFilter());
 
+    // 📝 Global validation pipe
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+        transformOptions: {
+          enableImplicitConversion: true,
+        },
+      }),
+    );
     // 🚦 Global Rate Limiting will be applied via guards on individual routes
     if (configService.rateLimitEnabled) {
       logger.log('✅ Global rate limiting available via guards');

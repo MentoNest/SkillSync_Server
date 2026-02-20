@@ -1,22 +1,28 @@
 import {
   Injectable,
   UnauthorizedException,
+  ConflictException,
   Logger,
 } from '@nestjs/common';
-import { CreateAuthDto, LoginUserDto } from '../dto/create-auth.dto';
+import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
+import { CreateAuthDto, LoginUserDto, RegisterDto } from '../dto/create-auth.dto';
 import { UpdateAuthDto } from '../dto/update-auth.dto';
-import { NonceService } from 'src/common/cache/nonce.service';
+import { NonceService } from '../../../common/cache/nonce.service';
 import { NonceResponseDto } from '../dto/nonce-response.dto';
 import { ConfigService } from '../../../config/config.service';
-import { randomBytes, createHash } from 'crypto';
+import { randomBytes } from 'crypto';
 import { UserService } from '../../user/providers/user.service';
 import { MailService } from '../../mail/mail.service';
 import { User } from '../../user/entities/user.entity';
+import {
+  LoginResponse,
+  RegisterResponse,
+  JwtPayload,
+} from '../interfaces/auth.interface';
 
-export interface LoginResponse {
-  accessToken: string;
-  user: Omit<User, 'password'>;
-}
+// Re-export interfaces for backward compatibility
+export type { LoginResponse };
 
 @Injectable()
 export class AuthService {
@@ -27,6 +33,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly userService: UserService,
     private readonly mailService: MailService,
+    private readonly jwtService: JwtService,
   ) {}
 
   async generateNonce(ttl: number = 300): Promise<NonceResponseDto> {
@@ -94,37 +101,65 @@ export class AuthService {
   }
 
   /**
+   * 📝 Register a new user
+   * Creates user account and returns safe user payload
+   */
+  async register(registerDto: RegisterDto): Promise<RegisterResponse> {
+    const { firstName, lastName, email, password } = registerDto;
+
+    // Check if user already exists
+    const existingUser = await this.userService.findByEmail(email);
+    if (existingUser) {
+      throw new ConflictException('User with this email already exists');
+    }
+
+    // Hash password using bcrypt
+    const hashedPassword = await this.hashPassword(password);
+
+    // Create new user
+    const user = await this.userService.create({
+      firstName,
+      lastName,
+      email,
+      password: hashedPassword,
+      isActive: true,
+    });
+
+    // Remove password from response
+    const { password: _, ...safeUser } = user;
+
+    this.logger.log(`New user registered: ${email}`);
+
+    return {
+      message: 'User registered successfully',
+      user: safeUser as Omit<User, 'password'>,
+    };
+  }
+
+  /**
    * 🔐 Verify password against hashed password
-   * Uses SHA-256 hashing for demonstration - use bcrypt/argon2 in production
+   * Uses bcrypt for secure password comparison
    */
   private async verifyPassword(
     plainPassword: string,
     hashedPassword: string,
   ): Promise<boolean> {
-    // In production, use bcrypt.compare() or argon2.verify()
-    // For this implementation, using SHA-256 hash comparison
-    const hashedInput = createHash('sha256')
-      .update(plainPassword)
-      .digest('hex');
-    return hashedInput === hashedPassword;
+    return bcrypt.compare(plainPassword, hashedPassword);
   }
 
   /**
-   * 🔐 Hash password
-   * Uses SHA-256 hashing for demonstration - use bcrypt/argon2 in production
+   * 🔐 Hash password using bcrypt
    */
   async hashPassword(plainPassword: string): Promise<string> {
-    // In production, use bcrypt.hash() or argon2.hash()
-    // For this implementation, using SHA-256
-    return createHash('sha256').update(plainPassword).digest('hex');
+    const saltRounds = 10;
+    return bcrypt.hash(plainPassword, saltRounds);
   }
 
   /**
-   * 🔐 Generate JWT token for user
+   * 🔐 Generate JWT token for user using JwtService
    */
   private async generateJwtToken(user: User): Promise<string> {
-    // Create JWT payload with claims
-    const payload = {
+    const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       iat: Math.floor(Date.now() / 1000),
@@ -133,22 +168,7 @@ export class AuthService {
         this.parseExpiresIn(this.configService.jwtExpiresIn),
     };
 
-    // Simple JWT implementation using base64 encoding
-    // In production, use @nestjs/jwt package with proper signing
-    const header = { alg: 'HS256', typ: 'JWT' };
-    const encodedHeader = Buffer.from(JSON.stringify(header)).toString(
-      'base64url',
-    );
-    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString(
-      'base64url',
-    );
-
-    // Create signature
-    const signature = createHash('sha256')
-      .update(`${encodedHeader}.${encodedPayload}.${this.configService.jwtSecret}`)
-      .digest('base64url');
-
-    return `${encodedHeader}.${encodedPayload}.${signature}`;
+    return this.jwtService.sign(payload);
   }
 
   /**

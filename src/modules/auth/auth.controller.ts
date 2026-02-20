@@ -11,8 +11,14 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { AuthService, LoginResponse } from './providers/auth.service';
-import { CreateAuthDto, LoginUserDto } from './dto/create-auth.dto';
+import { AuthService } from './providers/auth.service';
+import { LoginResponse, RegisterResponse } from './interfaces/auth.interface';
+import {
+  CreateAuthDto,
+  LoginUserDto,
+  RegisterDto,
+  LoginDto,
+} from './dto/create-auth.dto';
 import { UpdateAuthDto } from './dto/update-auth.dto';
 import { NonceResponseDto } from './dto/nonce-response.dto';
 import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
@@ -36,6 +42,26 @@ export class AuthController {
     return this.authService.generateNonce();
   }
 
+  @Post('register')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Register a new user account' })
+  @ApiResponse({
+    status: 201,
+    description: 'User registered successfully',
+    type: Object,
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'User with this email already exists',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid input data',
+  })
+  async register(@Body() registerDto: RegisterDto): Promise<RegisterResponse> {
+    return this.authService.register(registerDto);
+  }
+
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login user with email and password' })
@@ -48,8 +74,8 @@ export class AuthController {
     status: 401,
     description: 'Invalid credentials',
   })
-  async login(@Body() loginUserDto: LoginUserDto): Promise<LoginResponse> {
-    return this.authService.login(loginUserDto);
+  async login(@Body() loginDto: LoginDto): Promise<LoginResponse> {
+    return this.authService.login(loginDto);
   }
 
   @Post()
