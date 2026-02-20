@@ -29,4 +29,15 @@ export class ConfigService {
   get corsCredentials(): boolean {
     return process.env.CORS_CREDENTIALS === 'true';
   }
+
+  /**
+   * 🔐 JWT Configuration
+   */
+  get jwtSecret(): string {
+    return process.env.JWT_SECRET ?? 'default-secret-change-in-production';
+  }
+
+  get jwtExpiresIn(): string {
+    return process.env.JWT_EXPIRES_IN ?? '1h';
+  }
 }
