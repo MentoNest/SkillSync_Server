@@ -7,6 +7,9 @@ import {
   Param,
   Delete,
   UseGuards,
+  Query,
+  HttpStatus,
+  HttpException,
 } from '@nestjs/common';
 import { AuthService } from './providers/auth.service';
 import { CreateAuthDto } from './dto/create-auth.dto';
@@ -24,6 +27,21 @@ export class AuthController {
   @RateLimit(RateLimits.STRICT) // Strict rate limiting for nonce generation
   async generateNonce(): Promise<NonceResponseDto> {
     return this.authService.generateNonce();
+  }
+
+  @Get('nonce/validate')
+  @RateLimit(RateLimits.NORMAL) // Normal rate limiting for validation
+  async validateNonce(@Query('nonce') nonce: string) {
+    if (!nonce) {
+      throw new HttpException('Nonce parameter is required', HttpStatus.BAD_REQUEST);
+    }
+    
+    const isValid = await this.authService.validateNonce(nonce);
+    return {
+      nonce: nonce.substring(0, 8) + '...',
+      valid: isValid,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
   }
 
   @Post()
