@@ -1,12 +1,5 @@
-import {
-  Injectable,
-  UnauthorizedException,
-  ConflictException,
-  Logger,
-} from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcrypt';
-import { CreateAuthDto, LoginUserDto, RegisterDto } from '../dto/create-auth.dto';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { CreateAuthDto } from '../dto/create-auth.dto';
 import { UpdateAuthDto } from '../dto/update-auth.dto';
 import { NonceService } from '../../../common/cache/nonce.service';
 import { NonceResponseDto } from '../dto/nonce-response.dto';
@@ -37,20 +30,40 @@ export class AuthService {
   ) {}
 
   async generateNonce(ttl: number = 300): Promise<NonceResponseDto> {
-    // Generate a cryptographically secure random nonce
-    const nonce = randomBytes(32).toString('hex');
+    try {
+      // Generate a cryptographically secure random nonce (256-bit entropy)
+      const nonce = randomBytes(32).toString('hex');
+      this.logger.log(`Generated nonce: ${nonce.substring(0, 8)}...`);
+      
+      // Store the nonce in cache with TTL
+      await this.nonceService.storeNonce(nonce, ttl);
+      this.logger.debug(`Stored nonce in cache with TTL: ${ttl} seconds`);
+      
+      // Calculate expiration timestamp (Unix timestamp in seconds)
+      const expiresAt = Math.floor(Date.now() / 1000) + ttl;
+      
+      this.logger.log(`Nonce expires at: ${new Date(expiresAt * 1000).toISOString()}`);
+      
+      return {
+        nonce,
+        expiresAt,
+        ttl,
+      };
+    } catch (error) {
+      this.logger.error('Failed to generate nonce:', error);
+      throw new BadRequestException('Failed to generate authentication nonce');
+    }
+  }
 
-    // Store the nonce in cache with TTL
-    await this.nonceService.storeNonce(nonce, ttl);
-
-    // Calculate expiration timestamp
-    const expiresAt = Math.floor(Date.now() / 1000) + ttl;
-
-    return {
-      nonce,
-      expiresAt,
-      ttl,
-    };
+  async validateNonce(nonce: string): Promise<boolean> {
+    try {
+      const isValid = await this.nonceService.isNonceValid(nonce);
+      this.logger.debug(`Nonce validation result for ${nonce.substring(0, 8)}...: ${isValid}`);
+      return isValid;
+    } catch (error) {
+      this.logger.error('Failed to validate nonce:', error);
+      return false;
+    }
   }
 
   /**

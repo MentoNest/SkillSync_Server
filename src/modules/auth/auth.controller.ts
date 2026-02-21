@@ -8,6 +8,10 @@ import {
   Delete,
   HttpCode,
   HttpStatus,
+  UseGuards,
+  Query,
+  HttpStatus,
+  HttpException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './providers/auth.service';
@@ -20,9 +24,12 @@ import {
 } from './dto/create-auth.dto';
 import { UpdateAuthDto } from './dto/update-auth.dto';
 import { NonceResponseDto } from './dto/nonce-response.dto';
+import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
+import { RateLimit, SkipRateLimit, RateLimits } from '../../common/decorators/rate-limit.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
+@UseGuards(RateLimitGuard)
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
@@ -33,44 +40,24 @@ export class AuthController {
     description: 'Returns a cryptographically secure nonce',
     type: NonceResponseDto,
   })
+  @RateLimit(RateLimits.STRICT) // Strict rate limiting for nonce generation
   async generateNonce(): Promise<NonceResponseDto> {
     return this.authService.generateNonce();
   }
 
-  @Post('register')
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Register a new user account' })
-  @ApiResponse({
-    status: 201,
-    description: 'User registered successfully',
-    type: Object,
-  })
-  @ApiResponse({
-    status: 409,
-    description: 'User with this email already exists',
-  })
-  @ApiResponse({
-    status: 400,
-    description: 'Invalid input data',
-  })
-  async register(@Body() registerDto: RegisterDto): Promise<RegisterResponse> {
-    return this.authService.register(registerDto);
-  }
-
-  @Post('login')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Login user with email and password' })
-  @ApiResponse({
-    status: 200,
-    description: 'Login successful - returns access token and user data',
-    type: Object,
-  })
-  @ApiResponse({
-    status: 401,
-    description: 'Invalid credentials',
-  })
-  async login(@Body() loginDto: LoginDto): Promise<LoginResponse> {
-    return this.authService.login(loginDto);
+  @Get('nonce/validate')
+  @RateLimit(RateLimits.NORMAL) // Normal rate limiting for validation
+  async validateNonce(@Query('nonce') nonce: string) {
+    if (!nonce) {
+      throw new HttpException('Nonce parameter is required', HttpStatus.BAD_REQUEST);
+    }
+    
+    const isValid = await this.authService.validateNonce(nonce);
+    return {
+      nonce: nonce.substring(0, 8) + '...',
+      valid: isValid,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
   }
 
   @Post()
