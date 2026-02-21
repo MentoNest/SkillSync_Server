@@ -110,13 +110,12 @@ export class AuthService {
     const { accessToken, refreshToken } = await this.generateTokenPair(user);
 
     // Send login notification email (fire and forget)
-
     this.mailService
       .sendLoginEmail(
         { email: user.email, firstName: user.firstName },
         { time: new Date() }
       )
-      .catch((err) => {
+      .catch((err: Error) => {
         this.logger.error(`Failed to send login email: ${err.message}`);
       });
 
@@ -210,9 +209,10 @@ export class AuthService {
 
     this.logger.log(`New user registered: ${email}`);
 
+
     this.mailService
       .sendWelcomeEmail({ email: user.email, firstName: user.firstName })
-      .catch((err) => {
+      .catch((err: Error) => {
         this.logger.error(`Failed to send welcome email: ${err.message}`);
       });
 
@@ -246,6 +246,7 @@ export class AuthService {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
+      role: user.role,
       iat: Math.floor(Date.now() / 1000),
       exp:
         Math.floor(Date.now() / 1000) +

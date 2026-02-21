@@ -47,7 +47,6 @@ export class MailService {
   private readonly templatesDir: string;
 
   constructor(private readonly configService: ConfigService) {
-    // Resolve templates directory path
     this.templatesDir = path.join(__dirname, 'templates');
   }
 
