@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import Redis from 'ioredis';
-import { REDIS_CLIENT } from 'src/modules/redis/providers/redis.provider';
+import { REDIS_CLIENT } from '../../modules/redis/providers/redis.provider';
 
 @Injectable()
 export class CacheService {

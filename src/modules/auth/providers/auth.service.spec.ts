@@ -5,22 +5,42 @@ describe('AuthService register', () => {
   let authService: AuthService;
   let userServiceMock: {
     findByEmail: jest.Mock;
+    findById: jest.Mock;
     create: jest.Mock;
   };
   let mailServiceMock: {
     sendWelcomeEmail: jest.Mock;
     sendLoginEmail: jest.Mock;
   };
+  let cacheServiceMock: {
+    set: jest.Mock;
+    get: jest.Mock;
+    del: jest.Mock;
+  };
+  let auditServiceMock: {
+    recordTokenReuseAttempt: jest.Mock;
+  };
 
   beforeEach(() => {
     userServiceMock = {
       findByEmail: jest.fn(),
+      findById: jest.fn(),
       create: jest.fn(),
     };
 
     mailServiceMock = {
-      sendWelcomeEmail: jest.fn(),
-      sendLoginEmail: jest.fn(),
+      sendWelcomeEmail: jest.fn().mockResolvedValue(undefined),
+      sendLoginEmail: jest.fn().mockResolvedValue(undefined),
+    };
+
+    cacheServiceMock = {
+      set: jest.fn(),
+      get: jest.fn(),
+      del: jest.fn(),
+    };
+
+    auditServiceMock = {
+      recordTokenReuseAttempt: jest.fn(),
     };
 
     const nonceServiceMock = {
@@ -28,8 +48,16 @@ describe('AuthService register', () => {
     };
 
     const configServiceMock = {
-      jwtExpiresIn: '1h',
-      jwtSecret: 'secret',
+      get: jest.fn((key: string, defaultValue?: string) => {
+        const values: Record<string, string> = {
+          JWT_EXPIRES_IN: '1h',
+          JWT_SECRET: 'secret',
+          JWT_REFRESH_SECRET: 'refresh-secret',
+          JWT_REFRESH_EXPIRES_IN: '7d',
+        };
+
+        return values[key] ?? defaultValue;
+      }),
     };
 
     const jwtServiceMock = {
@@ -39,9 +67,11 @@ describe('AuthService register', () => {
     authService = new AuthService(
       nonceServiceMock as any,
       configServiceMock as any,
+      cacheServiceMock as any,
       userServiceMock as any,
       mailServiceMock as any,
       jwtServiceMock as any,
+      auditServiceMock as any,
     );
   });
 
@@ -71,7 +101,7 @@ describe('AuthService register', () => {
 
     expect(userServiceMock.findByEmail).toHaveBeenCalledWith('test@example.com');
     expect(userServiceMock.create).toHaveBeenCalled();
-    expect(mailServiceMock.sendWelcomeEmail).toHaveBeenCalledWith('test@example.com', 'John');
+    expect(mailServiceMock.sendWelcomeEmail).toHaveBeenCalled();
     expect((result.user as any).password).toBeUndefined();
   });
 

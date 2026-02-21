@@ -1,9 +1,23 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
 @Injectable()
 export class AuditService {
+  private readonly logger = new Logger(AuditService.name);
+
   create() {
     return 'This action adds a new audit';
+  }
+
+  recordTokenReuseAttempt(params: { userId: string; sessionId: string; tokenId: string }) {
+    this.logger.warn(
+      `Refresh token reuse detected user=${params.userId} session=${params.sessionId} token=${params.tokenId}`,
+    );
+
+    return {
+      event: 'refresh_token_reuse',
+      timestamp: new Date().toISOString(),
+      ...params,
+    };
   }
 
   findAll() {

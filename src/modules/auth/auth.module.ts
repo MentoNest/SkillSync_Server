@@ -11,10 +11,12 @@ import { MailModule } from '../mail/mail.module';
 import { ConfigService } from '@nestjs/config';
 import { RateLimitService } from '../../common/cache/rate-limit.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
     RedisModule,
+    AuditModule,
     UserModule,
     MailModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),

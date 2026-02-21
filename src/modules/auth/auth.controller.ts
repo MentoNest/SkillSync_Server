@@ -1,9 +1,19 @@
-import { Controller, Get, Body, HttpStatus, UseGuards, Query, HttpException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Body,
+  HttpStatus,
+  UseGuards,
+  Query,
+  HttpException,
+  Post,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './providers/auth.service';
 import { NonceResponseDto } from './dto/nonce-response.dto';
 import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { RateLimit, RateLimits } from '../../common/decorators/rate-limit.decorator';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -36,5 +46,14 @@ export class AuthController {
       valid: isValid,
       timestamp: Math.floor(Date.now() / 1000),
     };
+  }
+
+  @Post('refresh')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Rotate refresh token and issue a new token pair' })
+  @ApiResponse({ status: 200, description: 'Returns a new access/refresh token pair' })
+  @ApiResponse({ status: 401, description: 'Invalid, reused, or revoked refresh token' })
+  async refresh(@Body() body: RefreshTokenDto) {
+    return this.authService.refresh(body?.refreshToken);
   }
 }
