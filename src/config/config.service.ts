@@ -75,8 +75,10 @@ export class ConfigService {
 
   get smtpSecure(): boolean {
     return process.env.SMTP_SECURE === 'true';
+  }
 
-   * 🚦 Rate Limiting Configuration
+  /**
+   * Rate Limiting Configuration
    */
   get rateLimitEnabled(): boolean {
     return process.env.RATE_LIMIT_ENABLED !== 'false';

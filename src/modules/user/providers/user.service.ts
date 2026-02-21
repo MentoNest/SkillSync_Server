@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { User } from '../entities/user.entity';
+import { UserRole } from '../../../common/enums/user-role.enum';
 
 @Injectable()
 export class UserService {
@@ -23,6 +24,7 @@ export class UserService {
       password: userData.password!,
       firstName: userData.firstName,
       lastName: userData.lastName,
+      role: userData.role ?? UserRole.MENTEE,
       isActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
