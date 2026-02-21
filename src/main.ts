@@ -2,9 +2,9 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { ValidationExceptionFilter } from './common/filters/validation-exception.filter';
 import helmet from 'helmet';
 import { ConfigService } from './config/config.service';
-import { RateLimitService } from './common/cache/rate-limit.service';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -41,19 +41,25 @@ async function bootstrap() {
       credentials: configService.corsCredentials,
     });
 
-    app.useGlobalFilters(new HttpExceptionFilter());
-
-    // 📝 Global validation pipe
+    // 📋 Global Validation Pipe
     app.useGlobalPipes(
       new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
+        whitelist: true, // Strip non-whitelisted properties
+        forbidNonWhitelisted: true, // Throw error for non-whitelisted properties
+        transform: true, // Automatically transform payloads to DTO instances
         transformOptions: {
           enableImplicitConversion: true,
         },
       }),
     );
+
+    // 🛡 Exception Filters
+    app.useGlobalFilters(
+      new ValidationExceptionFilter(),
+      new HttpExceptionFilter(),
+    );
+
+
     // 🚦 Global Rate Limiting will be applied via guards on individual routes
     if (configService.rateLimitEnabled) {
       logger.log('✅ Global rate limiting available via guards');

@@ -39,6 +39,9 @@ export class ConfigService {
 
   get jwtExpiresIn(): string {
     return process.env.JWT_EXPIRES_IN ?? '1h';
+  }
+
+  /**
    * 🚦 Rate Limiting Configuration
    */
   get rateLimitEnabled(): boolean {
