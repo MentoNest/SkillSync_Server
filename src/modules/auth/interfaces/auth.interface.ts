@@ -12,12 +12,25 @@ export interface JwtPayload {
   exp: number;
 }
 
+export interface RefreshTokenPayload extends JwtPayload {
+  sid: string;
+  family: string;
+  jti: string;
+  type: 'refresh';
+}
+
 /**
  * Login response interface
  */
 export interface LoginResponse {
   accessToken: string;
+  refreshToken: string;
   user: Omit<User, 'password'>;
+}
+
+export interface RefreshResponse {
+  accessToken: string;
+  refreshToken: string;
 }
 
 /**

@@ -16,6 +16,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 @Module({
   imports: [
     RedisModule,
+    AuditModule,
     UserModule,
     MailModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),

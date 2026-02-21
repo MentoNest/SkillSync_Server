@@ -78,7 +78,7 @@ export class ConfigService {
   }
 
   /**
-   * Rate Limiting Configuration
+   * 🚦 Rate Limiting Configuration
    */
   get rateLimitEnabled(): boolean {
     return process.env.RATE_LIMIT_ENABLED !== 'false';
