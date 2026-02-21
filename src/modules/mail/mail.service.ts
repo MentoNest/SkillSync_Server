@@ -4,10 +4,10 @@ import { Injectable, Logger } from '@nestjs/common';
 export class MailService {
   private readonly logger = new Logger(MailService.name);
 
-  async sendLoginEmail(email: string, userName?: string): Promise<void> {
+  async sendLoginEmail(email: string): Promise<void> {
     // Log the email for development purposes
     this.logger.log(`Login email would be sent to: ${email}`);
-    
+
     // In production, integrate with actual email service (SendGrid, AWS SES, etc.)
     // Example implementation:
     // await this.sendGridClient.send({
@@ -16,12 +16,12 @@ export class MailService {
     //   template: 'login-notification',
     //   context: { userName, loginTime: new Date() }
     // });
-    
+
     // For now, just simulate success
     return Promise.resolve();
   }
 
-  async sendWelcomeEmail(email: string, userName?: string): Promise<void> {
+  async sendWelcomeEmail(email: string): Promise<void> {
     this.logger.log(`Welcome email would be sent to: ${email}`);
     return Promise.resolve();
   }

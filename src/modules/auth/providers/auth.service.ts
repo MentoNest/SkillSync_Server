@@ -1,18 +1,20 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { CreateAuthDto } from '../dto/create-auth.dto';
-import { UpdateAuthDto } from '../dto/update-auth.dto';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  UnauthorizedException,
+  ConflictException,
+} from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { NonceService } from '../../../common/cache/nonce.service';
 import { NonceResponseDto } from '../dto/nonce-response.dto';
-import { ConfigService } from '../../../config/config.service';
+import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import { UserService } from '../../user/providers/user.service';
 import { MailService } from '../../mail/mail.service';
 import { User } from '../../user/entities/user.entity';
-import {
-  LoginResponse,
-  RegisterResponse,
-  JwtPayload,
-} from '../interfaces/auth.interface';
+import { LoginResponse, RegisterResponse, JwtPayload } from '../interfaces/auth.interface';
+import * as bcrypt from 'bcrypt';
 
 // Re-export interfaces for backward compatibility
 export type { LoginResponse };
@@ -34,16 +36,16 @@ export class AuthService {
       // Generate a cryptographically secure random nonce (256-bit entropy)
       const nonce = randomBytes(32).toString('hex');
       this.logger.log(`Generated nonce: ${nonce.substring(0, 8)}...`);
-      
+
       // Store the nonce in cache with TTL
       await this.nonceService.storeNonce(nonce, ttl);
       this.logger.debug(`Stored nonce in cache with TTL: ${ttl} seconds`);
-      
+
       // Calculate expiration timestamp (Unix timestamp in seconds)
       const expiresAt = Math.floor(Date.now() / 1000) + ttl;
-      
+
       this.logger.log(`Nonce expires at: ${new Date(expiresAt * 1000).toISOString()}`);
-      
+
       return {
         nonce,
         expiresAt,
@@ -70,7 +72,7 @@ export class AuthService {
    * 🔐 Login user with email and password
    * Returns JWT access token and safe user payload
    */
-  async login(loginUserDto: LoginUserDto): Promise<LoginResponse> {
+  async login(loginUserDto: { email: string; password: string }): Promise<LoginResponse> {
     const { email, password } = loginUserDto;
 
     // Find user by email
@@ -95,17 +97,16 @@ export class AuthService {
     }
 
     // Generate JWT token
-    const accessToken = await this.generateJwtToken(user);
+    const accessToken = this.generateJwtToken(user);
 
     // Send login notification email (fire and forget)
-    this.mailService
-      .sendLoginEmail(user.email, user.firstName)
-      .catch((err) => {
-        this.logger.error(`Failed to send login email: ${err.message}`);
-      });
+    this.mailService.sendLoginEmail(user.email).catch((err: Error) => {
+      this.logger.error(`Failed to send login email: ${err.message}`);
+    });
 
     // Remove password from user object before returning
-    const { password: _, ...safeUser } = user;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { password: _password, ...safeUser } = user;
 
     return {
       accessToken,
@@ -117,7 +118,12 @@ export class AuthService {
    * 📝 Register a new user
    * Creates user account and returns safe user payload
    */
-  async register(registerDto: RegisterDto): Promise<RegisterResponse> {
+  async register(registerDto: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+  }): Promise<RegisterResponse> {
     const { firstName, lastName, email, password } = registerDto;
 
     // Check if user already exists
@@ -139,15 +145,14 @@ export class AuthService {
     });
 
     // Remove password from response
-    const { password: _, ...safeUser } = user;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { password: _password, ...safeUser } = user;
 
     this.logger.log(`New user registered: ${email}`);
 
-    this.mailService
-      .sendWelcomeEmail(user.email, user.firstName)
-      .catch((err) => {
-        this.logger.error(`Failed to send welcome email: ${err.message}`);
-      });
+    this.mailService.sendWelcomeEmail(user.email).catch((err: Error) => {
+      this.logger.error(`Failed to send welcome email: ${err.message}`);
+    });
 
     return {
       message: 'User registered successfully',
@@ -159,10 +164,7 @@ export class AuthService {
    * 🔐 Verify password against hashed password
    * Uses bcrypt for secure password comparison
    */
-  private async verifyPassword(
-    plainPassword: string,
-    hashedPassword: string,
-  ): Promise<boolean> {
+  private async verifyPassword(plainPassword: string, hashedPassword: string): Promise<boolean> {
     return bcrypt.compare(plainPassword, hashedPassword);
   }
 
@@ -177,14 +179,14 @@ export class AuthService {
   /**
    * 🔐 Generate JWT token for user using JwtService
    */
-  private async generateJwtToken(user: User): Promise<string> {
+  private generateJwtToken(user: User): string {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       iat: Math.floor(Date.now() / 1000),
       exp:
         Math.floor(Date.now() / 1000) +
-        this.parseExpiresIn(this.configService.jwtExpiresIn),
+        this.parseExpiresIn(this.configService.get<string>('JWT_EXPIRES_IN', '1h')),
     };
 
     return this.jwtService.sign(payload);
@@ -212,25 +214,5 @@ export class AuthService {
       default:
         return 3600;
     }
-  }
-
-  create(createAuthDto: CreateAuthDto) {
-    return 'This action adds a new auth';
-  }
-
-  findAll() {
-    return `This action returns all auth`;
-  }
-
-  findOne(id: number) {
-    return `This action returns a #${id} auth`;
-  }
-
-  update(id: number, updateAuthDto: UpdateAuthDto) {
-    return `This action updates a #${id} auth`;
-  }
-
-  remove(id: number) {
-    return `This action removes a #${id} auth`;
   }
 }

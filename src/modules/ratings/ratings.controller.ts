@@ -1,23 +1,13 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Patch,
-  Param,
-  Delete,
-} from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Delete } from '@nestjs/common';
 import { RatingsService } from './providers/ratings.service';
-import { CreateRatingDto } from './dto/create-rating.dto';
-import { UpdateRatingDto } from './dto/update-rating.dto';
 
 @Controller('ratings')
 export class RatingsController {
   constructor(private readonly ratingsService: RatingsService) {}
 
   @Post()
-  create(@Body() createRatingDto: CreateRatingDto) {
-    return this.ratingsService.create(createRatingDto);
+  create() {
+    return this.ratingsService.create();
   }
 
   @Get()
@@ -31,8 +21,8 @@ export class RatingsController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateRatingDto: UpdateRatingDto) {
-    return this.ratingsService.update(+id, updateRatingDto);
+  update(@Param('id') id: string) {
+    return this.ratingsService.update(+id);
   }
 
   @Delete(':id')

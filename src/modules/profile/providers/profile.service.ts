@@ -1,10 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { CreateProfileDto } from '../dto/create-profile.dto';
-import { UpdateProfileDto } from '../dto/update-profile.dto';
 
 @Injectable()
 export class ProfileService {
-  create(createProfileDto: CreateProfileDto) {
+  create() {
     return 'This action adds a new profile';
   }
 
@@ -16,7 +14,7 @@ export class ProfileService {
     return `This action returns a #${id} profile`;
   }
 
-  update(id: number, updateProfileDto: UpdateProfileDto) {
+  update(id: number) {
     return `This action updates a #${id} profile`;
   }
 

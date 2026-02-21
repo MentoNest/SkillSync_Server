@@ -1,6 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
-import { CreateAuditDto } from './dto/create-audit.dto';
-import { UpdateAuditDto } from './dto/update-audit.dto';
+import { Controller, Get, Post, Patch, Param, Delete } from '@nestjs/common';
 import { AuditService } from './providers/audit.service';
 
 @Controller('audit')
@@ -8,8 +6,8 @@ export class AuditController {
   constructor(private readonly auditService: AuditService) {}
 
   @Post()
-  create(@Body() createAuditDto: CreateAuditDto) {
-    return this.auditService.create(createAuditDto);
+  create() {
+    return this.auditService.create();
   }
 
   @Get()
@@ -23,8 +21,8 @@ export class AuditController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateAuditDto: UpdateAuditDto) {
-    return this.auditService.update(+id, updateAuditDto);
+  update(@Param('id') id: string) {
+    return this.auditService.update(+id);
   }
 
   @Delete(':id')

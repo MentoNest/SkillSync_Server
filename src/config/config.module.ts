@@ -9,9 +9,7 @@ import { ConfigService } from './config.service';
       isGlobal: true,
       envFilePath: '.env',
       validationSchema: Joi.object({
-        NODE_ENV: Joi.string()
-          .valid('development', 'production', 'test')
-          .default('development'),
+        NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
 
         PORT: Joi.number().default(3000),
 
@@ -49,6 +47,12 @@ import { ConfigService } from './config.service';
         RATE_LIMIT_STRICT_MAX: Joi.number().default(10),
         RATE_LIMIT_RELAXED_MAX: Joi.number().default(1000),
         RATE_LIMIT_EXEMPT_PATHS: Joi.string().default('/health,/health/redis'),
+
+        /**
+         * 🔐 JWT Configuration
+         */
+        JWT_SECRET: Joi.string().default('dev-secret-key-for-skill-sync-server'),
+        JWT_EXPIRES_IN: Joi.string().default('1h'),
       }),
     }),
   ],

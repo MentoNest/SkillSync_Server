@@ -12,7 +12,7 @@ export class RateLimitExceptionFilter implements ExceptionFilter {
       response.status(HttpStatus.TOO_MANY_REQUESTS).json({
         statusCode: HttpStatus.TOO_MANY_REQUESTS,
         message: 'Too Many Requests',
-        error: 'Rate limit exceeded'
+        error: 'Rate limit exceeded',
       });
       return;
     }

@@ -8,7 +8,8 @@ import { CacheService } from '../../common/cache/cache.service';
 import { RedisModule } from '../redis/redis.module';
 import { UserModule } from '../user/user.module';
 import { MailModule } from '../mail/mail.module';
-import { ConfigService } from '../../config/config.service';
+import { ConfigService } from '@nestjs/config';
+import { RateLimitService } from '../../common/cache/rate-limit.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
 @Module({
@@ -19,16 +20,16 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       useFactory: (configService: ConfigService) => ({
-        secret: configService.jwtSecret,
+        secret: configService.get<string>('JWT_SECRET', 'dev-secret-key-for-skill-sync-server'),
         signOptions: {
-          expiresIn: configService.jwtExpiresIn,
+          expiresIn: 3600, // 1 hour in seconds
         },
       }),
       inject: [ConfigService],
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, NonceService, CacheService, JwtStrategy],
+  providers: [AuthService, NonceService, CacheService, RateLimitService, JwtStrategy],
   exports: [NonceService, AuthService, JwtStrategy, PassportModule],
 })
 export class AuthModule {}
