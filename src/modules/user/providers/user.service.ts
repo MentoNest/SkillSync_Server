@@ -17,6 +17,31 @@ export class UserService {
     return Promise.resolve(user || null);
   }
 
+  findByPublicKey(publicKey: string): Promise<User | null> {
+    const user = this.users.find((u) => u.publicKey === publicKey);
+    return Promise.resolve(user || null);
+  }
+  
+  async findOrCreateByPublicKey(publicKey: string): Promise<User> {
+    const existing = await this.findByPublicKey(publicKey);
+    if (existing) return existing;
+
+    const user: User = {
+      id:        Date.now().toString(),
+      publicKey,
+      email:     undefined,
+      password:  undefined,
+      firstName: undefined,
+      lastName:  undefined,
+      role:      UserRole.MENTEE,
+      isActive:  true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.users.push(user);
+    return user;
+  }
+
   create(userData: Partial<User>): Promise<User> {
     const user: User = {
       id: Date.now().toString(),
