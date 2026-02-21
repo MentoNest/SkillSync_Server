@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuthService } from './providers/auth.service';
@@ -18,7 +18,7 @@ import { StellarStrategy } from './strategies/stellar.strategy';
 @Module({
   imports: [
     RedisModule,
-    AuditModule,
+    forwardRef(() => AuditModule),
     UserModule,
     MailModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
@@ -33,7 +33,7 @@ import { StellarStrategy } from './strategies/stellar.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, NonceService, StellarStrategy, CacheService, RateLimitService, JwtStrategy, JwtAuthGuard],
+  providers: [AuthService, NonceService, CacheService, RateLimitService, JwtStrategy, JwtAuthGuard],
   exports: [NonceService, AuthService, JwtStrategy, PassportModule, JwtAuthGuard],
 })
 export class AuthModule {}
