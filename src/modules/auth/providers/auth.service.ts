@@ -38,7 +38,7 @@ export class AuthService {
     private readonly userService: UserService,
     private readonly mailService: MailService,
     private readonly jwtService: JwtService,
-    private readonly auditService: AuditService,
+    private readonly auditService?: AuditService,
   ) {}
 
   async generateNonce(ttl: number = 300): Promise<NonceResponseDto> {
@@ -94,7 +94,7 @@ export class AuthService {
     }
 
     // Verify password using configured hashing utility
-    const isPasswordValid = await this.verifyPassword(password, user.password);
+    const isPasswordValid = await this.verifyPassword(password, user.password!);
 
     if (!isPasswordValid) {
       // Generic error message to prevent user enumeration
@@ -112,7 +112,7 @@ export class AuthService {
     // Send login notification email (fire and forget)
     this.mailService
       .sendLoginEmail(
-        { email: user.email, firstName: user.firstName },
+        { email: user.email!, firstName: user.firstName! },
         { time: new Date() }
       )
       .catch((err: Error) => {
@@ -147,7 +147,7 @@ export class AuthService {
     const currentJti = await this.cacheService.get(`${sessionPrefix}:current-jti`);
     if (!currentJti || currentJti !== payload.jti) {
       await this.revokeSession(payload.sid, this.calculateRemainingTtl(payload.exp));
-      this.auditService.recordTokenReuseAttempt({
+      this.auditService?.recordTokenReuseAttempt({
         userId: payload.sub,
         sessionId: payload.sid,
         tokenId: payload.jti,
@@ -211,7 +211,7 @@ export class AuthService {
 
 
     this.mailService
-      .sendWelcomeEmail({ email: user.email, firstName: user.firstName })
+      .sendWelcomeEmail({ email: user.email!, firstName: user.firstName! })
       .catch((err: Error) => {
         this.logger.error(`Failed to send welcome email: ${err.message}`);
       });
@@ -245,7 +245,7 @@ export class AuthService {
   private generateJwtToken(user: User): string {
     const payload: JwtPayload = {
       sub: user.id,
-      email: user.email,
+      email: user.email!,
       role: user.role,
       iat: Math.floor(Date.now() / 1000),
       exp:
@@ -283,7 +283,7 @@ export class AuthService {
     return this.jwtService.sign(
       {
         sub: user.id,
-        email: user.email,
+        email: user.email!,
         sid: sessionId,
         family: tokenFamily,
         jti: tokenId,
@@ -291,7 +291,7 @@ export class AuthService {
       },
       {
         secret: this.getRefreshTokenSecret(),
-        expiresIn: this.getRefreshTokenExpiresIn(),
+        expiresIn: this.getRefreshTokenExpiresIn() as any,
       },
     );
   }

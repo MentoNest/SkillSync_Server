@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ValidationExceptionFilter } from './common/filters/validation-exception.filter';
+import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import helmet from 'helmet';
 import { ConfigService } from './config/config.service';
 
@@ -59,6 +60,9 @@ async function bootstrap() {
       new ValidationExceptionFilter(),
       new HttpExceptionFilter(),
     );
+
+    // 🔄 Global Response Interceptor
+    app.useGlobalInterceptors(new TransformInterceptor());
 
 
     // 🚦 Global Rate Limiting will be applied via guards on individual routes
