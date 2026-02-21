@@ -7,14 +7,22 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { NonceService } from '../../../common/cache/nonce.service';
+import { CacheService } from '../../../common/cache/cache.service';
 import { NonceResponseDto } from '../dto/nonce-response.dto';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import { UserService } from '../../user/providers/user.service';
 import { MailService } from '../../mail/mail.service';
 import { User } from '../../user/entities/user.entity';
-import { LoginResponse, RegisterResponse, JwtPayload } from '../interfaces/auth.interface';
+import {
+  LoginResponse,
+  RegisterResponse,
+  JwtPayload,
+  RefreshResponse,
+  RefreshTokenPayload,
+} from '../interfaces/auth.interface';
 import * as bcrypt from 'bcrypt';
+import { AuditService } from '../../audit/providers/audit.service';
 
 // Re-export interfaces for backward compatibility
 export type { LoginResponse };
@@ -26,9 +34,11 @@ export class AuthService {
   constructor(
     private readonly nonceService: NonceService,
     private readonly configService: ConfigService,
+    private readonly cacheService: CacheService,
     private readonly userService: UserService,
     private readonly mailService: MailService,
     private readonly jwtService: JwtService,
+    private readonly auditService: AuditService,
   ) {}
 
   async generateNonce(ttl: number = 300): Promise<NonceResponseDto> {
@@ -96,14 +106,10 @@ export class AuthService {
       throw new UnauthorizedException('Account is deactivated');
     }
 
-    // Generate JWT token
-    const accessToken = this.generateJwtToken(user);
+    // Generate token pair
+    const { accessToken, refreshToken } = await this.generateTokenPair(user);
 
     // Send login notification email (fire and forget)
-
-    this.mailService.sendLoginEmail(user.email).catch((err: Error) => {
-      this.logger.error(`Failed to send login email: ${err.message}`);
-    });
 
     this.mailService
       .sendLoginEmail(
@@ -121,7 +127,50 @@ export class AuthService {
 
     return {
       accessToken,
+      refreshToken,
       user: safeUser as Omit<User, 'password'>,
+    };
+  }
+
+  async refresh(refreshToken: string): Promise<RefreshResponse> {
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token is required');
+    }
+
+    const payload = this.verifyRefreshToken(refreshToken);
+    const sessionPrefix = this.getSessionPrefix(payload.sid);
+
+    const isRevoked = await this.cacheService.get(`${sessionPrefix}:revoked`);
+    if (isRevoked) {
+      throw new UnauthorizedException('Session has been revoked');
+    }
+
+    const currentJti = await this.cacheService.get(`${sessionPrefix}:current-jti`);
+    if (!currentJti || currentJti !== payload.jti) {
+      await this.revokeSession(payload.sid, this.calculateRemainingTtl(payload.exp));
+      this.auditService.recordTokenReuseAttempt({
+        userId: payload.sub,
+        sessionId: payload.sid,
+        tokenId: payload.jti,
+      });
+      throw new UnauthorizedException('Refresh token reuse detected');
+    }
+
+    const user = await this.userService.findById(payload.sub);
+    if (!user || !user.isActive) {
+      await this.revokeSession(payload.sid, this.calculateRemainingTtl(payload.exp));
+      throw new UnauthorizedException('Session user is not active');
+    }
+
+    const newTokenId = this.generateTokenId();
+    const newRefreshToken = this.generateRefreshToken(user, payload.sid, payload.family, newTokenId);
+    const refreshTtl = this.getRefreshTokenTtl();
+
+    await this.cacheService.set(`${sessionPrefix}:current-jti`, newTokenId, refreshTtl);
+
+    return {
+      accessToken: this.generateJwtToken(user),
+      refreshToken: newRefreshToken,
     };
   }
 
@@ -160,11 +209,6 @@ export class AuthService {
     const { password: _password, ...safeUser } = user;
 
     this.logger.log(`New user registered: ${email}`);
-
-
-    this.mailService.sendWelcomeEmail(user.email).catch((err: Error) => {
-      this.logger.error(`Failed to send welcome email: ${err.message}`);
-    });
 
     this.mailService
       .sendWelcomeEmail({ email: user.email, firstName: user.firstName })
@@ -209,6 +253,105 @@ export class AuthService {
     };
 
     return this.jwtService.sign(payload);
+  }
+
+  private async generateTokenPair(user: User): Promise<RefreshResponse> {
+    const sessionId = this.generateSessionId();
+    const tokenFamily = this.generateTokenFamily();
+    const tokenId = this.generateTokenId();
+    const refreshToken = this.generateRefreshToken(user, sessionId, tokenFamily, tokenId);
+
+    await this.cacheService.set(
+      `${this.getSessionPrefix(sessionId)}:current-jti`,
+      tokenId,
+      this.getRefreshTokenTtl(),
+    );
+
+    return {
+      accessToken: this.generateJwtToken(user),
+      refreshToken,
+    };
+  }
+
+  private generateRefreshToken(
+    user: User,
+    sessionId: string,
+    tokenFamily: string,
+    tokenId: string,
+  ): string {
+    return this.jwtService.sign(
+      {
+        sub: user.id,
+        email: user.email,
+        sid: sessionId,
+        family: tokenFamily,
+        jti: tokenId,
+        type: 'refresh',
+      },
+      {
+        secret: this.getRefreshTokenSecret(),
+        expiresIn: this.getRefreshTokenExpiresIn(),
+      },
+    );
+  }
+
+  private verifyRefreshToken(token: string): RefreshTokenPayload {
+    try {
+      const payload = this.jwtService.verify<RefreshTokenPayload>(token, {
+        secret: this.getRefreshTokenSecret(),
+      });
+
+      if (payload.type !== 'refresh' || !payload.sid || !payload.jti || !payload.family) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+
+      return payload;
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+  }
+
+  private async revokeSession(sessionId: string, ttl: number): Promise<void> {
+    const safeTtl = Math.max(1, ttl);
+    const sessionPrefix = this.getSessionPrefix(sessionId);
+
+    await this.cacheService.set(`${sessionPrefix}:revoked`, '1', safeTtl);
+    await this.cacheService.del(`${sessionPrefix}:current-jti`);
+  }
+
+  private calculateRemainingTtl(exp: number): number {
+    return Math.max(1, exp - Math.floor(Date.now() / 1000));
+  }
+
+  private getSessionPrefix(sessionId: string): string {
+    return `auth:session:${sessionId}`;
+  }
+
+  private getRefreshTokenSecret(): string {
+    return this.configService.get<string>(
+      'JWT_REFRESH_SECRET',
+      this.configService.get<string>('JWT_SECRET', 'dev-secret-key-for-skill-sync-server'),
+    );
+  }
+
+  private getRefreshTokenExpiresIn(): string {
+    return this.configService.get<string>('JWT_REFRESH_EXPIRES_IN', '7d');
+  }
+
+  private getRefreshTokenTtl(): number {
+    return this.parseExpiresIn(this.getRefreshTokenExpiresIn());
+  }
+
+  private generateSessionId(): string {
+    return randomBytes(16).toString('hex');
+  }
+
+  private generateTokenFamily(): string {
+    return randomBytes(16).toString('hex');
+  }
+
+  private generateTokenId(): string {
+    return randomBytes(16).toString('hex');
   }
 
   /**
