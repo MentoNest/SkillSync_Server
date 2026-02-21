@@ -14,21 +14,22 @@ async function bootstrap() {
     const configService = app.get(ConfigService);
 
     // 🔐 Disable x-powered-by
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     app.getHttpAdapter().getInstance().disable('x-powered-by');
 
     // 🛡 Helmet
     app.use(
       helmet({
-        contentSecurityPolicy:
-          configService.nodeEnv === 'production'
-            ? undefined
-            : false,
+        contentSecurityPolicy: configService.nodeEnv === 'production' ? undefined : false,
       }),
     );
 
     // 🌍 CORS via ConfigModule
     app.enableCors({
-      origin: (origin, callback) => {
+      origin: (
+        origin: string | undefined,
+        callback: (err: Error | null, allow?: boolean) => void,
+      ) => {
         if (!origin) return callback(null, true);
 
         if (configService.corsOrigins.includes(origin)) {
@@ -69,13 +70,15 @@ async function bootstrap() {
 
     await app.listen(configService.port);
 
-    logger.log(
-      `🚀 Server is running on http://localhost:${configService.port}`,
-    );
+    logger.log(`🚀 Server is running on http://localhost:${configService.port}`);
   } catch (error) {
-    logger.error('❌ Application failed to start', error.stack);
+    logger.error(
+      '❌ Application failed to start',
+      error instanceof Error ? error.stack : String(error),
+    );
     process.exit(1);
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-floating-promises
 bootstrap();

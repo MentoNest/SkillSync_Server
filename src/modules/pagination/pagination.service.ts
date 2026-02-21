@@ -1,10 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { CreatePaginationDto } from './dto/create-pagination.dto';
-import { UpdatePaginationDto } from './dto/update-pagination.dto';
 
 @Injectable()
 export class PaginationService {
-  create(createPaginationDto: CreatePaginationDto) {
+  create() {
     return 'This action adds a new pagination';
   }
 
@@ -16,7 +14,7 @@ export class PaginationService {
     return `This action returns a #${id} pagination`;
   }
 
-  update(id: number, updatePaginationDto: UpdatePaginationDto) {
+  update(id: number) {
     return `This action updates a #${id} pagination`;
   }
 

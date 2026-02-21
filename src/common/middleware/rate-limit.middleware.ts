@@ -18,7 +18,7 @@ export class RateLimitMiddleware implements NestMiddleware {
 
     // Skip rate limiting for exempt paths
     const exemptPaths = this.configService.rateLimitExemptPaths;
-    if (exemptPaths.some(path => req.path.startsWith(path))) {
+    if (exemptPaths.some((path) => req.path.startsWith(path))) {
       return next();
     }
 
@@ -30,7 +30,7 @@ export class RateLimitMiddleware implements NestMiddleware {
     const result = await this.rateLimitService.isAllowed(key, {
       windowMs: this.configService.rateLimitGlobalWindowMs,
       max: this.configService.rateLimitGlobalMax,
-      keyPrefix: 'global'
+      keyPrefix: 'global',
     });
 
     // Set rate limit headers
@@ -41,12 +41,12 @@ export class RateLimitMiddleware implements NestMiddleware {
       res.status(HttpStatus.TOO_MANY_REQUESTS);
       res.setHeader('Retry-After', Math.ceil((result.resetTime - Date.now()) / 1000).toString());
       res.setHeader('Content-Type', 'application/json');
-      
+
       return res.json({
         statusCode: HttpStatus.TOO_MANY_REQUESTS,
         message: 'Too Many Requests',
         error: 'Rate limit exceeded',
-        retryAfter: Math.ceil((result.resetTime - Date.now()) / 1000)
+        retryAfter: Math.ceil((result.resetTime - Date.now()) / 1000),
       });
     }
 
@@ -55,13 +55,13 @@ export class RateLimitMiddleware implements NestMiddleware {
 
   private getClientIp(req: Request): string {
     // Check for various proxy headers
-    return (req.headers['x-forwarded-for'] as string || '')
-      .split(',')[0]
-      .trim() ||
+    return (
+      ((req.headers['x-forwarded-for'] as string) || '').split(',')[0].trim() ||
       (req.headers['x-real-ip'] as string) ||
       req.connection?.remoteAddress ||
       req.socket?.remoteAddress ||
-      'unknown';
+      'unknown'
+    );
   }
 
   private setRateLimitHeaders(res: Response, result: any): void {

@@ -6,12 +6,15 @@ import { JwtPayload } from '../interfaces/auth.interface';
  * Usage: @CurrentUser() user: JwtPayload
  */
 export const CurrentUser = createParamDecorator(
-  (data: keyof JwtPayload | undefined, ctx: ExecutionContext): JwtPayload | JwtPayload[keyof JwtPayload] => {
-    const request = ctx.switchToHttp().getRequest();
-    const user = request.user as JwtPayload;
+  (
+    data: keyof JwtPayload | undefined,
+    ctx: ExecutionContext,
+  ): JwtPayload | JwtPayload[keyof JwtPayload] | undefined => {
+    const request = ctx.switchToHttp().getRequest<{ user?: JwtPayload }>();
+    const user = request.user;
 
     if (!user) {
-      return undefined as any;
+      return undefined;
     }
 
     // If a specific property is requested, return only that property
@@ -29,9 +32,9 @@ export const CurrentUser = createParamDecorator(
  * Usage: @CurrentUserId() userId: string
  */
 export const CurrentUserId = createParamDecorator(
-  (_data: unknown, ctx: ExecutionContext): string => {
-    const request = ctx.switchToHttp().getRequest();
-    const user = request.user as JwtPayload;
+  (_data: unknown, ctx: ExecutionContext): string | undefined => {
+    const request = ctx.switchToHttp().getRequest<{ user?: JwtPayload }>();
+    const user = request.user;
     return user?.sub;
   },
 );

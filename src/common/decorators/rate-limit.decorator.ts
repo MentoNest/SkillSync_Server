@@ -8,13 +8,14 @@ export const RATE_LIMIT_SKIP = 'rateLimitSkip';
  * Apply rate limiting to a route handler
  * @param options Rate limiting configuration
  */
-export const RateLimit = (options?: RateLimitOptions) => SetMetadata(RATE_LIMIT_OPTIONS, options || {});
+export const RateLimit = (options?: RateLimitOptions) =>
+  SetMetadata(RATE_LIMIT_OPTIONS, options || {});
 
 /**
  * Skip rate limiting for specific routes
  * @param condition Function that returns true to skip rate limiting
  */
-export const SkipRateLimit = (condition?: (req: any) => boolean | Promise<boolean>) => 
+export const SkipRateLimit = (condition?: (req: any) => boolean | Promise<boolean>) =>
   SetMetadata(RATE_LIMIT_SKIP, condition || (() => true));
 
 // Predefined rate limit configurations
@@ -25,7 +26,7 @@ export const RateLimits = {
   STRICT: {
     windowMs: 60000,
     max: 10,
-    keyPrefix: 'strict'
+    keyPrefix: 'strict',
   },
 
   /**
@@ -34,7 +35,7 @@ export const RateLimits = {
   NORMAL: {
     windowMs: 60000,
     max: 100,
-    keyPrefix: 'normal'
+    keyPrefix: 'normal',
   },
 
   /**
@@ -43,7 +44,7 @@ export const RateLimits = {
   RELAXED: {
     windowMs: 60000,
     max: 1000,
-    keyPrefix: 'relaxed'
+    keyPrefix: 'relaxed',
   },
 
   /**
@@ -56,7 +57,7 @@ export const RateLimits = {
     keyGenerator: (req: any) => {
       const wallet = req.headers['x-wallet-address'] || req.body?.walletAddress || 'unknown';
       return `wallet:${wallet}`;
-    }
+    },
   },
 
   /**
@@ -69,6 +70,6 @@ export const RateLimits = {
     keyGenerator: (req: any) => {
       const userId = req.user?.id || req.headers['x-user-id'] || 'anonymous';
       return `user:${userId}`;
-    }
-  }
+    },
+  },
 };

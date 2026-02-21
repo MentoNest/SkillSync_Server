@@ -69,14 +69,9 @@ describe('AuthService register', () => {
       confirmPassword: 'Password123!',
     } as any);
 
-    expect(userServiceMock.findByEmail).toHaveBeenCalledWith(
-      'test@example.com',
-    );
+    expect(userServiceMock.findByEmail).toHaveBeenCalledWith('test@example.com');
     expect(userServiceMock.create).toHaveBeenCalled();
-    expect(mailServiceMock.sendWelcomeEmail).toHaveBeenCalledWith(
-      'test@example.com',
-      'John',
-    );
+    expect(mailServiceMock.sendWelcomeEmail).toHaveBeenCalledWith('test@example.com', 'John');
     expect((result.user as any).password).toBeUndefined();
   });
 
