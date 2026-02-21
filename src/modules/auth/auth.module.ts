@@ -12,6 +12,8 @@ import { ConfigService } from '@nestjs/config';
 import { RateLimitService } from '../../common/cache/rate-limit.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { AuditModule } from '../audit/audit.module';
+import { StellarStrategy } from './strategies/stellar.strategy';
 
 @Module({
   imports: [
@@ -31,7 +33,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, NonceService, CacheService, RateLimitService, JwtStrategy, JwtAuthGuard],
+  providers: [AuthService, NonceService, StellarStrategy, CacheService, RateLimitService, JwtStrategy, JwtAuthGuard],
   exports: [NonceService, AuthService, JwtStrategy, PassportModule, JwtAuthGuard],
 })
 export class AuthModule {}

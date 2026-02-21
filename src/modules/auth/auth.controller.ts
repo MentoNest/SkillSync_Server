@@ -7,19 +7,29 @@ import {
   Query,
   HttpException,
   Post,
+  Req,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { AuthService } from './providers/auth.service';
 import { NonceResponseDto } from './dto/nonce-response.dto';
 import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { RateLimit, RateLimits } from '../../common/decorators/rate-limit.decorator';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { STELLAR_STRATEGY } from './strategies/stellar.strategy';
+import { AuthGuard } from '@nestjs/passport';
+import { CreateStellarAuthDto } from './dto/create-stellar-auth.dto';
+import type { Request } from 'express';
+import { NonceService } from './providers/nonce.service';
+import { NonceRequestDto } from './dto/nonce-request.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
 @UseGuards(RateLimitGuard)
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly nonceService: NonceService
+  ) {}
 
   @Get('nonce')
   @ApiOperation({ summary: 'Generate a nonce for authentication' })
@@ -55,5 +65,23 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Invalid, reused, or revoked refresh token' })
   async refresh(@Body() body: RefreshTokenDto) {
     return this.authService.refresh(body?.refreshToken);
+  }
+
+  @Post('nonce')
+  @ApiOperation({ summary: 'Request a nonce to sign for Stellar wallet authentication' })
+  @ApiBody({ type: NonceRequestDto })
+  @ApiResponse({ status: 201, type: NonceResponseDto })
+  nonce(@Body() dto: NonceRequestDto): NonceResponseDto {
+    return this.nonceService.issue(dto.publicKey);
+  }
+
+  @Post('login/stellar')
+  @UseGuards(AuthGuard(STELLAR_STRATEGY))
+  @ApiOperation({ summary: 'Authenticate using a signed Stellar nonce' })
+  @ApiBody({ type: CreateStellarAuthDto })
+  @ApiResponse({ status: 200, description: 'Authenticated user context' })
+  @ApiResponse({ status: 401, description: 'Invalid signature or nonce' })
+  login(@Req() req: Request) {
+    return { user: req.user };
   }
 }

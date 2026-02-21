@@ -2,8 +2,13 @@ import { UserRole } from '../../../common/enums/user-role.enum';
 
 export class User {
   id: string;
-  email: string;
-  password: string;
+  /** Stellar G… public key — set for wallet-authenticated users */
+  publicKey?: string;
+  
+  /** Undefined for wallet-only users */
+  email?: string;
+
+  password?: string;
   firstName?: string;
   lastName?: string;
   role: UserRole;
