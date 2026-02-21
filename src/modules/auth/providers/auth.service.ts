@@ -100,9 +100,20 @@ export class AuthService {
     const accessToken = this.generateJwtToken(user);
 
     // Send login notification email (fire and forget)
+
     this.mailService.sendLoginEmail(user.email).catch((err: Error) => {
       this.logger.error(`Failed to send login email: ${err.message}`);
     });
+
+    this.mailService
+      .sendLoginEmail(
+        { email: user.email, firstName: user.firstName },
+        { time: new Date() }
+      )
+      .catch((err) => {
+        this.logger.error(`Failed to send login email: ${err.message}`);
+      });
+
 
     // Remove password from user object before returning
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -150,9 +161,17 @@ export class AuthService {
 
     this.logger.log(`New user registered: ${email}`);
 
+
     this.mailService.sendWelcomeEmail(user.email).catch((err: Error) => {
       this.logger.error(`Failed to send welcome email: ${err.message}`);
     });
+
+    this.mailService
+      .sendWelcomeEmail({ email: user.email, firstName: user.firstName })
+      .catch((err) => {
+        this.logger.error(`Failed to send welcome email: ${err.message}`);
+      });
+
 
     return {
       message: 'User registered successfully',

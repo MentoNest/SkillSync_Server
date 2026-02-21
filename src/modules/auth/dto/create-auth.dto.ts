@@ -1,15 +1,6 @@
-import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsEmail,
-  IsString,
-  MinLength,
-  MaxLength,
-  Matches,
-  Validate,
-  ValidatorConstraint,
-  ValidatorConstraintInterface,
-  ValidationArguments,
-} from 'class-validator';
+import { IsString, IsNotEmpty, Length, IsEthereumAddress, IsOptional } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
 
 /**
  * Custom validator to check if password and confirmPassword match
@@ -30,36 +21,23 @@ class MatchPasswordConstraint implements ValidatorConstraintInterface {
  * DTO for user registration
  */
 export class RegisterDto {
-  @ApiProperty({
-    description: 'User first name',
-    example: 'John',
-    minLength: 2,
-    maxLength: 50,
-  })
-  @IsString()
-  @MinLength(2, { message: 'First name must be at least 2 characters long' })
-  @MaxLength(50, { message: 'First name must not exceed 50 characters' })
-  firstName: string;
+
+export class CreateAuthDto {
 
   @ApiProperty({
-    description: 'User last name',
-    example: 'Doe',
-    minLength: 2,
-    maxLength: 50,
+    description: 'Wallet address for authentication',
+    example: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
   })
-  @IsString()
-  @MinLength(2, { message: 'Last name must be at least 2 characters long' })
-  @MaxLength(50, { message: 'Last name must not exceed 50 characters' })
-  lastName: string;
+  @IsEthereumAddress({
+    message: 'Invalid wallet address format',
+  })
+  @IsNotEmpty({
+    message: 'Wallet address is required',
+  })
+  walletAddress: string;
 
   @ApiProperty({
-    description: 'User email address',
-    example: 'john.doe@example.com',
-  })
-  @IsEmail({}, { message: 'Please provide a valid email address' })
-  email: string;
 
-  @ApiProperty({
     description:
       'User password - must contain at least 1 uppercase, 1 lowercase, 1 number, and 1 special character',
     example: 'SecurePass123!',
@@ -72,39 +50,36 @@ export class RegisterDto {
   @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/, {
     message:
       'Password must contain at least 1 uppercase letter, 1 lowercase letter, 1 number, and 1 special character',
-  })
-  password: string;
 
-  @ApiProperty({
-    description: 'Confirm password - must match password',
-    example: 'SecurePass123!',
+    description: 'Cryptographic signature',
+    example: '0x1234567890abcdef...',
   })
-  @IsString()
-  @Validate(MatchPasswordConstraint)
-  confirmPassword: string;
+  @IsString({
+    message: 'Signature must be a string',
+
+  })
+  @IsNotEmpty({
+    message: 'Signature is required',
+  })
+  @Length(132, 132, {
+    message: 'Signature must be exactly 132 characters long (65 bytes hex)',
+  })
+  signature: string;
+
+  @ApiPropertyOptional({
+    description: 'Nonce used for signing',
+    example: 'a1b2c3d4e5f6789012345678901234567890abcdef',
+  })
+  @IsString({
+    message: 'Nonce must be a string',
+  })
+  @IsOptional()
+  nonce?: string;
+
+  @ApiPropertyOptional({
+    description: 'Additional metadata',
+    example: { device: 'mobile', appVersion: '1.0.0' },
+  })
+  @IsOptional()
+  metadata?: Record<string, any>;
 }
-
-/**
- * DTO for user login
- */
-export class LoginDto {
-  @ApiProperty({
-    description: 'User email address',
-    example: 'john.doe@example.com',
-  })
-  @IsEmail({}, { message: 'Please provide a valid email address' })
-  email: string;
-
-  @ApiProperty({
-    description: 'User password',
-    example: 'SecurePass123!',
-  })
-  @IsString()
-  @MinLength(1, { message: 'Password is required' })
-  password: string;
-}
-
-// Keep for backward compatibility
-export class LoginUserDto extends LoginDto {}
-
-export class CreateAuthDto {}
