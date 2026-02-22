@@ -92,6 +92,7 @@ describe('AuthService refresh token rotation', () => {
       userServiceMock as any,
       mailServiceMock as any,
       jwtServiceMock as any,
+      {} as any, // stellarNonceService
       auditServiceMock as any,
     );
   });
