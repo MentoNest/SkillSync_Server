@@ -56,6 +56,24 @@ cp .env.example .env
 # Edit .env with your configuration details
 ```
 
+### Seeding initial Admin
+
+This project includes an idempotent seed script that creates a default `admin` role user (wallet or email-based).
+
+- Run the seed:
+
+```bash
+npm run seed:admin
+# or with custom values
+ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD=SuperSecret123 ADMIN_WALLET=GABC... npm run seed:admin
+```
+
+- Environment variables used by the seed:
+   - `ADMIN_EMAIL` (default: `admin@skillsync.local`)
+   - `ADMIN_PASSWORD` (default: `ChangeMe123!`)
+   - `ADMIN_WALLET` (optional wallet address to seed as primary)
+
+
 **Environment Variables:**
 
 - `RATE_LIMIT_WINDOW_MS`: The time window in milliseconds for rate limiting (default: 60000ms / 1 minute).
