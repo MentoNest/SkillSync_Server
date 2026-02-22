@@ -135,8 +135,13 @@ export class AuthController {
   @ApiBody({ type: CreateStellarAuthDto })
   @ApiResponse({ status: 200, description: 'Authenticated user context' })
   @ApiResponse({ status: 401, description: 'Invalid signature or nonce' })
-  stellarLogin(@Req() req: Request) {
-    return { user: req.user };
+  async stellarLogin(
+    @Req() req: Request,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+  ) {
+    const user = req.user as User;
+    return this.authService.issueTokenPairForUser(user, { ipAddress: ip, userAgent });
   }
 
   @Post('wallets/link')

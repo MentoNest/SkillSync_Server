@@ -42,7 +42,7 @@ async function run() {
 
       // Ensure primary wallet exists when ADMIN_WALLET provided
       if (ADMIN_WALLET && !user.wallets.some(w => w.address === ADMIN_WALLET)) {
-        user.wallets.push({ address: ADMIN_WALLET, isPrimary: true, linkedAt: new Date() });
+        user.wallets.push({ address: ADMIN_WALLET, isPrimary: true, linkedAt: new Date() } as any);
         changed = true;
       } else if (ADMIN_WALLET) {
         // Make provided wallet primary
@@ -59,8 +59,8 @@ async function run() {
       // If password provided and user has email, ensure password is set (hashed)
       if (user.email && ADMIN_PASSWORD) {
         // Only replace if password is missing
-        if (!user.password) {
-          user.password = await bcrypt.hash(ADMIN_PASSWORD, 10);
+        if (!user.passwordHash) {
+          user.passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
           logger.log('Set password for admin user');
         }
       }
@@ -72,7 +72,7 @@ async function run() {
         firstName: ADMIN_FIRST,
         lastName: ADMIN_LAST,
         email: ADMIN_EMAIL,
-        password: hashedPassword,
+        passwordHash: hashedPassword,
         role: UserRole.ADMIN,
         isActive: true,
       };
@@ -84,7 +84,7 @@ async function run() {
         created.firstName = ADMIN_FIRST;
         created.lastName = ADMIN_LAST;
         if (ADMIN_EMAIL) created.email = ADMIN_EMAIL;
-        if (hashedPassword) created.password = hashedPassword;
+        if (hashedPassword) created.passwordHash = hashedPassword;
         created.role = UserRole.ADMIN;
         created.updatedAt = new Date();
         logger.log(`Created admin user (wallet): ${ADMIN_WALLET}`);
