@@ -138,4 +138,11 @@ export class UserService {
 
     return this.userRepository.save(user);
   }
+
+  async updatePassword(userId: string, newPasswordHash: string): Promise<void> {
+    await this.userRepository.update(userId, {
+      passwordHash: newPasswordHash,
+      updatedAt: new Date(),
+    });
+  }
 }

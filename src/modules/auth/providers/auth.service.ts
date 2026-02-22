@@ -643,5 +643,95 @@ export class AuthService {
   async setPrimaryWallet(userId: string, address: string): Promise<User> {
     return this.userService.setPrimaryWallet(userId, address);
   }
+
+  /**
+   * 📧 Forgot password - sends OTP to user's email
+   * @param dto Contains user's email
+   * @returns Success message
+   */
+  async forgotPassword(dto: { email: string }): Promise<{ message: string }> {
+    // Check if user exists
+    const user = await this.userService.findByEmail(dto.email);
+    
+    // Even if user doesn't exist, return success to prevent user enumeration attacks
+    if (!user) {
+      this.logger.log(`Forgot password requested for non-existent email: ${dto.email}`);
+      return { message: 'If an account exists, an OTP has been sent to your email' };
+    }
+    
+    // Generate a 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Store OTP in cache with 10-minute expiry (600 seconds)
+    const otpCacheKey = `otp:${dto.email}`;
+    await this.cacheService.set(otpCacheKey, otp, 600); // 10 minutes
+    
+    // Send OTP email
+    await this.mailService.sendOtpEmail(dto.email, otp);
+    
+    this.logger.log(`OTP sent for email: ${dto.email}`);
+    return { message: 'If an account exists, an OTP has been sent to your email' };
+  }
+
+  /**
+   * ✅ Verify OTP
+   * @param dto Contains email and OTP
+   * @returns Verification result
+   */
+  async verifyOtp(dto: { email: string; otp: string }): Promise<{ valid: boolean; message: string }> {
+    const otpCacheKey = `otp:${dto.email}`;
+    
+    // Get stored OTP from cache
+    const storedOtp = await this.cacheService.get(otpCacheKey);
+    
+    // Check if OTP exists and is valid
+    if (!storedOtp || storedOtp !== dto.otp) {
+      this.logger.log(`Invalid OTP provided for email: ${dto.email}`);
+      return { valid: false, message: 'Invalid or expired OTP' };
+    }
+    
+    // OTP is valid
+    return { valid: true, message: 'OTP verified successfully' };
+  }
+
+  /**
+   * 🔐 Reset password after verifying OTP
+   * @param dto Contains email, OTP, and new password
+   * @returns Success message
+   */
+  async resetPassword(dto: { email: string; otp: string; newPassword: string }): Promise<{ message: string }> {
+    const otpCacheKey = `otp:${dto.email}`;
+    
+    // Get stored OTP from cache
+    const storedOtp = await this.cacheService.get(otpCacheKey);
+    
+    // Check if OTP exists and is valid
+    if (!storedOtp || storedOtp !== dto.otp) {
+      this.logger.log(`Invalid OTP provided for password reset: ${dto.email}`);
+      throw new BadRequestException('Invalid or expired OTP');
+    }
+    
+    // Find user by email
+    const user = await this.userService.findByEmail(dto.email);
+    
+    if (!user) {
+      throw new BadRequestException('Invalid or expired OTP');
+    }
+    
+    // Hash the new password
+    const hashedPassword = await this.hashPassword(dto.newPassword);
+    
+    // Update user's password
+    await this.userService.updatePassword(user.id, hashedPassword);
+    
+    // Invalidate the OTP (one-time use)
+    await this.cacheService.del(otpCacheKey);
+    
+    // Revoke all existing sessions for security
+    await this.revokeAllSessionsExcept(user.id);
+    
+    this.logger.log(`Password reset successful for email: ${dto.email}`);
+    return { message: 'Password has been reset successfully' };
+  }
 }
 

@@ -32,6 +32,9 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { LinkWalletDto } from './dto/link-wallet.dto';
 import { User } from '../user/entities/user.entity';
 import { LoginDto, RegisterDto } from './dto/create-auth.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -226,6 +229,39 @@ export class AuthController {
     const except = (requester as any).sid as string | undefined;
     await this.authService.revokeAllSessionsExcept(requester.sub, except);
     return { message: 'All other sessions revoked' };
+  }
+
+  @Post('forgot-password')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Request password reset OTP' })
+  @ApiBody({ type: ForgotPasswordDto })
+  @ApiResponse({ status: 200, description: 'OTP sent successfully (or email not found to prevent enumeration)' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @Post('verify-otp')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Verify password reset OTP' })
+  @ApiBody({ type: VerifyOtpDto })
+  @ApiResponse({ status: 200, description: 'OTP verification result' })
+  @ApiResponse({ status: 400, description: 'Invalid or expired OTP' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async verifyOtp(@Body() dto: VerifyOtpDto) {
+    return this.authService.verifyOtp(dto);
+  }
+
+  @Post('reset-password')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Reset password with OTP' })
+  @ApiBody({ type: ResetPasswordDto })
+  @ApiResponse({ status: 200, description: 'Password reset successful' })
+  @ApiResponse({ status: 400, description: 'Invalid or expired OTP' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 }
 
