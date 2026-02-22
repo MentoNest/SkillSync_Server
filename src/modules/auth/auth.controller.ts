@@ -8,6 +8,8 @@ import {
   HttpException,
   Post,
   Req,
+  Ip,
+  Headers,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { AuthService } from './providers/auth.service';
@@ -21,6 +23,7 @@ import { CreateStellarAuthDto } from './dto/create-stellar-auth.dto';
 import type { Request } from 'express';
 import { NonceService } from './providers/nonce.service';
 import { NonceRequestDto } from './dto/nonce-request.dto';
+import { LoginDto, RegisterDto } from './dto/create-auth.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -63,8 +66,51 @@ export class AuthController {
   @ApiOperation({ summary: 'Rotate refresh token and issue a new token pair' })
   @ApiResponse({ status: 200, description: 'Returns a new access/refresh token pair' })
   @ApiResponse({ status: 401, description: 'Invalid, reused, or revoked refresh token' })
-  async refresh(@Body() body: RefreshTokenDto) {
-    return this.authService.refresh(body?.refreshToken);
+  async refresh(
+    @Body() body: RefreshTokenDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+  ) {
+    return this.authService.refresh(body?.refreshToken, { ipAddress: ip, userAgent });
+  }
+
+  @Post('logout')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Logout user and revoke session' })
+  @ApiResponse({ status: 200, description: 'Logout successful' })
+  @ApiResponse({ status: 401, description: 'Invalid refresh token' })
+  async logout(
+    @Body() body: RefreshTokenDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+  ) {
+    return this.authService.logout(body?.refreshToken, { ipAddress: ip, userAgent });
+  }
+
+  @Post('login')
+  @RateLimit(RateLimits.STRICT)
+  @ApiOperation({ summary: 'Login with email and password' })
+  @ApiResponse({ status: 200, description: 'Login successful' })
+  @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  async login(
+    @Body() loginDto: LoginDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+  ) {
+    return this.authService.login(loginDto, { ipAddress: ip, userAgent });
+  }
+
+  @Post('register')
+  @RateLimit(RateLimits.STRICT)
+  @ApiOperation({ summary: 'Register a new user' })
+  @ApiResponse({ status: 201, description: 'Registration successful' })
+  @ApiResponse({ status: 409, description: 'User already exists' })
+  async register(
+    @Body() registerDto: RegisterDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+  ) {
+    return this.authService.register(registerDto, { ipAddress: ip, userAgent });
   }
 
   @Post('nonce')
@@ -81,7 +127,7 @@ export class AuthController {
   @ApiBody({ type: CreateStellarAuthDto })
   @ApiResponse({ status: 200, description: 'Authenticated user context' })
   @ApiResponse({ status: 401, description: 'Invalid signature or nonce' })
-  login(@Req() req: Request) {
+  stellarLogin(@Req() req: Request) {
     return { user: req.user };
   }
 }

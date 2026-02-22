@@ -28,7 +28,60 @@ class MatchPasswordConstraint implements ValidatorConstraintInterface {
 /**
  * DTO for user registration
  */
-export class RegisterDto {}
+export class RegisterDto {
+  @ApiProperty({
+    description: 'First name of the user',
+    example: 'John',
+  })
+  @IsString()
+  @IsNotEmpty()
+  firstName: string;
+
+  @ApiProperty({
+    description: 'Last name of the user',
+    example: 'Doe',
+  })
+  @IsString()
+  @IsNotEmpty()
+  lastName: string;
+
+  @ApiProperty({
+    description: 'Email address',
+    example: 'john.doe@example.com',
+  })
+  @IsString()
+  @IsNotEmpty()
+  email: string;
+
+  @ApiProperty({
+    description: 'Password',
+    example: 'SecurePassword123!',
+  })
+  @IsString()
+  @IsNotEmpty()
+  password: string;
+}
+
+/**
+ * DTO for user login
+ */
+export class LoginDto {
+  @ApiProperty({
+    description: 'Email address',
+    example: 'john.doe@example.com',
+  })
+  @IsString()
+  @IsNotEmpty()
+  email: string;
+
+  @ApiProperty({
+    description: 'Password',
+    example: 'SecurePassword123!',
+  })
+  @IsString()
+  @IsNotEmpty()
+  password: string;
+}
 
 export class CreateAuthDto {
   @ApiProperty({

@@ -4,6 +4,8 @@ import {
   BadRequestException,
   UnauthorizedException,
   ConflictException,
+  Inject,
+  Optional,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { NonceService } from '../../../common/cache/nonce.service';
@@ -38,7 +40,7 @@ export class AuthService {
     private readonly userService: UserService,
     private readonly mailService: MailService,
     private readonly jwtService: JwtService,
-    private readonly auditService?: AuditService,
+    @Optional() @Inject(AuditService) private readonly auditService?: AuditService,
   ) {}
 
   async generateNonce(ttl: number = 300): Promise<NonceResponseDto> {
@@ -82,13 +84,23 @@ export class AuthService {
    * 🔐 Login user with email and password
    * Returns JWT access token and safe user payload
    */
-  async login(loginUserDto: { email: string; password: string }): Promise<LoginResponse> {
+  async login(
+    loginUserDto: { email: string; password: string },
+    context?: { ipAddress?: string; userAgent?: string },
+  ): Promise<LoginResponse> {
     const { email, password } = loginUserDto;
 
     // Find user by email
     const user = await this.userService.findByEmail(email);
 
     if (!user) {
+      // Log failed login - user not found
+      await this.auditService?.logLoginFailed({
+        email,
+        ipAddress: context?.ipAddress,
+        userAgent: context?.userAgent,
+        reason: 'User not found',
+      });
       // Generic error message to prevent user enumeration
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -97,17 +109,42 @@ export class AuthService {
     const isPasswordValid = await this.verifyPassword(password, user.password!);
 
     if (!isPasswordValid) {
+      // Log failed login - invalid password
+      await this.auditService?.logLoginFailed({
+        email,
+        userId: user.id,
+        ipAddress: context?.ipAddress,
+        userAgent: context?.userAgent,
+        reason: 'Invalid password',
+      });
       // Generic error message to prevent user enumeration
       throw new UnauthorizedException('Invalid credentials');
     }
 
     // Check if user is active
     if (!user.isActive) {
+      // Log failed login - account deactivated
+      await this.auditService?.logLoginFailed({
+        email,
+        userId: user.id,
+        ipAddress: context?.ipAddress,
+        userAgent: context?.userAgent,
+        reason: 'Account is deactivated',
+      });
       throw new UnauthorizedException('Account is deactivated');
     }
 
     // Generate token pair
-    const { accessToken, refreshToken } = await this.generateTokenPair(user);
+    const { accessToken, refreshToken, sessionId } = await this.generateTokenPair(user);
+
+    // Log successful login
+    await this.auditService?.logLoginSuccess({
+      userId: user.id,
+      email: user.email!,
+      ipAddress: context?.ipAddress,
+      userAgent: context?.userAgent,
+      sessionId,
+    });
 
     // Send login notification email (fire and forget)
     this.mailService
@@ -131,7 +168,10 @@ export class AuthService {
     };
   }
 
-  async refresh(refreshToken: string): Promise<RefreshResponse> {
+  async refresh(
+    refreshToken: string,
+    context?: { ipAddress?: string; userAgent?: string },
+  ): Promise<RefreshResponse> {
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token is required');
     }
@@ -141,16 +181,27 @@ export class AuthService {
 
     const isRevoked = await this.cacheService.get(`${sessionPrefix}:revoked`);
     if (isRevoked) {
+      await this.auditService?.logRefreshToken({
+        userId: payload.sub,
+        email: payload.email,
+        sessionId: payload.sid,
+        ipAddress: context?.ipAddress,
+        userAgent: context?.userAgent,
+        success: false,
+        failureReason: 'Session has been revoked',
+      });
       throw new UnauthorizedException('Session has been revoked');
     }
 
     const currentJti = await this.cacheService.get(`${sessionPrefix}:current-jti`);
     if (!currentJti || currentJti !== payload.jti) {
       await this.revokeSession(payload.sid, this.calculateRemainingTtl(payload.exp));
-      this.auditService?.recordTokenReuseAttempt({
+      await this.auditService?.recordTokenReuseAttempt({
         userId: payload.sub,
         sessionId: payload.sid,
         tokenId: payload.jti,
+        ipAddress: context?.ipAddress,
+        userAgent: context?.userAgent,
       });
       throw new UnauthorizedException('Refresh token reuse detected');
     }
@@ -158,6 +209,15 @@ export class AuthService {
     const user = await this.userService.findById(payload.sub);
     if (!user || !user.isActive) {
       await this.revokeSession(payload.sid, this.calculateRemainingTtl(payload.exp));
+      await this.auditService?.logRefreshToken({
+        userId: payload.sub,
+        email: payload.email,
+        sessionId: payload.sid,
+        ipAddress: context?.ipAddress,
+        userAgent: context?.userAgent,
+        success: false,
+        failureReason: 'Session user is not active',
+      });
       throw new UnauthorizedException('Session user is not active');
     }
 
@@ -166,6 +226,16 @@ export class AuthService {
     const refreshTtl = this.getRefreshTokenTtl();
 
     await this.cacheService.set(`${sessionPrefix}:current-jti`, newTokenId, refreshTtl);
+
+    // Log successful refresh
+    await this.auditService?.logRefreshToken({
+      userId: user.id,
+      email: user.email!,
+      sessionId: payload.sid,
+      ipAddress: context?.ipAddress,
+      userAgent: context?.userAgent,
+      success: true,
+    });
 
     return {
       accessToken: this.generateJwtToken(user),
@@ -177,12 +247,15 @@ export class AuthService {
    * 📝 Register a new user
    * Creates user account and returns safe user payload
    */
-  async register(registerDto: {
-    firstName: string;
-    lastName: string;
-    email: string;
-    password: string;
-  }): Promise<RegisterResponse> {
+  async register(
+    registerDto: {
+      firstName: string;
+      lastName: string;
+      email: string;
+      password: string;
+    },
+    context?: { ipAddress?: string; userAgent?: string },
+  ): Promise<RegisterResponse> {
     const { firstName, lastName, email, password } = registerDto;
 
     // Check if user already exists
@@ -209,6 +282,13 @@ export class AuthService {
 
     this.logger.log(`New user registered: ${email}`);
 
+    // Log registration
+    await this.auditService?.logRegistration({
+      userId: user.id,
+      email: user.email!,
+      ipAddress: context?.ipAddress,
+      userAgent: context?.userAgent,
+    });
 
     this.mailService
       .sendWelcomeEmail({ email: user.email!, firstName: user.firstName! })
@@ -221,6 +301,40 @@ export class AuthService {
       message: 'User registered successfully',
       user: safeUser as Omit<User, 'password'>,
     };
+  }
+
+  /**
+   * 🔓 Logout user by revoking their session
+   */
+  async logout(
+    refreshToken: string,
+    context?: { ipAddress?: string; userAgent?: string },
+  ): Promise<{ message: string }> {
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token is required');
+    }
+
+    try {
+      const payload = this.verifyRefreshToken(refreshToken);
+      const remainingTtl = this.calculateRemainingTtl(payload.exp);
+
+      // Revoke the session
+      await this.revokeSession(payload.sid, remainingTtl);
+
+      // Log logout
+      await this.auditService?.logLogout({
+        userId: payload.sub,
+        email: payload.email,
+        sessionId: payload.sid,
+        ipAddress: context?.ipAddress,
+        userAgent: context?.userAgent,
+      });
+
+      return { message: 'Logout successful' };
+    } catch (error) {
+      this.logger.warn('Logout attempt with invalid token');
+      throw new UnauthorizedException('Invalid refresh token');
+    }
   }
 
   /**
@@ -256,7 +370,7 @@ export class AuthService {
     return this.jwtService.sign(payload);
   }
 
-  private async generateTokenPair(user: User): Promise<RefreshResponse> {
+  private async generateTokenPair(user: User): Promise<RefreshResponse & { sessionId: string }> {
     const sessionId = this.generateSessionId();
     const tokenFamily = this.generateTokenFamily();
     const tokenId = this.generateTokenId();
@@ -271,6 +385,7 @@ export class AuthService {
     return {
       accessToken: this.generateJwtToken(user),
       refreshToken,
+      sessionId,
     };
   }
 

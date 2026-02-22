@@ -4,7 +4,7 @@ import { Strategy } from 'passport-custom';
 import { Request } from 'express';
 import { Keypair } from 'stellar-sdk';
 import { NonceService } from '../providers/nonce.service';
-import { UserService } from 'src/modules/user/providers/user.service';
+import { UserService } from '../../user/providers/user.service';
 
 export const STELLAR_STRATEGY = 'stellar';
 
