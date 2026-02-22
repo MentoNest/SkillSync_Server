@@ -3,7 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-custom';
 import { Request } from 'express';
 import { Keypair } from 'stellar-sdk';
-import { NonceService } from '../providers/nonce.service';
+import { StellarNonceService } from '../providers/nonce.service';
 import { UserService } from '../../user/providers/user.service';
 
 export const STELLAR_STRATEGY = 'stellar';
@@ -18,7 +18,7 @@ export interface StellarAuthPayload {
 @Injectable()
 export class StellarStrategy extends PassportStrategy(Strategy, STELLAR_STRATEGY) {
   constructor(
-    private readonly nonceService: NonceService,
+    private readonly nonceService: StellarNonceService,
     private readonly usersService: UserService,
   ) {
     super();
@@ -37,9 +37,9 @@ export class StellarStrategy extends PassportStrategy(Strategy, STELLAR_STRATEGY
     }
 
     try {
-      const keypair    = Keypair.fromPublicKey(publicKey);
+      const keypair = Keypair.fromPublicKey(publicKey);
       const messageBuf = Buffer.from(nonce, 'utf8');
-      const sigBuf     = Buffer.from(signature, 'base64');
+      const sigBuf = Buffer.from(signature, 'base64');
 
       const isValid = keypair.verify(messageBuf, sigBuf);
       if (!isValid) {
