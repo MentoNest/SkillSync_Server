@@ -13,7 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import { UserService } from '../../user/providers/user.service';
 import { MailService } from '../../mail/mail.service';
-import { User } from '../../user/entities/user.entity';
+import { User, Wallet } from '../../user/entities/user.entity';
 import {
   LoginResponse,
   RegisterResponse,
@@ -23,6 +23,10 @@ import {
 } from '../interfaces/auth.interface';
 import * as bcrypt from 'bcrypt';
 import { AuditService } from '../../audit/providers/audit.service';
+import { Keypair } from 'stellar-sdk';
+import { LinkWalletDto } from '../dto/link-wallet.dto';
+import { StellarNonceService } from '../providers/nonce.service';
+
 
 // Re-export interfaces for backward compatibility
 export type { LoginResponse };
@@ -38,8 +42,9 @@ export class AuthService {
     private readonly userService: UserService,
     private readonly mailService: MailService,
     private readonly jwtService: JwtService,
+    private readonly stellarNonceService: StellarNonceService,
     private readonly auditService?: AuditService,
-  ) {}
+  ) { }
 
   async generateNonce(ttl: number = 300): Promise<NonceResponseDto> {
     try {
@@ -378,4 +383,66 @@ export class AuthService {
         return 3600;
     }
   }
+
+  async linkWallet(userId: string, dto: LinkWalletDto): Promise<User> {
+    const { address, nonce, signature } = dto;
+
+    // 1. Verify Nonce
+    const isValidNonce = this.stellarNonceService.consume(address, nonce);
+    if (!isValidNonce) {
+      throw new BadRequestException('Invalid or expired nonce');
+    }
+
+    // 2. Verify Signature
+    try {
+      const keypair = Keypair.fromPublicKey(address);
+      const isValidSignature = keypair.verify(Buffer.from(nonce, 'utf8'), Buffer.from(signature, 'base64'));
+      if (!isValidSignature) {
+        throw new UnauthorizedException('Invalid signature');
+      }
+    } catch (err) {
+      throw new BadRequestException('Invalid public key or signature format');
+    }
+
+    // 3. Check if wallet is already linked to another user
+    const existingUser = await this.userService.findByPublicKey(address);
+    if (existingUser && existingUser.id !== userId) {
+      throw new ConflictException('Wallet already linked to another account');
+    }
+
+    // 4. Link wallet
+    return this.userService.linkWallet(userId, address);
+  }
+
+  async removeWallet(userId: string, address: string, dto: LinkWalletDto): Promise<User> {
+    const { nonce, signature, address: dtoAddress } = dto;
+    if (address !== dtoAddress) {
+      throw new BadRequestException('Address mismatch');
+    }
+
+    // 1. Verify Nonce
+    const isValidNonce = this.stellarNonceService.consume(address, nonce);
+    if (!isValidNonce) {
+      throw new BadRequestException('Invalid or expired nonce');
+    }
+
+    // 2. Verify Signature
+    try {
+      const keypair = Keypair.fromPublicKey(address);
+      const isValidSignature = keypair.verify(Buffer.from(nonce, 'utf8'), Buffer.from(signature, 'base64'));
+      if (!isValidSignature) {
+        throw new UnauthorizedException('Invalid signature');
+      }
+    } catch (err) {
+      throw new BadRequestException('Invalid public key or signature format');
+    }
+
+    // 3. Remove wallet
+    return this.userService.removeWallet(userId, address);
+  }
+
+  async setPrimaryWallet(userId: string, address: string): Promise<User> {
+    return this.userService.setPrimaryWallet(userId, address);
+  }
 }
+

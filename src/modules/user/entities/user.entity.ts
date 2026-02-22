@@ -1,9 +1,23 @@
 import { UserRole } from '../../../common/enums/user-role.enum';
 
+export interface Wallet {
+  address: string;
+  isPrimary: boolean;
+  linkedAt: Date;
+}
+
 export class User {
   id: string;
-  /** Stellar G… public key — set for wallet-authenticated users */
-  publicKey?: string;
+  
+  /** 
+   * @deprecated Use wallets array instead. 
+   * For backward compatibility, this returns the primary wallet address if available.
+   */
+  get publicKey(): string | undefined {
+    return this.wallets?.find(w => w.isPrimary)?.address;
+  }
+
+  wallets: Wallet[] = [];
   
   /** Undefined for wallet-only users */
   email?: string;
@@ -16,3 +30,4 @@ export class User {
   createdAt: Date;
   updatedAt: Date;
 }
+

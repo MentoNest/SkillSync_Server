@@ -13,6 +13,7 @@ import { RateLimitService } from '../../common/cache/rate-limit.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AuditModule } from '../audit/audit.module';
+import { StellarNonceService } from './providers/nonce.service';
 import { StellarStrategy } from './strategies/stellar.strategy';
 
 @Module({
@@ -33,7 +34,16 @@ import { StellarStrategy } from './strategies/stellar.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, NonceService, CacheService, RateLimitService, JwtStrategy, JwtAuthGuard],
-  exports: [NonceService, AuthService, JwtStrategy, PassportModule, JwtAuthGuard],
+  providers: [
+    AuthService,
+    NonceService,
+    StellarNonceService,
+    CacheService,
+    RateLimitService,
+    JwtStrategy,
+    StellarStrategy,
+    JwtAuthGuard
+  ],
+  exports: [NonceService, StellarNonceService, AuthService, JwtStrategy, PassportModule, JwtAuthGuard],
 })
-export class AuthModule {}
+export class AuthModule { }

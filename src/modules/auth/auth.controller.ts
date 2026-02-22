@@ -8,6 +8,9 @@ import {
   HttpException,
   Post,
   Req,
+  Delete,
+  Patch,
+  Param,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { AuthService } from './providers/auth.service';
@@ -19,8 +22,11 @@ import { STELLAR_STRATEGY } from './strategies/stellar.strategy';
 import { AuthGuard } from '@nestjs/passport';
 import { CreateStellarAuthDto } from './dto/create-stellar-auth.dto';
 import type { Request } from 'express';
-import { NonceService } from './providers/nonce.service';
 import { NonceRequestDto } from './dto/nonce-request.dto';
+import { StellarNonceService } from './providers/nonce.service';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { LinkWalletDto } from './dto/link-wallet.dto';
+import { User } from '../user/entities/user.entity';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -28,8 +34,8 @@ import { NonceRequestDto } from './dto/nonce-request.dto';
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
-    private readonly nonceService: NonceService
-  ) {}
+    private readonly nonceService: StellarNonceService
+  ) { }
 
   @Get('nonce')
   @ApiOperation({ summary: 'Generate a nonce for authentication' })
@@ -84,4 +90,38 @@ export class AuthController {
   login(@Req() req: Request) {
     return { user: req.user };
   }
+
+  @Post('wallets/link')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Link a new Stellar wallet to the account' })
+  @ApiBody({ type: LinkWalletDto })
+  @ApiResponse({ status: 201, description: 'Wallet linked successfully' })
+  async linkWallet(@Req() req: Request, @Body() dto: LinkWalletDto) {
+    const user = req.user as User;
+    return this.authService.linkWallet(user.id, dto);
+  }
+
+  @Delete('wallets/:address')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Remove a linked Stellar wallet' })
+  @ApiBody({ type: LinkWalletDto, description: 'Requires signature verification for removal' })
+  @ApiResponse({ status: 200, description: 'Wallet removed successfully' })
+  async removeWallet(
+    @Req() req: Request,
+    @Param('address') address: string,
+    @Body() dto: LinkWalletDto,
+  ) {
+    const user = req.user as User;
+    return this.authService.removeWallet(user.id, address, dto);
+  }
+
+  @Patch('wallets/:address/primary')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Set a wallet as the primary wallet' })
+  @ApiResponse({ status: 200, description: 'Primary wallet updated successfully' })
+  async setPrimaryWallet(@Req() req: Request, @Param('address') address: string) {
+    const user = req.user as User;
+    return this.authService.setPrimaryWallet(user.id, address);
+  }
 }
+

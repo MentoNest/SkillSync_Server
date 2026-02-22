@@ -64,6 +64,10 @@ describe('AuthService register', () => {
       sign: jest.fn(),
     };
 
+    const stellarNonceServiceMock = {
+      consume: jest.fn(),
+    };
+
     authService = new AuthService(
       nonceServiceMock as any,
       configServiceMock as any,
@@ -71,6 +75,7 @@ describe('AuthService register', () => {
       userServiceMock as any,
       mailServiceMock as any,
       jwtServiceMock as any,
+      stellarNonceServiceMock as any,
       auditServiceMock as any,
     );
   });
