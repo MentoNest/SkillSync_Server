@@ -21,7 +21,7 @@ import {
   RefreshResponse,
   RefreshTokenPayload,
 } from '../interfaces/auth.interface';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { AuditService } from '../../audit/providers/audit.service';
 import { Keypair } from 'stellar-sdk';
 import { LinkWalletDto } from '../dto/link-wallet.dto';
