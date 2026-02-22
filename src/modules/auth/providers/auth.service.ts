@@ -413,6 +413,35 @@ export class AuthService {
     };
   }
 
+  /**
+   * Issue access + refresh tokens for an already-authenticated user (e.g., wallet auth)
+   */
+  async issueTokenPairForUser(
+    user: User,
+    context?: { ipAddress?: string; userAgent?: string },
+  ): Promise<LoginResponse & { sessionId?: string }> {
+    const { accessToken, refreshToken, sessionId } = await this.generateTokenPair(user);
+
+    await this.auditService?.logLoginSuccess({
+      userId: user.id,
+      email: user.email!,
+      ipAddress: context?.ipAddress,
+      userAgent: context?.userAgent,
+      sessionId,
+    });
+
+    // Remove password from user object before returning
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { passwordHash: _passwordHash, ...safeUser } = user;
+
+    return {
+      accessToken,
+      refreshToken,
+      user: safeUser as User,
+      sessionId,
+    };
+  }
+
   private generateRefreshToken(
     user: User,
     sessionId: string,
