@@ -196,6 +196,52 @@ export class MailService {
   }
 
   /**
+   * 📧 Send OTP email for password reset
+   * @param email - Recipient email address
+   * @param otp - One-time password to send
+   * @returns Promise<void>
+   */
+  async sendOtpEmail(email: string, otp: string): Promise<void> {
+    try {
+      // Validate email
+      if (!email || !this.isValidEmail(email)) {
+        throw new Error('Invalid email address provided');
+      }
+
+      // Validate OTP
+      if (!otp || otp.length !== 6 || !/^[0-9]+$/.test(otp)) {
+        throw new Error('Invalid OTP format');
+      }
+
+      // Load template
+      const template = await this.loadTemplate('otp.ejs');
+      
+      // Prepare template variables
+      const templateVars = {
+        otp,
+        email: this.maskEmail(email),
+        appName: this.configService.mailAppName,
+        year: new Date().getFullYear(),
+      };
+
+      // Render template
+      let html = processConditionals(template, templateVars);
+      html = renderTemplate(html, templateVars);
+
+      // Prepare email data
+      const subject = `${this.configService.mailSubjectPrefix} Password Reset OTP - ${otp}`;
+      const from = this.configService.mailSender;
+
+      // Log email dispatch (no PII in logs)
+      this.logger.log(`Sending OTP email to user`);
+
+      // Send email (placeholder for actual implementation)
+      await this.dispatchEmail({
+        to: email,
+        from,
+        subject,
+        html,
+      });
    * 🔐 Generate a 6-digit OTP, persist it with a 10-minute expiry, and send it
    * to the provided email address.
    *
@@ -254,6 +300,8 @@ export class MailService {
       this.logger.log(`OTP email sent successfully`);
     } catch (error) {
       this.logger.error(`Failed to send OTP email: ${error.message}`);
+      // Don't throw - fail gracefully
+    }
       // OTP is still persisted — caller can retry sending without regenerating
     }
 
