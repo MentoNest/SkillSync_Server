@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../app.module';
 import { Logger } from '@nestjs/common';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { UserService } from '../modules/user/providers/user.service';
 import { ConfigService } from '../config/config.service';
 import { UserRole } from '../common/enums/user-role.enum';

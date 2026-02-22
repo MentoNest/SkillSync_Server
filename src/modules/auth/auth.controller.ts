@@ -27,6 +27,8 @@ import type { Request } from 'express';
 import { NonceRequestDto } from './dto/nonce-request.dto';
 import { StellarNonceService } from './providers/nonce.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { ForbiddenException } from '@nestjs/common';
+import { UserRole } from '../../common/enums/user-role.enum';
 import { LinkWalletDto } from './dto/link-wallet.dto';
 import { User } from '../user/entities/user.entity';
 import { LoginDto, RegisterDto } from './dto/create-auth.dto';
@@ -168,6 +170,62 @@ export class AuthController {
   async setPrimaryWallet(@Req() req: Request, @Param('address') address: string) {
     const user = req.user as User;
     return this.authService.setPrimaryWallet(user.id, address);
+  }
+
+  @Get('sessions')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'List active sessions for the current user (admins may specify userId)' })
+  async listSessions(
+    @Req() req: Request,
+    @Query('userId') userId?: string,
+    @Query('page') page = '1',
+    @Query('perPage') perPage = '20',
+  ) {
+    const requester = req.user as any;
+    const targetUserId = userId && requester.role === UserRole.ADMIN ? userId : requester.sub;
+
+    if (userId && requester.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Insufficient permissions');
+    }
+
+    return this.authService.listSessionsForUser(targetUserId, parseInt(page as string, 10), parseInt(perPage as string, 10));
+  }
+
+  @Post('sessions/:id/revoke')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Revoke a specific session (owner or admin)' })
+  async revokeSession(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Query('userId') userId?: string,
+  ) {
+    const requester = req.user as any;
+
+    let targetUserId = requester.sub;
+
+    if (userId) {
+      // admin may specify userId
+      if (requester.role !== UserRole.ADMIN) throw new ForbiddenException('Insufficient permissions');
+      targetUserId = userId;
+    } else {
+      // ensure owner
+      const sessions = await this.authService.listSessionsForUser(requester.sub);
+      const owns = sessions.items.some((s: any) => s.id === id);
+      if (!owns && requester.role !== UserRole.ADMIN) throw new ForbiddenException('Cannot revoke sessions of other users');
+    }
+
+    await this.authService.revokeSessionById(targetUserId, id);
+    return { message: 'Session revoked' };
+  }
+
+  @Post('sessions/revoke-all')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Revoke all sessions for the current user except current' })
+  async revokeAll(@Req() req: Request) {
+    const requester = req.user as any;
+    const except = (requester as any).sid as string | undefined;
+    await this.authService.revokeAllSessionsExcept(requester.sub, except);
+    return { message: 'All other sessions revoked' };
   }
 }
 

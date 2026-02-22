@@ -24,7 +24,7 @@ import {
   RefreshResponse,
   RefreshTokenPayload,
 } from '../interfaces/auth.interface';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { AuditService } from '../../audit/providers/audit.service';
 import { Keypair } from 'stellar-sdk';
 import { LinkWalletDto } from '../dto/link-wallet.dto';
@@ -362,11 +362,12 @@ export class AuthService {
   /**
    * 🔐 Generate JWT token for user using JwtService
    */
-  private generateJwtToken(user: User): string {
+  private generateJwtToken(user: User, sessionId?: string): string {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email!,
       role: user.role,
+      sid: sessionId,
       iat: Math.floor(Date.now() / 1000),
       exp:
         Math.floor(Date.now() / 1000) +
@@ -382,14 +383,31 @@ export class AuthService {
     const tokenId = this.generateTokenId();
     const refreshToken = this.generateRefreshToken(user, sessionId, tokenFamily, tokenId);
 
-    await this.cacheService.set(
-      `${this.getSessionPrefix(sessionId)}:current-jti`,
-      tokenId,
-      this.getRefreshTokenTtl(),
-    );
+    const refreshTtl = this.getRefreshTokenTtl();
+    await this.cacheService.set(`${this.getSessionPrefix(sessionId)}:current-jti`, tokenId, refreshTtl);
+
+    // Store session metadata and index by user
+    try {
+      const sessionMeta = {
+        id: sessionId,
+        device: 'unknown',
+        ip: 'unknown',
+        userAgent: 'unknown',
+        createdAt: new Date().toISOString(),
+        lastUsedAt: new Date().toISOString(),
+      };
+
+      const userKey = `auth:user:${user.id}:sessions`;
+      const existing = await this.cacheService.get(userKey);
+      const arr = existing ? JSON.parse(existing) : [];
+      arr.push(sessionMeta);
+      await this.cacheService.set(userKey, JSON.stringify(arr), refreshTtl);
+    } catch (err) {
+      this.logger.warn('Failed to store session metadata');
+    }
 
     return {
-      accessToken: this.generateJwtToken(user),
+      accessToken: this.generateJwtToken(user, sessionId),
       refreshToken,
       sessionId,
     };
@@ -439,6 +457,71 @@ export class AuthService {
 
     await this.cacheService.set(`${sessionPrefix}:revoked`, '1', safeTtl);
     await this.cacheService.del(`${sessionPrefix}:current-jti`);
+  }
+
+  /**
+   * List sessions for a user (paginated)
+   */
+  async listSessionsForUser(userId: string, page = 1, perPage = 20) {
+    const key = `auth:user:${userId}:sessions`;
+    const raw = await this.cacheService.get(key);
+    const arr = raw ? JSON.parse(raw) : [];
+
+    // Enrich with revoked flag
+    const enriched = await Promise.all(
+      arr.map(async (s: any) => {
+        const revoked = await this.cacheService.get(`${this.getSessionPrefix(s.id)}:revoked`);
+        return { ...s, revoked: !!revoked };
+      }),
+    );
+
+    // Paginate
+    const total = enriched.length;
+    const start = (page - 1) * perPage;
+    const items = enriched.slice(start, start + perPage);
+
+    return { total, page, perPage, items };
+  }
+
+  /**
+   * Revoke a single session by id and remove from user's session index
+   */
+  async revokeSessionById(targetUserId: string, sessionId: string) {
+    const ttl = this.getRefreshTokenTtl();
+    await this.revokeSession(sessionId, ttl);
+
+    // Remove from index
+    try {
+      const key = `auth:user:${targetUserId}:sessions`;
+      const raw = await this.cacheService.get(key);
+      if (!raw) return;
+      const arr = JSON.parse(raw) as any[];
+      const filtered = arr.filter((s) => s.id !== sessionId);
+      await this.cacheService.set(key, JSON.stringify(filtered), ttl);
+    } catch (err) {
+      this.logger.warn('Failed to remove session from user index');
+    }
+  }
+
+  /**
+   * Revoke all sessions for a user except the provided session id (if any)
+   */
+  async revokeAllSessionsExcept(targetUserId: string, exceptSessionId?: string) {
+    const key = `auth:user:${targetUserId}:sessions`;
+    const raw = await this.cacheService.get(key);
+    const arr = raw ? JSON.parse(raw) : [];
+    const ttl = this.getRefreshTokenTtl();
+
+    await Promise.all(
+      arr.map(async (s: any) => {
+        if (s.id === exceptSessionId) return;
+        await this.revokeSession(s.id, ttl);
+      }),
+    );
+
+    // Keep exceptSessionId in index if provided
+    const remaining = exceptSessionId ? arr.filter((s: any) => s.id === exceptSessionId) : [];
+    await this.cacheService.set(key, JSON.stringify(remaining), ttl);
   }
 
   private calculateRemainingTtl(exp: number): number {
