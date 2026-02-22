@@ -1,4 +1,5 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { CreateAuditDto } from './create-audit.dto';
+import { AuditQueryDto } from './create-audit.dto';
 
-export class UpdateAuditDto extends PartialType(CreateAuditDto) {}
+// Update DTO for audit logs (typically not used as audit logs are immutable)
+export class UpdateAuditDto extends PartialType(AuditQueryDto) {}
