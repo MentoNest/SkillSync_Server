@@ -79,6 +79,8 @@ describe('AuthService refresh token rotation', () => {
 
   const auditServiceMock = {
     recordTokenReuseAttempt: jest.fn(),
+    logLogout: jest.fn(),
+    logRefreshToken: jest.fn(),
   };
 
   beforeEach(() => {
@@ -141,6 +143,131 @@ describe('AuthService refresh token rotation', () => {
       userId: payload.sub,
       sessionId: payload.sid,
       tokenId: payload.jti,
+    });
+  });
+
+  describe('logout and token invalidation', () => {
+    it('should return 401 when using refresh token after logout', async () => {
+      const sessionId = 'session-logout-1';
+      const tokenFamily = 'family-logout-1';
+      const tokenId = 'token-logout-1';
+      const refreshToken = jwtServiceMock.sign({
+        sub: user.id,
+        email: user.email,
+        sid: sessionId,
+        family: tokenFamily,
+        jti: tokenId,
+        type: 'refresh',
+      });
+      store.set(`auth:session:${sessionId}:current-jti`, tokenId);
+
+      // First, logout the user
+      const logoutResult = await authService.logout(refreshToken);
+      expect(logoutResult.message).toBe('Logout successful');
+
+      // Verify session is revoked
+      expect(store.get(`auth:session:${sessionId}:revoked`)).toBe('1');
+
+      // Attempt to use the same refresh token after logout should fail
+      await expect(authService.refresh(refreshToken)).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('should return 401 when refresh token from revoked session is used', async () => {
+      const sessionId = 'session-revoked-1';
+      const tokenFamily = 'family-revoked-1';
+      const tokenId = 'token-revoked-1';
+      const refreshToken = jwtServiceMock.sign({
+        sub: user.id,
+        email: user.email,
+        sid: sessionId,
+        family: tokenFamily,
+        jti: tokenId,
+        type: 'refresh',
+      });
+      store.set(`auth:session:${sessionId}:current-jti`, tokenId);
+
+      // Manually revoke the session (simulating logout or admin revocation)
+      store.set(`auth:session:${sessionId}:revoked`, '1');
+
+      // Attempt to refresh with revoked session token
+      await expect(authService.refresh(refreshToken)).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(auditServiceMock.logRefreshToken).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: user.id,
+          email: user.email,
+          sessionId,
+          success: false,
+          failureReason: 'Session has been revoked',
+        }),
+      );
+    });
+
+    it('should successfully refresh with valid token from active session', async () => {
+      const sessionId = 'session-active-1';
+      const tokenFamily = 'family-active-1';
+      const tokenId = 'token-active-1';
+      const refreshToken = jwtServiceMock.sign({
+        sub: user.id,
+        email: user.email,
+        sid: sessionId,
+        family: tokenFamily,
+        jti: tokenId,
+        type: 'refresh',
+      });
+      store.set(`auth:session:${sessionId}:current-jti`, tokenId);
+
+      // Ensure session is not revoked
+      store.delete(`auth:session:${sessionId}:revoked`);
+
+      const result = await authService.refresh(refreshToken);
+
+      expect(result.accessToken).toBeDefined();
+      expect(result.refreshToken).toBeDefined();
+      expect(result.refreshToken).not.toEqual(refreshToken);
+    });
+
+    it('should handle multiple sessions independently - logout one does not affect other', async () => {
+      // Session 1
+      const sessionId1 = 'session-multi-1';
+      const tokenId1 = 'token-multi-1';
+      const refreshToken1 = jwtServiceMock.sign({
+        sub: user.id,
+        email: user.email,
+        sid: sessionId1,
+        family: 'family-multi',
+        jti: tokenId1,
+        type: 'refresh',
+      });
+      store.set(`auth:session:${sessionId1}:current-jti`, tokenId1);
+
+      // Session 2
+      const sessionId2 = 'session-multi-2';
+      const tokenId2 = 'token-multi-2';
+      const refreshToken2 = jwtServiceMock.sign({
+        sub: user.id,
+        email: user.email,
+        sid: sessionId2,
+        family: 'family-multi-2',
+        jti: tokenId2,
+        type: 'refresh',
+      });
+      store.set(`auth:session:${sessionId2}:current-jti`, tokenId2);
+
+      // Logout session 1
+      await authService.logout(refreshToken1);
+
+      // Session 1 should be revoked
+      expect(store.get(`auth:session:${sessionId1}:revoked`)).toBe('1');
+
+      // Session 2 should still be active
+      expect(store.get(`auth:session:${sessionId2}:revoked`)).toBeFalsy();
+
+      // Session 2 refresh should work
+      const result = await authService.refresh(refreshToken2);
+      expect(result.accessToken).toBeDefined();
+
+      // Session 1 refresh should fail
+      await expect(authService.refresh(refreshToken1)).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 });
