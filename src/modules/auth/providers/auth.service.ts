@@ -13,7 +13,8 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import { UserService } from '../../user/providers/user.service';
 import { MailService } from '../../mail/mail.service';
-import { User, Wallet } from '../../user/entities/user.entity';
+import { User } from '../../user/entities/user.entity';
+import { Wallet } from '../../user/entities/wallet.entity';
 import {
   LoginResponse,
   RegisterResponse,
@@ -99,7 +100,7 @@ export class AuthService {
     }
 
     // Verify password using configured hashing utility
-    const isPasswordValid = await this.verifyPassword(password, user.password!);
+    const isPasswordValid = await this.verifyPassword(password, user.passwordHash);
 
     if (!isPasswordValid) {
       // Generic error message to prevent user enumeration
@@ -127,12 +128,12 @@ export class AuthService {
 
     // Remove password from user object before returning
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { password: _password, ...safeUser } = user;
+    const { passwordHash: _passwordHash, ...safeUser } = user;
 
     return {
       accessToken,
       refreshToken,
-      user: safeUser as Omit<User, 'password'>,
+      user: safeUser as User,
     };
   }
 
@@ -204,13 +205,13 @@ export class AuthService {
       firstName,
       lastName,
       email,
-      password: hashedPassword,
+      passwordHash: hashedPassword,
       isActive: true,
     });
 
     // Remove password from response
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { password: _password, ...safeUser } = user;
+    const { passwordHash: _passwordHash, ...safeUser } = user;
 
     this.logger.log(`New user registered: ${email}`);
 
@@ -224,7 +225,7 @@ export class AuthService {
 
     return {
       message: 'User registered successfully',
-      user: safeUser as Omit<User, 'password'>,
+      user: safeUser as User,
     };
   }
 
