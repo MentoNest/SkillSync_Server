@@ -1,8 +1,9 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany, ManyToMany, JoinTable } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany, ManyToMany, JoinTable, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { Tag } from '../../tag/entities/tag.entity';
 import { MentorSkill } from '../../mentor_skills/entities/mentor-skill.entity';
 
 @Entity('skills')
+@Index(['slug'], { unique: true })
 export class Skill {
   @PrimaryGeneratedColumn()
   id: number;
@@ -10,12 +11,18 @@ export class Skill {
   @Column({ unique: true })
   name: string;
 
+  @Column({ unique: true })
+  slug: string;
+
 
   @Column('text', { array: true, nullable: true })
   aliases?: string[];
 
   @Column({ type: 'text', nullable: true })
   description?: string;
+
+  @Column({ type: 'int', nullable: true })
+  categoryId?: number;
 
   @OneToMany(() => MentorSkill, mentorSkill => mentorSkill.skill)
   mentorSkills: MentorSkill[];
