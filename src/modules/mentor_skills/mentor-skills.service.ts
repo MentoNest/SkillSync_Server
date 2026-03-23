@@ -4,6 +4,7 @@ import { Repository, In } from 'typeorm';
 import { MentorSkill } from './entities/mentor-skill.entity';
 import { Skill } from '../skill/entities/skill.entity';
 import { MentorProfile } from '../profile/entities/mentor-profile.entity';
+import { SkillPopularityService } from '../skills/providers/skill-popularity.service';
 
 @Injectable()
 export class MentorSkillsService {
@@ -14,6 +15,7 @@ export class MentorSkillsService {
     private skillRepo: Repository<Skill>,
     @InjectRepository(MentorProfile)
     private mentorRepo: Repository<MentorProfile>,
+    private readonly popularityService: SkillPopularityService,
   ) {}
 
   async attachSkills(mentorId: string, skillIds: number[]) {
@@ -26,6 +28,15 @@ export class MentorSkillsService {
     const newSkills = skills.filter(skill => !existingSkillIds.has(skill.id));
     if (!newSkills.length) throw new BadRequestException('All skills already attached');
     const mentorSkills = newSkills.map(skill => this.mentorSkillRepo.create({ mentor, skill }));
+    
+    // Track popularity for each attached skill
+    await this.popularityService.batchIncrement(
+      newSkills.map(skill => ({
+        skillId: skill.id,
+        eventType: 'mentor_skill_attach' as any,
+      }))
+    );
+    
     return this.mentorSkillRepo.save(mentorSkills);
   }
 
