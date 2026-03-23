@@ -25,7 +25,8 @@ export class SkillService {
 
     let category: SkillCategory | undefined;
     if (dto.categoryId) {
-      category = await this.categoryRepo.findOne({ where: { id: dto.categoryId } });
+      const foundCategory = await this.categoryRepo.findOne({ where: { id: dto.categoryId } });
+      category = foundCategory ?? undefined;
       if (!category) {
         throw new BadRequestException(`Skill category with id "${dto.categoryId}" not found`);
       }
