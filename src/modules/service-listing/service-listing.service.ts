@@ -23,7 +23,7 @@ export class ServiceListingService {
   findAll(): Promise<ServiceListing[]> {
     return this.serviceListingRepository.find({
       where: { isDeleted: false },
-      order: { createdAt: 'DESC' },
+      order: { isFeatured: 'DESC', createdAt: 'DESC' },
     });
   }
 
@@ -66,5 +66,18 @@ export class ServiceListingService {
     // Soft delete
     serviceListing.isDeleted = true;
     await this.serviceListingRepository.save(serviceListing);
+  }
+
+  async toggleFeatured(id: string, isFeatured: boolean): Promise<ServiceListing> {
+    const serviceListing = await this.serviceListingRepository.findOne({
+      where: { id, isDeleted: false },
+    });
+
+    if (!serviceListing) {
+      throw new NotFoundException('Service listing not found');
+    }
+
+    serviceListing.isFeatured = isFeatured;
+    return this.serviceListingRepository.save(serviceListing);
   }
 }

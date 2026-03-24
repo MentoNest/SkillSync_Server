@@ -1,5 +1,5 @@
 import { IsString, IsNumber, IsEnum, IsOptional } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ServiceCategory } from '../entities/service-listing.entity';
 
 export class CreateServiceListingDto {
