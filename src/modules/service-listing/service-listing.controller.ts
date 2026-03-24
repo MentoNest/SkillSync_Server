@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Body, Param, Patch, Delete, UseGuards, Request } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Get, Post, Body, Param, Patch, Delete, UseGuards, Request, Query } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { ServiceListingService } from './service-listing.service';
 import { CreateServiceListingDto } from './dto/create-service-listing.dto';
 import { UpdateServiceListingDto } from './dto/update-service-listing.dto';
 import { ToggleFeaturedDto } from './dto/toggle-featured.dto';
 import { ToggleListingVisibilityDto } from './dto/toggle-listing-visibility.dto';
+import { ServiceListingQueryDto } from './dto/service-listing-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -27,9 +28,11 @@ export class ServiceListingController {
 
   @Get()
   @ApiOperation({ summary: 'Get all service listings' })
-  @ApiResponse({ status: 200, description: 'List of service listings' })
-  findAll() {
-    return this.serviceListingService.findAll();
+  @ApiQuery({ name: 'page', required: false, description: 'Page number', example: 1 })
+  @ApiQuery({ name: 'limit', required: false, description: 'Items per page', example: 20 })
+  @ApiResponse({ status: 200, description: 'Paginated list of service listings' })
+  findAll(@Query() query: ServiceListingQueryDto) {
+    return this.serviceListingService.findAll(query);
   }
 
   @Get(':id')
