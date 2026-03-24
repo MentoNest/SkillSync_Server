@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { ServiceListing } from './entities/service-listing.entity';
 import { CreateServiceListingDto } from './dto/create-service-listing.dto';
 import { UpdateServiceListingDto } from './dto/update-service-listing.dto';
+import { PaginatedServiceListingsDto, ServiceListingQueryDto } from './dto/service-listing-query.dto';
 
 @Injectable()
 export class ServiceListingService {
@@ -20,11 +21,25 @@ export class ServiceListingService {
     return this.serviceListingRepository.save(serviceListing);
   }
 
-  findAll(): Promise<ServiceListing[]> {
-    return this.serviceListingRepository.find({
+  async findAll(query: ServiceListingQueryDto): Promise<PaginatedServiceListingsDto<ServiceListing>> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const [data, total] = await this.serviceListingRepository.findAndCount({
       where: { isDeleted: false, isActive: true },
       order: { isFeatured: 'DESC', createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        pages: total === 0 ? 0 : Math.ceil(total / limit),
+      },
+    };
   }
 
   findOne(id: string): Promise<ServiceListing> {
