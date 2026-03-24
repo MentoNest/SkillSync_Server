@@ -4,6 +4,7 @@ import { ServiceListingService } from './service-listing.service';
 import { CreateServiceListingDto } from './dto/create-service-listing.dto';
 import { UpdateServiceListingDto } from './dto/update-service-listing.dto';
 import { ToggleFeaturedDto } from './dto/toggle-featured.dto';
+import { ToggleListingVisibilityDto } from './dto/toggle-listing-visibility.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -55,6 +56,20 @@ export class ServiceListingController {
   @ApiResponse({ status: 404, description: 'Service listing not found' })
   toggleFeatured(@Param('id') id: string, @Body() toggleFeaturedDto: ToggleFeaturedDto) {
     return this.serviceListingService.toggleFeatured(id, toggleFeaturedDto.isFeatured);
+  }
+
+  @Patch(':id/visibility')
+  @Roles(UserRole.MENTOR)
+  @ApiOperation({ summary: 'Toggle visibility for a service listing' })
+  @ApiResponse({ status: 200, description: 'Listing visibility updated successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Mentor access required' })
+  @ApiResponse({ status: 404, description: 'Service listing not found' })
+  toggleVisibility(
+    @Param('id') id: string,
+    @Body() toggleListingVisibilityDto: ToggleListingVisibilityDto,
+    @Request() req,
+  ) {
+    return this.serviceListingService.toggleVisibility(id, toggleListingVisibilityDto.isActive, req.user.id);
   }
 
   @Delete(':id')

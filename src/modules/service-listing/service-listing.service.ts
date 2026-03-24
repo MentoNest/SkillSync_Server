@@ -22,7 +22,7 @@ export class ServiceListingService {
 
   findAll(): Promise<ServiceListing[]> {
     return this.serviceListingRepository.find({
-      where: { isDeleted: false },
+      where: { isDeleted: false, isActive: true },
       order: { isFeatured: 'DESC', createdAt: 'DESC' },
     });
   }
@@ -78,6 +78,23 @@ export class ServiceListingService {
     }
 
     serviceListing.isFeatured = isFeatured;
+    return this.serviceListingRepository.save(serviceListing);
+  }
+
+  async toggleVisibility(id: string, isActive: boolean, userId: string): Promise<ServiceListing> {
+    const serviceListing = await this.serviceListingRepository.findOne({
+      where: { id, isDeleted: false },
+    });
+
+    if (!serviceListing) {
+      throw new NotFoundException('Service listing not found');
+    }
+
+    if (serviceListing.mentorId !== userId) {
+      throw new ForbiddenException('You can only change visibility for your own listings');
+    }
+
+    serviceListing.isActive = isActive;
     return this.serviceListingRepository.save(serviceListing);
   }
 }
