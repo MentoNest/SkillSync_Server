@@ -65,6 +65,14 @@ export class ServiceListing {
   @Column({ default: false })
   isFeatured: boolean;
 
+  @ApiPropertyOptional({ description: 'Average rating for this listing' })
+  @Column('decimal', { precision: 3, scale: 2, default: 0 })
+  averageRating: number;
+
+  @ApiPropertyOptional({ description: 'Number of reviews for this listing' })
+  @Column({ default: 0 })
+  reviewCount: number;
+
   @ApiProperty({ description: 'Soft delete flag' })
   @Column({ default: false })
   isDeleted: boolean;
