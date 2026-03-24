@@ -22,6 +22,7 @@ import { CommonModule } from './common/common.module';
 import { HealthModule } from './modules/health/health.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
 import { SkillsModule } from './modules/skills/skills.module';
+import { ServiceListingModule } from './modules/service-listing/service-listing.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { SkillsModule } from './modules/skills/skills.module';
     BookingsModule,
     AvailabilityModule,
     SkillsModule,
+    ServiceListingModule,
     PaymentsModule,
     AuditModule,
     ReviewsModule,
