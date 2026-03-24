@@ -61,6 +61,10 @@ export class ServiceListing {
   @Column({ default: true })
   isActive: boolean;
 
+  @ApiPropertyOptional({ description: 'Whether the listing is featured' })
+  @Column({ default: false })
+  isFeatured: boolean;
+
   @ApiProperty({ description: 'Soft delete flag' })
   @Column({ default: false })
   isDeleted: boolean;

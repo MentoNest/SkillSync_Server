@@ -3,12 +3,16 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { ServiceListingService } from './service-listing.service';
 import { CreateServiceListingDto } from './dto/create-service-listing.dto';
 import { UpdateServiceListingDto } from './dto/update-service-listing.dto';
+import { ToggleFeaturedDto } from './dto/toggle-featured.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '../../common/enums/user-role.enum';
 
 @ApiTags('service-listings')
 @ApiBearerAuth()
 @Controller('service-listings')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class ServiceListingController {
   constructor(private readonly serviceListingService: ServiceListingService) {}
 
@@ -41,6 +45,16 @@ export class ServiceListingController {
   @ApiResponse({ status: 404, description: 'Service listing not found' })
   update(@Param('id') id: string, @Body() updateServiceListingDto: UpdateServiceListingDto, @Request() req) {
     return this.serviceListingService.update(id, updateServiceListingDto, req.user.id);
+  }
+
+  @Patch(':id/featured')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Toggle featured status for a service listing (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Featured status updated successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 404, description: 'Service listing not found' })
+  toggleFeatured(@Param('id') id: string, @Body() toggleFeaturedDto: ToggleFeaturedDto) {
+    return this.serviceListingService.toggleFeatured(id, toggleFeaturedDto.isFeatured);
   }
 
   @Delete(':id')
