@@ -7,26 +7,52 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  BeforeInsert,
+  BeforeUpdate,
 } from 'typeorm';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, ApiHideProperty } from '@nestjs/swagger';
 import { SkillCategory } from './skill-category.entity';
 import { SkillStatus } from '../../../common/enums/skill-status.enum';
+
+/**
+ * Normalizes a skill name for duplicate detection:
+ * - Lowercase
+ * - Trim whitespace
+ * - Collapse multiple spaces to single space
+ */
+export function normalizeSkillName(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+}
 
 @Entity('skills')
 @Index(['name'], { unique: true })
 @Index(['slug'], { unique: true })
+@Index(['normalizedName'], { unique: true })
 export class Skill {
   @ApiProperty({ description: 'Skill unique identifier' })
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @ApiProperty({ description: 'Skill name', example: 'TypeScript' })
-  @Column({ type: 'varchar', length: 100, unique: true })
+  @Column({ type: 'varchar', length: 100 })
   name: string;
+
+  @ApiHideProperty()
+  @Column({ type: 'varchar', length: 100, unique: true })
+  normalizedName: string;
 
   @ApiProperty({ description: 'URL-friendly slug', example: 'typescript' })
   @Column({ type: 'varchar', length: 120, unique: true })
   slug: string;
+
+  @BeforeInsert()
+  @BeforeUpdate()
+  updateNormalizedName() {
+    this.normalizedName = normalizeSkillName(this.name);
+  }
 
   @ApiPropertyOptional({ description: 'Optional skill description', example: 'A strongly typed superset of JavaScript' })
   @Column({ type: 'text', nullable: true })
