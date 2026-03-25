@@ -24,12 +24,43 @@ export class ServiceListingService {
   async findAll(query: ServiceListingQueryDto): Promise<PaginatedServiceListingsDto<ServiceListing>> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-    const [data, total] = await this.serviceListingRepository.findAndCount({
-      where: { isDeleted: false, isActive: true },
-      order: { isFeatured: 'DESC', createdAt: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
+
+    const qb = this.serviceListingRepository
+      .createQueryBuilder('listing')
+      .where('listing.isDeleted = :isDeleted', { isDeleted: false })
+      .andWhere('listing.isActive = :isActive', { isActive: true });
+
+    if (query.keyword) {
+      qb.andWhere(
+        '(listing.title ILIKE :keyword OR listing.description ILIKE :keyword)',
+        { keyword: `%${query.keyword}%` },
+      );
+    }
+
+    if (query.category) {
+      qb.andWhere('listing.category = :category', { category: query.category });
+    }
+
+    if (query.minPrice !== undefined) {
+      qb.andWhere('listing.price >= :minPrice', { minPrice: query.minPrice });
+    }
+
+    if (query.maxPrice !== undefined) {
+      qb.andWhere('listing.price <= :maxPrice', { maxPrice: query.maxPrice });
+    }
+
+    if (query.minDuration !== undefined) {
+      qb.andWhere('listing.duration >= :minDuration', { minDuration: query.minDuration });
+    }
+
+    if (query.maxDuration !== undefined) {
+      qb.andWhere('listing.duration <= :maxDuration', { maxDuration: query.maxDuration });
+    }
+
+    qb.orderBy('listing.isFeatured', 'DESC').addOrderBy('listing.createdAt', 'DESC');
+    qb.skip((page - 1) * limit).take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
 
     return {
       data,

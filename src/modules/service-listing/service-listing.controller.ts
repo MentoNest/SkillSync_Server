@@ -27,9 +27,15 @@ export class ServiceListingController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get all service listings' })
+  @ApiOperation({ summary: 'Search and list service listings' })
   @ApiQuery({ name: 'page', required: false, description: 'Page number', example: 1 })
   @ApiQuery({ name: 'limit', required: false, description: 'Items per page', example: 20 })
+  @ApiQuery({ name: 'keyword', required: false, description: 'Search by title or description' })
+  @ApiQuery({ name: 'category', required: false, description: 'Filter by category', enum: ['technical', 'business', 'design', 'marketing', 'career', 'language', 'other'] })
+  @ApiQuery({ name: 'minPrice', required: false, description: 'Minimum price', example: 10 })
+  @ApiQuery({ name: 'maxPrice', required: false, description: 'Maximum price', example: 500 })
+  @ApiQuery({ name: 'minDuration', required: false, description: 'Minimum duration in hours', example: 1 })
+  @ApiQuery({ name: 'maxDuration', required: false, description: 'Maximum duration in hours', example: 10 })
   @ApiResponse({ status: 200, description: 'Paginated list of service listings' })
   findAll(@Query() query: ServiceListingQueryDto) {
     return this.serviceListingService.findAll(query);
@@ -76,8 +82,10 @@ export class ServiceListingController {
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Delete service listing' })
+  @Roles(UserRole.MENTOR)
+  @ApiOperation({ summary: 'Soft delete a service listing (owner only)' })
   @ApiResponse({ status: 200, description: 'Service listing deleted successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - you can only delete your own listings' })
   @ApiResponse({ status: 404, description: 'Service listing not found' })
   remove(@Param('id') id: string, @Request() req) {
     return this.serviceListingService.remove(id, req.user.id);
