@@ -1,6 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany, ManyToMany, JoinTable, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { Tag } from '../../tag/entities/tag.entity';
 import { MentorSkill } from '../../mentor_skills/entities/mentor-skill.entity';
+import { SkillStatus } from '../../../common/enums/skill-status.enum';
 
 @Entity('skills')
 @Index(['slug'], { unique: true })
@@ -39,4 +40,24 @@ export class Skill {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  // ---------------------------------------------------------------------------
+  // Moderation fields
+  // ---------------------------------------------------------------------------
+
+  @Column({
+    type: 'enum',
+    enum: SkillStatus,
+    default: SkillStatus.PENDING,
+  })
+  status: SkillStatus;
+
+  @Column({ type: 'text', nullable: true })
+  rejectionReason?: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  moderatedBy?: string;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  moderatedAt?: Date;
 }

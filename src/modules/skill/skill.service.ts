@@ -1,11 +1,12 @@
 import { Injectable, NotFoundException, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
-import { Cache } from 'cache-manager';
+import type { Cache } from 'cache-manager';
 
 import { Skill } from './entities/skill.entity';
 import { Tag } from '../tag/entities/tag.entity';
 import { SkillPopularityService } from '../skills/providers/skill-popularity.service';
+import { SkillStatus } from '../../common/enums/skill-status.enum';
 
 export interface RecommendedSkill {
   id: number;
@@ -51,7 +52,8 @@ export class SkillService {
     const qb = this.skillRepo.createQueryBuilder('skill')
       .leftJoinAndSelect('skill.tags', 'tag')
       .addSelect(`ts_rank(skill.searchVector, plainto_tsquery('english', :q))`, 'rank')
-      .where(`skill.searchVector @@ plainto_tsquery('english', :q)`, { q: query });
+      .where(`skill.searchVector @@ plainto_tsquery('english', :q)`, { q: query })
+      .andWhere('skill.status = :status', { status: SkillStatus.APPROVED });
 
     if (tags && tags.length > 0) {
       tags.forEach((slug, i) => {
@@ -87,7 +89,7 @@ export class SkillService {
   // -------------------------------------
   async findById(id: number): Promise<Skill> {
     const skill = await this.skillRepo.findOne({
-      where: { id },
+      where: { id, status: SkillStatus.APPROVED },
       relations: ['tags'],
     });
 
@@ -100,7 +102,7 @@ export class SkillService {
 
   async findBySlug(slug: string): Promise<Skill> {
     const skill = await this.skillRepo.findOne({
-      where: { slug },
+      where: { slug, status: SkillStatus.APPROVED },
       relations: ['tags'],
     });
 
@@ -139,8 +141,9 @@ export class SkillService {
 
     const days = this.resolveWindowToDays(window);
 
-    // ✅ 2. Fetch all skills (lightweight)
+    // ✅ 2. Fetch all skills (lightweight) - only approved
     const skills = await this.skillRepo.find({
+      where: { status: SkillStatus.APPROVED },
       select: ['id', 'name', 'slug'],
     });
 
@@ -206,6 +209,7 @@ export class SkillService {
       .createQueryBuilder('skill')
       .leftJoinAndSelect('skill.tags', 'tag')
       .where('skill.id != :currentId', { currentId: currentSkill.id })
+      .andWhere('skill.status = :status', { status: SkillStatus.APPROVED })
       .getMany();
 
     if (!allSkills.length) return [];

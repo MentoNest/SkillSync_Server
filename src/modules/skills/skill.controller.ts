@@ -8,6 +8,7 @@ import {
   Param,
   Query,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -20,11 +21,13 @@ import {
 import { SkillService } from './providers/skill.service';
 import { CreateSkillDto } from './dto/create-skill.dto';
 import { UpdateSkillDto } from './dto/update-skill.dto';
+import { RejectSkillDto } from './dto/reject-skill.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { SkillStatus } from '../../common/enums/skill-status.enum';
 
 @ApiTags('skills')
 @Controller('skills')
@@ -59,7 +62,7 @@ export class SkillController {
   @ApiResponse({ status: 200, description: 'Skill found' })
   @ApiResponse({ status: 404, description: 'Skill not found' })
   findOne(@Param('id') id: string) {
-    return this.skillService.findOne(id);
+    return this.skillService.findOnePublic(id);
   }
 
   @Patch(':id')
@@ -85,5 +88,52 @@ export class SkillController {
   @ApiResponse({ status: 404, description: 'Skill not found' })
   remove(@Param('id') id: string) {
     return this.skillService.remove(id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Moderation endpoints (admin only)
+  // ---------------------------------------------------------------------------
+
+  @Get('pending')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'List all pending skills awaiting moderation (admin only)' })
+  @ApiResponse({ status: 200, description: 'List of pending skills' })
+  findPending() {
+    return this.skillService.findPending();
+  }
+
+  @Patch(':id/approve')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Approve a skill (admin only)' })
+  @ApiParam({ name: 'id', description: 'Skill UUID' })
+  @ApiResponse({ status: 200, description: 'Skill approved' })
+  @ApiResponse({ status: 400, description: 'Skill is already approved' })
+  @ApiResponse({ status: 404, description: 'Skill not found' })
+  approve(
+    @Param('id') id: string,
+    @Request() req: { user: { sub: string } },
+  ) {
+    return this.skillService.approve(id, req.user.sub);
+  }
+
+  @Patch(':id/reject')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Reject a skill (admin only)' })
+  @ApiParam({ name: 'id', description: 'Skill UUID' })
+  @ApiResponse({ status: 200, description: 'Skill rejected' })
+  @ApiResponse({ status: 400, description: 'Skill is already rejected' })
+  @ApiResponse({ status: 404, description: 'Skill not found' })
+  reject(
+    @Param('id') id: string,
+    @Body() dto: RejectSkillDto,
+    @Request() req: { user: { sub: string } },
+  ) {
+    return this.skillService.reject(id, req.user.sub, dto);
   }
 }
