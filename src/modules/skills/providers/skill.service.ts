@@ -12,7 +12,12 @@ import { SkillCategory } from '../entities/skill-category.entity';
 import { CreateSkillDto } from '../dto/create-skill.dto';
 import { UpdateSkillDto } from '../dto/update-skill.dto';
 import { RejectSkillDto } from '../dto/reject-skill.dto';
+import { SkillSuggestionDto, DuplicateSkillResponseDto } from '../dto/duplicate-skill-response.dto';
 import { SkillStatus } from '../../../common/enums/skill-status.enum';
+import { normalizeSkillName } from '../entities/skill.entity';
+
+// Similarity threshold for near-duplicate detection (0-1)
+const SIMILARITY_THRESHOLD = 0.7;
 
 @Injectable()
 export class SkillService {
@@ -24,7 +29,8 @@ export class SkillService {
   ) {}
 
   async create(dto: CreateSkillDto): Promise<Skill> {
-    await this.assertUnique(dto.name, dto.slug);
+    // Check for duplicates with suggestions
+    await this.checkForDuplicates(dto.name, dto.slug);
 
     let category: SkillCategory | undefined;
     if (dto.categoryId) {
@@ -35,8 +41,11 @@ export class SkillService {
       }
     }
 
+    const normalizedName = normalizeSkillName(dto.name);
+
     const skill = this.skillRepo.create({
       name: dto.name,
+      normalizedName,
       slug: dto.slug,
       description: dto.description,
       category,
@@ -77,7 +86,11 @@ export class SkillService {
     const skill = await this.findOne(id);
 
     if (dto.name !== undefined || dto.slug !== undefined) {
-      await this.assertUnique(dto.name ?? skill.name, dto.slug ?? skill.slug, id);
+      await this.checkForDuplicates(
+        dto.name ?? skill.name,
+        dto.slug ?? skill.slug,
+        id,
+      );
     }
 
     if (dto.categoryId !== undefined) {
@@ -195,19 +208,138 @@ export class SkillService {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  private async assertUnique(name: string, slug: string, excludeId?: string): Promise<void> {
-    const byName = await this.skillRepo.findOne({
+  /**
+   * Check for duplicate skills and throw detailed error with suggestions
+   */
+  private async checkForDuplicates(
+    name: string,
+    slug: string,
+    excludeId?: string,
+  ): Promise<void> {
+    const normalizedName = normalizeSkillName(name);
+
+    // 1. Check for exact name match
+    const exactNameMatch = await this.skillRepo.findOne({
       where: { name, ...(excludeId ? { id: Not(excludeId) } : {}) },
     });
-    if (byName) {
-      throw new ConflictException(`A skill with name "${name}" already exists`);
+    if (exactNameMatch) {
+      throw this.createDuplicateError(
+        `A skill with name "${name}" already exists`,
+        'exact',
+        [exactNameMatch],
+      );
     }
 
-    const bySlug = await this.skillRepo.findOne({
-      where: { slug, ...(excludeId ? { id: Not(excludeId) } : {}) },
-    });
-    if (bySlug) {
-      throw new ConflictException(`A skill with slug "${slug}" already exists`);
+    // 2. Check for normalized name match (case/space variations)
+    const normalizedMatch = await this.skillRepo
+      .createQueryBuilder('skill')
+      .where('skill.normalizedName = :normalizedName', { normalizedName })
+      .andWhere(excludeId ? 'skill.id != :excludeId' : '1=1', { excludeId })
+      .getOne();
+
+    if (normalizedMatch) {
+      throw this.createDuplicateError(
+        `A skill with a similar name "${normalizedMatch.name}" already exists (normalized: "${normalizedName}")`,
+        'normalized',
+        [normalizedMatch],
+      );
     }
+
+    // 3. Check for slug match (case-insensitive)
+    const slugMatch = await this.skillRepo
+      .createQueryBuilder('skill')
+      .where('LOWER(skill.slug) = LOWER(:slug)', { slug })
+      .andWhere(excludeId ? 'skill.id != :excludeId' : '1=1', { excludeId })
+      .getOne();
+
+    if (slugMatch) {
+      throw this.createDuplicateError(
+        `A skill with slug "${slug}" already exists`,
+        'exact',
+        [slugMatch],
+      );
+    }
+
+    // 4. Check for near-duplicates using trigram similarity
+    const similarSkills = await this.findSimilarSkills(name, excludeId);
+    if (similarSkills.length > 0) {
+      throw this.createDuplicateError(
+        `Similar skill(s) already exist. Did you mean: ${similarSkills.map(s => s.name).join(', ')}?`,
+        'similar',
+        similarSkills,
+      );
+    }
+  }
+
+  /**
+   * Find skills with similar names using trigram similarity
+   */
+  private async findSimilarSkills(
+    name: string,
+    excludeId?: string,
+  ): Promise<Skill[]> {
+    try {
+      const results = await this.skillRepo
+        .createQueryBuilder('skill')
+        .select([
+          'skill.id as id',
+          'skill.name as name',
+          'skill.slug as slug',
+          'similarity(skill.name, :name) as similarity',
+        ])
+        .where('similarity(skill.name, :name) > :threshold', {
+          name,
+          threshold: SIMILARITY_THRESHOLD,
+        })
+        .andWhere(excludeId ? 'skill.id != :excludeId' : '1=1', { excludeId })
+        .orderBy('similarity', 'DESC')
+        .limit(5)
+        .getRawMany();
+
+      // Filter out exact matches (already handled above)
+      const normalizedName = normalizeSkillName(name);
+      return results
+        .filter((r: any) => normalizeSkillName(r.name) !== normalizedName)
+        .map((r: any) => {
+          const skill = new Skill();
+          skill.id = r.id;
+          skill.name = r.name;
+          skill.slug = r.slug;
+          return skill;
+        });
+    } catch {
+      // If similarity function doesn't exist (pg_trgm not installed), skip this check
+      return [];
+    }
+  }
+
+  /**
+   * Create a detailed ConflictException with suggestions
+   */
+  private createDuplicateError(
+    message: string,
+    duplicateType: 'exact' | 'normalized' | 'similar',
+    skills: Skill[],
+  ): ConflictException {
+    const suggestions: SkillSuggestionDto[] = skills.map((s) => ({
+      id: s.id,
+      name: s.name,
+      slug: s.slug,
+    }));
+
+    const response: DuplicateSkillResponseDto = {
+      message,
+      duplicateType,
+      suggestions,
+    };
+
+    return new ConflictException(response);
+  }
+
+  /**
+   * @deprecated Use checkForDuplicates instead
+   */
+  private async assertUnique(name: string, slug: string, excludeId?: string): Promise<void> {
+    await this.checkForDuplicates(name, slug, excludeId);
   }
 }
