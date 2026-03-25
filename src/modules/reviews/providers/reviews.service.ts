@@ -104,15 +104,18 @@ export class ReviewsService {
       return;
     }
 
-    const { avgRating, reviewCount } = await this.reviewsRepository
+    const result = await this.reviewsRepository
       .createQueryBuilder('review')
       .select('COALESCE(AVG(review.rating), 0)', 'avgRating')
       .addSelect('COUNT(review.id)', 'reviewCount')
       .where('review.listingId = :listingId', { listingId })
       .getRawOne<{ avgRating: string; reviewCount: string }>();
 
-    listing.averageRating = Number.parseFloat(avgRating ?? '0');
-    listing.reviewCount = Number.parseInt(reviewCount ?? '0', 10);
+    if (result) {
+      const { avgRating, reviewCount } = result;
+      listing.averageRating = Number.parseFloat(avgRating ?? '0');
+      listing.reviewCount = Number.parseInt(reviewCount ?? '0', 10);
+    }
 
     await this.serviceListingRepository.save(listing);
   }

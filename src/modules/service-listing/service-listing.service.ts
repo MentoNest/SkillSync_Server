@@ -73,7 +73,7 @@ export class ServiceListingService {
     };
   }
 
-  findOne(id: string): Promise<ServiceListing> {
+  async findOne(id: string): Promise<ServiceListing | null> {
     return this.serviceListingRepository.findOne({
       where: { id, isDeleted: false },
     });
