@@ -5,6 +5,7 @@ import { MentorSkill } from './entities/mentor-skill.entity';
 import { Skill } from '../skill/entities/skill.entity';
 import { MentorProfile } from '../profile/entities/mentor-profile.entity';
 import { SkillPopularityService } from '../skills/providers/skill-popularity.service';
+import { SkillStatus } from '../../common/enums/skill-status.enum';
 
 @Injectable()
 export class MentorSkillsService {
@@ -21,8 +22,19 @@ export class MentorSkillsService {
   async attachSkills(mentorId: string, skillIds: number[]) {
     const mentor = await this.mentorRepo.findOne({ where: { id: mentorId } });
     if (!mentor) throw new NotFoundException('Mentor not found');
+    
     const skills = await this.skillRepo.findByIds(skillIds);
     if (skills.length !== skillIds.length) throw new BadRequestException('Some skills do not exist');
+    
+    // Validate that all skills are approved
+    const nonApprovedSkills = skills.filter(s => s.status !== SkillStatus.APPROVED);
+    if (nonApprovedSkills.length > 0) {
+      const nonApprovedNames = nonApprovedSkills.map(s => s.name).join(', ');
+      throw new BadRequestException(
+        `Cannot attach non-approved skills: ${nonApprovedNames}. Skills must be approved before use.`,
+      );
+    }
+    
     const existing = await this.mentorSkillRepo.find({ where: { mentor: { id: mentorId } } });
     const existingSkillIds = new Set(existing.map(ms => ms.skill.id));
     const newSkills = skills.filter(skill => !existingSkillIds.has(skill.id));
