@@ -96,6 +96,10 @@ export class ServiceListing {
   @Column({ default: false })
   isFeatured: boolean;
 
+  @ApiPropertyOptional({ description: 'Whether the listing is in draft mode (not visible publicly)' })
+  @Column({ default: false })
+  isDraft: boolean;
+
   @ApiPropertyOptional({ description: 'Average rating for this listing' })
   @Column('decimal', { precision: 3, scale: 2, default: 0 })
   averageRating: number;
