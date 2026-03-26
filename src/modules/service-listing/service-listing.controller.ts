@@ -1,11 +1,13 @@
-import { Controller, Get, Post, Body, Param, Patch, Delete, UseGuards, Request, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { Controller, Get, Post, Body, Param, Patch, Delete, UseGuards, Request, Query, BadRequestException, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery, ApiConsumes } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ServiceListingService } from './service-listing.service';
 import { CreateServiceListingDto } from './dto/create-service-listing.dto';
 import { UpdateServiceListingDto } from './dto/update-service-listing.dto';
 import { ToggleFeaturedDto } from './dto/toggle-featured.dto';
 import { ToggleListingVisibilityDto } from './dto/toggle-listing-visibility.dto';
 import { ToggleDraftDto } from './dto/toggle-draft.dto';
+import { UploadListingImageResponseDto } from './dto/upload-listing-image-response.dto';
 import { ServiceListingQueryDto } from './dto/service-listing-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -112,5 +114,56 @@ export class ServiceListingController {
   @ApiResponse({ status: 404, description: 'Service listing not found' })
   remove(@Param('id') id: string, @Request() req) {
     return this.serviceListingService.remove(id, req.user.id);
+  }
+
+  @Post(':id/upload-image')
+  @Roles(UserRole.MENTOR)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Upload image for a service listing' })
+  @ApiConsumes('multipart/form-data')
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Listing image uploaded successfully',
+    type: UploadListingImageResponseDto,
+  })
+  @ApiResponse({ status: 400, description: 'Invalid file or upload failed' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Mentor access required' })
+  @ApiResponse({ status: 404, description: 'Service listing not found' })
+  async uploadListingImage(
+    @Param('id') id: string,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }), // 5MB
+          new FileTypeValidator({ fileType: /(jpeg|jpg|png|gif|webp)$/ }),
+        ],
+      }),
+    )
+    file: Express.Multer.File,
+    @Request() req,
+  ) {
+    try {
+      // Verify ownership
+      const listing = await this.serviceListingService.findOne(id);
+      if (!listing) {
+        throw new BadRequestException('Service listing not found');
+      }
+      if (listing.mentorId !== req.user.id) {
+        throw new BadRequestException('You can only upload images for your own listings');
+      }
+
+      // Upload image and update listing
+      const imageUrl = await this.serviceListingService.uploadImage(id, file);
+      
+      return {
+        message: 'Listing image uploaded successfully',
+        imageUrl: this.serviceListingService.getFileUrl(imageUrl),
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException('Failed to upload listing image');
+    }
   }
 }
