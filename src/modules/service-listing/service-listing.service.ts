@@ -1,16 +1,18 @@
 import { Injectable, NotFoundException, ForbiddenException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not } from 'typeorm';
+import { Repository, Not, In } from 'typeorm';
 import { ServiceListing, generateSlug } from './entities/service-listing.entity';
 import { CreateServiceListingDto } from './dto/create-service-listing.dto';
 import { UpdateServiceListingDto } from './dto/update-service-listing.dto';
 import { PaginatedServiceListingsDto, ServiceListingQueryDto } from './dto/service-listing-query.dto';
+import { TagService } from '../tag/tag.service';
 
 @Injectable()
 export class ServiceListingService {
   constructor(
     @InjectRepository(ServiceListing)
     private serviceListingRepository: Repository<ServiceListing>,
+    private tagService: TagService,
   ) {}
 
   async create(createServiceListingDto: CreateServiceListingDto, userId: string): Promise<ServiceListing> {
@@ -23,12 +25,25 @@ export class ServiceListingService {
     // Ensure slug uniqueness
     slug = await this.generateUniqueSlug(slug);
 
+    const { tags: tagSlugs, ...listingData } = createServiceListingDto;
+
     const serviceListing = this.serviceListingRepository.create({
-      ...createServiceListingDto,
+      ...listingData,
       slug,
       mentorId: userId,
     });
-    return this.serviceListingRepository.save(serviceListing);
+
+    // Save the listing first
+    const savedListing = await this.serviceListingRepository.save(serviceListing);
+
+    // Assign tags if provided
+    if (tagSlugs && tagSlugs.length > 0) {
+      const tags = await this.tagService.findTagsBySlugs(tagSlugs);
+      savedListing.tags = tags;
+      await this.serviceListingRepository.save(savedListing);
+    }
+
+    return savedListing;
   }
 
   async findAll(query: ServiceListingQueryDto): Promise<PaginatedServiceListingsDto<ServiceListing>> {
@@ -37,6 +52,7 @@ export class ServiceListingService {
 
     const qb = this.serviceListingRepository
       .createQueryBuilder('listing')
+      .leftJoinAndSelect('listing.tags', 'tag')
       .where('listing.isDeleted = :isDeleted', { isDeleted: false })
       .andWhere('listing.isActive = :isActive', { isActive: true });
 
@@ -49,6 +65,11 @@ export class ServiceListingService {
 
     if (query.category) {
       qb.andWhere('listing.category = :category', { category: query.category });
+    }
+
+    if (query.tags && query.tags.length > 0) {
+      qb.innerJoin('listing.tags', 'filter_tag')
+        .andWhere('filter_tag.slug IN (:...tags)', { tags: query.tags });
     }
 
     if (query.minPrice !== undefined) {
@@ -83,23 +104,17 @@ export class ServiceListingService {
     };
   }
 
-  async findOne(id: string): Promise<ServiceListing> {
-    const serviceListing = await this.serviceListingRepository.findOne({
   async findOne(id: string): Promise<ServiceListing | null> {
     return this.serviceListingRepository.findOne({
       where: { id, isDeleted: false },
+      relations: ['tags'],
     });
-
-    if (!serviceListing) {
-      throw new NotFoundException('Service listing not found');
-    }
-
-    return serviceListing;
   }
 
   async update(id: string, updateServiceListingDto: UpdateServiceListingDto, userId: string): Promise<ServiceListing> {
     const serviceListing = await this.serviceListingRepository.findOne({
       where: { id, isDeleted: false },
+      relations: ['tags'],
     });
 
     if (!serviceListing) {
@@ -120,8 +135,18 @@ export class ServiceListingService {
     }
 
     // Update other fields
-    const { slug: _, ...otherFields } = updateServiceListingDto;
+    const { slug: _, tags: tagSlugs, ...otherFields } = updateServiceListingDto;
     Object.assign(serviceListing, otherFields);
+
+    // Update tags if provided
+    if (tagSlugs !== undefined) {
+      if (tagSlugs.length === 0) {
+        serviceListing.tags = [];
+      } else {
+        const tags = await this.tagService.findTagsBySlugs(tagSlugs);
+        serviceListing.tags = tags;
+      }
+    }
 
     return this.serviceListingRepository.save(serviceListing);
   }
@@ -177,16 +202,11 @@ export class ServiceListingService {
   /**
    * Find a service listing by its slug
    */
-  async findBySlug(slug: string): Promise<ServiceListing> {
-    const serviceListing = await this.serviceListingRepository.findOne({
+  async findBySlug(slug: string): Promise<ServiceListing | null> {
+    return this.serviceListingRepository.findOne({
       where: { slug, isDeleted: false },
+      relations: ['tags'],
     });
-
-    if (!serviceListing) {
-      throw new NotFoundException(`Service listing with slug "${slug}" not found`);
-    }
-
-    return serviceListing;
   }
 
   /**

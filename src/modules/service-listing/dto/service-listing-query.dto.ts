@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsNumber, IsOptional, IsString, IsArray, Max, Min } from 'class-validator';
 import { ServiceCategory } from '../entities/service-listing.entity';
 
 export class ServiceListingQueryDto {
@@ -28,6 +28,12 @@ export class ServiceListingQueryDto {
   @IsOptional()
   @IsEnum(ServiceCategory)
   category?: ServiceCategory;
+
+  @ApiPropertyOptional({ description: 'Filter by tags (array of tag slugs)', example: ['typescript', 'nodejs'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tags?: string[];
 
   @ApiPropertyOptional({ description: 'Minimum price filter' })
   @IsOptional()
