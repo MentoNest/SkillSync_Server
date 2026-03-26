@@ -6,6 +6,8 @@ import { CreateServiceListingDto } from './dto/create-service-listing.dto';
 import { UpdateServiceListingDto } from './dto/update-service-listing.dto';
 import { PaginatedServiceListingsDto, ServiceListingQueryDto } from './dto/service-listing-query.dto';
 import { TagService } from '../tag/tag.service';
+import { FileUploadService } from '../profile/providers/file-upload.service';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class ServiceListingService {
@@ -13,6 +15,8 @@ export class ServiceListingService {
     @InjectRepository(ServiceListing)
     private serviceListingRepository: Repository<ServiceListing>,
     private tagService: TagService,
+    private fileUploadService: FileUploadService,
+    private configService: ConfigService,
   ) {}
 
   async create(createServiceListingDto: CreateServiceListingDto, userId: string): Promise<ServiceListing> {
@@ -221,6 +225,30 @@ export class ServiceListingService {
     }
     
     return this.serviceListingRepository.save(serviceListing);
+  }
+
+  async uploadImage(id: string, file: Express.Multer.File): Promise<string> {
+    const serviceListing = await this.serviceListingRepository.findOne({
+      where: { id, isDeleted: false },
+    });
+
+    if (!serviceListing) {
+      throw new NotFoundException('Service listing not found');
+    }
+
+    // Save file and get URL
+    const imageUrl = await this.fileUploadService.saveFile(file, 'listing-images');
+    
+    // Update listing with new image URL
+    serviceListing.imageUrl = imageUrl;
+    await this.serviceListingRepository.save(serviceListing);
+    
+    return imageUrl;
+  }
+
+  getFileUrl(filename: string): string {
+    const baseUrl = this.configService.get<string>('BASE_URL') || 'http://localhost:3000';
+    return `${baseUrl}${filename}`;
   }
 
   /**
