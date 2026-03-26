@@ -8,6 +8,7 @@ import { PaginatedServiceListingsDto, ServiceListingQueryDto } from './dto/servi
 import { TagService } from '../tag/tag.service';
 import { FileUploadService } from '../profile/providers/file-upload.service';
 import { ConfigService } from '@nestjs/config';
+import { ListingApprovalStatus } from '../../common/enums/skill-status.enum';
 
 @Injectable()
 export class ServiceListingService {
@@ -59,7 +60,8 @@ export class ServiceListingService {
       .leftJoinAndSelect('listing.tags', 'tag')
       .where('listing.isDeleted = :isDeleted', { isDeleted: false })
       .andWhere('listing.isActive = :isActive', { isActive: true })
-      .andWhere('listing.isDraft = :isDraft', { isDraft: false });
+      .andWhere('listing.isDraft = :isDraft', { isDraft: false })
+      .andWhere('listing.approvalStatus = :approvalStatus', { approvalStatus: ListingApprovalStatus.APPROVED });
 
     if (query.keyword) {
       qb.andWhere(
@@ -252,11 +254,174 @@ export class ServiceListingService {
   }
 
   /**
+   * Approve or reject a listing (Admin only)
+   */
+  async approveListing(id: string, status: ListingApprovalStatus, rejectionReason?: string, adminId?: string): Promise<ServiceListing> {
+    const serviceListing = await this.serviceListingRepository.findOne({
+      where: { id, isDeleted: false },
+    });
+
+    if (!serviceListing) {
+      throw new NotFoundException('Service listing not found');
+    }
+
+    serviceListing.approvalStatus = status;
+    
+    if (status === ListingApprovalStatus.APPROVED) {
+      serviceListing.isActive = true;
+      serviceListing.isDraft = false;
+    } else if (status === ListingApprovalStatus.REJECTED) {
+      serviceListing.isActive = false;
+      if (rejectionReason) {
+        serviceListing.rejectionReason = rejectionReason;
+      }
+    }
+
+    if (adminId) {
+      serviceListing.approvedBy = adminId;
+      serviceListing.approvedAt = new Date();
+    }
+
+    return this.serviceListingRepository.save(serviceListing);
+  }
+
+  /**
+   * Get all pending listings (Admin only)
+   */
+  async findPendingListings(query: ServiceListingQueryDto): Promise<PaginatedServiceListingsDto<ServiceListing>> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    const qb = this.serviceListingRepository
+      .createQueryBuilder('listing')
+      .leftJoinAndSelect('listing.tags', 'tag')
+      .where('listing.isDeleted = :isDeleted', { isDeleted: false })
+      .andWhere('listing.approvalStatus = :status', { status: ListingApprovalStatus.PENDING });
+
+    if (query.keyword) {
+      qb.andWhere(
+        '(listing.title ILIKE :keyword OR listing.description ILIKE :keyword)',
+        { keyword: `%${query.keyword}%` },
+      );
+    }
+
+    if (query.category) {
+      qb.andWhere('listing.category = :category', { category: query.category });
+    }
+
+    qb.orderBy('listing.createdAt', 'ASC');
+    qb.skip((page - 1) * limit).take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
+
+    return {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        pages: total === 0 ? 0 : Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /**
+   * Get all listings for admin management
+   */
+  async findAllForAdmin(query: ServiceListingQueryDto): Promise<PaginatedServiceListingsDto<ServiceListing>> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    const qb = this.serviceListingRepository
+      .createQueryBuilder('listing')
+      .leftJoinAndSelect('listing.tags', 'tag')
+      .where('listing.isDeleted = :isDeleted', { isDeleted: false });
+
+    if (query.keyword) {
+      qb.andWhere(
+        '(listing.title ILIKE :keyword OR listing.description ILIKE :keyword)',
+        { keyword: `%${query.keyword}%` },
+      );
+    }
+
+    if (query.category) {
+      qb.andWhere('listing.category = :category', { category: query.category });
+    }
+
+    // Filter by approval status if provided
+    // @ts-ignore
+    if (query.approvalStatus) {
+      // @ts-ignore
+      qb.andWhere('listing.approvalStatus = :approvalStatus', { approvalStatus: query.approvalStatus });
+    }
+
+    qb.orderBy('listing.createdAt', 'DESC');
+    qb.skip((page - 1) * limit).take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
+
+    return {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        pages: total === 0 ? 0 : Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /**
+   * Increment view count for a listing
+   */
+  async incrementViewCount(id: string): Promise<void> {
+    await this.serviceListingRepository.increment({ id }, 'viewCount', 1);
+  }
+
+  /**
+   * Increment click count for a listing
+   */
+  async incrementClickCount(id: string): Promise<void> {
+    await this.serviceListingRepository.increment({ id }, 'clickCount', 1);
+  }
+
+  /**
+   * Increment conversion count for a listing
+   */
+  async incrementConversionCount(id: string): Promise<void> {
+    await this.serviceListingRepository.increment({ id }, 'conversionCount', 1);
+  }
+
+  /**
+   * Get analytics for a specific listing
+   */
+  async getListingAnalytics(id: string): Promise<{ viewCount: number; clickCount: number; conversionCount: number }> {
+    const serviceListing = await this.serviceListingRepository.findOne({
+      where: { id, isDeleted: false },
+    });
+
+    if (!serviceListing) {
+      throw new NotFoundException('Service listing not found');
+    }
+
+    return {
+      viewCount: serviceListing.viewCount,
+      clickCount: serviceListing.clickCount,
+      conversionCount: serviceListing.conversionCount,
+    };
+  }
+
+  /**
    * Find a service listing by its slug
    */
-  async findBySlug(slug: string): Promise<ServiceListing | null> {
+   async findBySlug(slug: string): Promise<ServiceListing | null> {
     return this.serviceListingRepository.findOne({
-      where: { slug, isDeleted: false, isDraft: false },
+      where: { 
+        slug, 
+        isDeleted: false, 
+        isDraft: false,
+        approvalStatus: ListingApprovalStatus.APPROVED,
+      },
       relations: ['tags'],
     });
   }

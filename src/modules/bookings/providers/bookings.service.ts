@@ -138,8 +138,22 @@ export class BookingsService {
       booking.scheduledAt = new Date(dto.scheduledAt);
     }
 
+    // Track conversion when booking is confirmed
+    const wasPending = booking.status === BookingStatus.PENDING;
+    const willBeConfirmed = dto.status === BookingStatus.CONFIRMED;
+    
     Object.assign(booking, dto);
-    return this.bookingRepo.save(booking);
+    const saved = await this.bookingRepo.save(booking);
+    
+    if (wasPending && willBeConfirmed) {
+      await this.serviceListingRepo.increment(
+        { id: booking.serviceListingId },
+        'conversionCount',
+        1,
+      );
+    }
+    
+    return saved;
   }
 
   /**
