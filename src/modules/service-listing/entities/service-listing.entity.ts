@@ -1,6 +1,7 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, BeforeInsert, BeforeUpdate, Index } from 'typeorm';
-import { IsString, IsNumber, IsOptional, IsEnum } from 'class-validator';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, BeforeInsert, BeforeUpdate, Index, ManyToMany, JoinTable } from 'typeorm';
+import { IsString, IsNumber, IsOptional, IsEnum, IsArray } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Tag } from '../../tag/entities/tag.entity';
 
 export enum ServiceCategory {
   TECHNICAL = 'technical',
@@ -122,4 +123,21 @@ export class ServiceListing {
   @ApiProperty({ description: 'Last update date' })
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @ApiPropertyOptional({ description: 'Tags associated with this listing', type: [Tag] })
+  @IsOptional()
+  @IsArray()
+  @ManyToMany(() => Tag, tag => tag.serviceListings, { cascade: true })
+  @JoinTable({
+    name: 'service_listing_tags',
+    joinColumn: {
+      name: 'service_listing_id',
+      referencedColumnName: 'id',
+    },
+    inverseJoinColumn: {
+      name: 'tag_id',
+      referencedColumnName: 'id',
+    },
+  })
+  tags?: Tag[];
 }

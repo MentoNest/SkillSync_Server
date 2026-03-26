@@ -1,5 +1,8 @@
 import { IsString, IsNumber, IsEnum, IsOptional, IsInt, Min, Max, MaxLength, Matches } from 'class-validator';
 import { IsValidPrice } from '../../../common/decorators/price.decorator';
+import { IsString, IsNumber, IsEnum, IsOptional, MaxLength, Matches } from 'class-validator';
+import { IsValidPrice } from '../../../common/decorators/price.decorator';
+import { IsString, IsNumber, IsEnum, IsOptional, MaxLength, Matches, IsArray } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { ServiceCategory } from '../entities/service-listing.entity';
@@ -26,8 +29,9 @@ export class CreateServiceListingDto {
   @IsString()
   description: string;
 
-  @ApiProperty({ description: 'Service price' })
+  @ApiProperty({ description: 'Service price (min: 0, max: 10000)' })
   @IsNumber()
+  @IsValidPrice({ min: 0, max: 10000 })
   price: number;
 
   @ApiPropertyOptional({ 
@@ -54,4 +58,9 @@ export class CreateServiceListingDto {
   @Min(1)
   @Max(100)
   maxMentees?: number;
+  @ApiPropertyOptional({ description: 'Tags to associate with this listing (array of tag slugs)', example: ['typescript', 'nodejs', 'web-development'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tags?: string[];
 }
