@@ -1,4 +1,5 @@
 import { IsString, IsNumber, IsEnum, IsOptional, MaxLength, Matches } from 'class-validator';
+import { IsValidPrice } from '../../../common/decorators/price.decorator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { ServiceCategory } from '../entities/service-listing.entity';
@@ -25,8 +26,9 @@ export class CreateServiceListingDto {
   @IsString()
   description: string;
 
-  @ApiProperty({ description: 'Service price' })
+  @ApiProperty({ description: 'Service price (min: 0, max: 10000)' })
   @IsNumber()
+  @IsValidPrice({ min: 0, max: 10000 })
   price: number;
 
   @ApiPropertyOptional({ 
