@@ -104,6 +104,14 @@ export class ServiceListing {
   @Column({ default: 0 })
   reviewCount: number;
 
+  @ApiPropertyOptional({ description: 'Maximum number of mentees allowed for this listing' })
+  @Column({ nullable: true })
+  maxMentees?: number;
+
+  @ApiPropertyOptional({ description: 'Current number of active mentees booked' })
+  @Column({ default: 0 })
+  currentMenteeCount: number;
+
   @ApiProperty({ description: 'Soft delete flag' })
   @Column({ default: false })
   isDeleted: boolean;
