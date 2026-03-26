@@ -49,6 +49,14 @@ export class ServiceListingController {
     return this.serviceListingService.findOne(id);
   }
 
+  @Get('slug/:slug')
+  @ApiOperation({ summary: 'Get service listing by slug' })
+  @ApiResponse({ status: 200, description: 'Service listing found' })
+  @ApiResponse({ status: 404, description: 'Service listing not found' })
+  findBySlug(@Param('slug') slug: string) {
+    return this.serviceListingService.findBySlug(slug);
+  }
+
   @Patch(':id')
   @ApiOperation({ summary: 'Update service listing' })
   @ApiResponse({ status: 200, description: 'Service listing updated successfully' })

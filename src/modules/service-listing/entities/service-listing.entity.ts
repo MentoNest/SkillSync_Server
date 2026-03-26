@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, BeforeInsert, BeforeUpdate, Index } from 'typeorm';
 import { IsString, IsNumber, IsOptional, IsEnum } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -12,7 +12,24 @@ export enum ServiceCategory {
   OTHER = 'other'
 }
 
+/**
+ * Generates an SEO-friendly slug from a string:
+ * - Lowercase
+ * - Remove special characters
+ * - Replace spaces with hyphens
+ * - Collapse multiple hyphens
+ */
+export function generateSlug(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '') // Remove special characters
+    .replace(/\s+/g, '-')     // Replace spaces with hyphens
+    .replace(/-+/g, '-');     // Collapse multiple hyphens
+}
+
 @Entity('service_listings')
+@Index(['slug'], { unique: true })
 export class ServiceListing {
   @ApiProperty({ description: 'Service listing unique identifier' })
   @PrimaryGeneratedColumn('uuid')
@@ -26,6 +43,19 @@ export class ServiceListing {
   @IsString()
   @Column()
   title: string;
+
+  @ApiProperty({ description: 'SEO-friendly unique slug' })
+  @IsString()
+  @Column({ unique: true })
+  slug: string;
+
+  @BeforeInsert()
+  @BeforeUpdate()
+  updateSlug() {
+    if (this.title && !this.slug) {
+      this.slug = generateSlug(this.title);
+    }
+  }
 
   @ApiProperty({ description: 'Service listing description' })
   @IsString()
