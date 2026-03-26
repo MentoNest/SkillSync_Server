@@ -9,6 +9,7 @@ import { ToggleListingVisibilityDto } from './dto/toggle-listing-visibility.dto'
 import { ToggleDraftDto } from './dto/toggle-draft.dto';
 import { UploadListingImageResponseDto } from './dto/upload-listing-image-response.dto';
 import { ServiceListingQueryDto } from './dto/service-listing-query.dto';
+import { ApproveListingDto } from './dto/approve-listing.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -58,6 +59,22 @@ export class ServiceListingController {
   @ApiResponse({ status: 404, description: 'Service listing not found' })
   findBySlug(@Param('slug') slug: string) {
     return this.serviceListingService.findBySlug(slug);
+  }
+
+  @Post(':id/view')
+  @ApiOperation({ summary: 'Track view for a service listing' })
+  @ApiResponse({ status: 200, description: 'View count incremented' })
+  @ApiResponse({ status: 404, description: 'Service listing not found' })
+  trackView(@Param('id') id: string) {
+    return this.serviceListingService.incrementViewCount(id);
+  }
+
+  @Post(':id/click')
+  @ApiOperation({ summary: 'Track click for a service listing' })
+  @ApiResponse({ status: 200, description: 'Click count incremented' })
+  @ApiResponse({ status: 404, description: 'Service listing not found' })
+  trackClick(@Param('id') id: string) {
+    return this.serviceListingService.incrementClickCount(id);
   }
 
   @Patch(':id')
@@ -165,5 +182,63 @@ export class ServiceListingController {
       }
       throw new BadRequestException('Failed to upload listing image');
     }
+  }
+
+  // ==================== Admin Endpoints ====================
+
+  @Post(':id/approve')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Approve or reject a service listing (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Listing approval status updated successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 404, description: 'Service listing not found' })
+  approveListing(
+    @Param('id') id: string,
+    @Body() approveListingDto: ApproveListingDto,
+    @Request() req,
+  ) {
+    return this.serviceListingService.approveListing(
+      id,
+      approveListingDto.status,
+      approveListingDto.rejectionReason,
+      req.user.id,
+    );
+  }
+
+  @Get('admin/pending')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Get all pending listings (Admin only)' })
+  @ApiQuery({ name: 'page', required: false, description: 'Page number', example: 1 })
+  @ApiQuery({ name: 'limit', required: false, description: 'Items per page', example: 20 })
+  @ApiQuery({ name: 'keyword', required: false, description: 'Search by title or description' })
+  @ApiQuery({ name: 'category', required: false, description: 'Filter by category' })
+  @ApiResponse({ status: 200, description: 'Paginated list of pending listings' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  findPendingListings(@Query() query: ServiceListingQueryDto) {
+    return this.serviceListingService.findPendingListings(query);
+  }
+
+  @Get('admin/all')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Get all listings for admin management' })
+  @ApiQuery({ name: 'page', required: false, description: 'Page number', example: 1 })
+  @ApiQuery({ name: 'limit', required: false, description: 'Items per page', example: 20 })
+  @ApiQuery({ name: 'keyword', required: false, description: 'Search by title or description' })
+  @ApiQuery({ name: 'category', required: false, description: 'Filter by category' })
+  @ApiQuery({ name: 'approvalStatus', required: false, description: 'Filter by approval status', enum: ['pending', 'approved', 'rejected'] })
+  @ApiResponse({ status: 200, description: 'Paginated list of all listings' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  findAllForAdmin(@Query() query: ServiceListingQueryDto) {
+    return this.serviceListingService.findAllForAdmin(query);
+  }
+
+  @Get(':id/analytics')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Get analytics for a service listing (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Listing analytics retrieved successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 404, description: 'Service listing not found' })
+  getListingAnalytics(@Param('id') id: string) {
+    return this.serviceListingService.getListingAnalytics(id);
   }
 }

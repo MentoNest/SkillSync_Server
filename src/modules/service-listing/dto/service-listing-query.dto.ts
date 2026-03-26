@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEnum, IsInt, IsNumber, IsOptional, IsString, IsArray, Max, Min } from 'class-validator';
 import { ServiceCategory } from '../entities/service-listing.entity';
+import { ListingApprovalStatus } from '../../../common/enums/skill-status.enum';
 
 export class ServiceListingQueryDto {
   @ApiPropertyOptional({ description: 'Page number', default: 1 })
@@ -62,6 +63,11 @@ export class ServiceListingQueryDto {
   @Min(0)
   @Type(() => Number)
   maxDuration?: number;
+
+  @ApiPropertyOptional({ description: 'Filter by approval status (admin only)', enum: ListingApprovalStatus })
+  @IsOptional()
+  @IsEnum(ListingApprovalStatus)
+  approvalStatus?: ListingApprovalStatus;
 }
 
 export class ServiceListingPaginationMetaDto {

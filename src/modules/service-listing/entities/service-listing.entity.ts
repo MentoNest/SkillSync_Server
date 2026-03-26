@@ -2,6 +2,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 import { IsString, IsNumber, IsOptional, IsEnum, IsArray } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Tag } from '../../tag/entities/tag.entity';
+import { ListingApprovalStatus } from '../../../common/enums/skill-status.enum';
 
 export enum ServiceCategory {
   TECHNICAL = 'technical',
@@ -115,6 +116,41 @@ export class ServiceListing {
   @ApiPropertyOptional({ description: 'Current number of active mentees booked' })
   @Column({ default: 0 })
   currentMenteeCount: number;
+
+  @ApiPropertyOptional({ description: 'Approval status for the listing (requires admin approval before going live)' })
+  @IsEnum(ListingApprovalStatus)
+  @Column({
+    type: 'enum',
+    enum: ListingApprovalStatus,
+    default: ListingApprovalStatus.PENDING,
+  })
+  approvalStatus: ListingApprovalStatus;
+
+  @ApiPropertyOptional({ description: 'Reason for rejection (if rejected)' })
+  @IsOptional()
+  @IsString()
+  @Column({ nullable: true })
+  rejectionReason?: string;
+
+  @ApiPropertyOptional({ description: 'Admin who approved/rejected the listing' })
+  @Column({ nullable: true })
+  approvedBy?: string;
+
+  @ApiPropertyOptional({ description: 'Date when the listing was approved/rejected' })
+  @Column({ nullable: true })
+  approvedAt?: Date;
+
+  @ApiPropertyOptional({ description: 'Number of views for this listing' })
+  @Column({ default: 0 })
+  viewCount: number;
+
+  @ApiPropertyOptional({ description: 'Number of clicks for this listing' })
+  @Column({ default: 0 })
+  clickCount: number;
+
+  @ApiPropertyOptional({ description: 'Number of conversions (bookings) for this listing' })
+  @Column({ default: 0 })
+  conversionCount: number;
 
   @ApiProperty({ description: 'Soft delete flag' })
   @Column({ default: false })
