@@ -85,6 +85,8 @@ export class ServiceListingService {
 
   async findOne(id: string): Promise<ServiceListing> {
     const serviceListing = await this.serviceListingRepository.findOne({
+  async findOne(id: string): Promise<ServiceListing | null> {
+    return this.serviceListingRepository.findOne({
       where: { id, isDeleted: false },
     });
 

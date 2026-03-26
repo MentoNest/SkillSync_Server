@@ -114,6 +114,9 @@ export class ReviewsService {
     if (result) {
       listing.averageRating = Number.parseFloat(result.avgRating ?? '0');
       listing.reviewCount = Number.parseInt(result.reviewCount ?? '0', 10);
+      const { avgRating, reviewCount } = result;
+      listing.averageRating = Number.parseFloat(avgRating ?? '0');
+      listing.reviewCount = Number.parseInt(reviewCount ?? '0', 10);
     }
 
     await this.serviceListingRepository.save(listing);
