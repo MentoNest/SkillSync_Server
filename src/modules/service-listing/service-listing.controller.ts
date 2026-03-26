@@ -5,6 +5,7 @@ import { CreateServiceListingDto } from './dto/create-service-listing.dto';
 import { UpdateServiceListingDto } from './dto/update-service-listing.dto';
 import { ToggleFeaturedDto } from './dto/toggle-featured.dto';
 import { ToggleListingVisibilityDto } from './dto/toggle-listing-visibility.dto';
+import { ToggleDraftDto } from './dto/toggle-draft.dto';
 import { ServiceListingQueryDto } from './dto/service-listing-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -87,6 +88,20 @@ export class ServiceListingController {
     @Request() req,
   ) {
     return this.serviceListingService.toggleVisibility(id, toggleListingVisibilityDto.isActive, req.user.id);
+  }
+
+  @Patch(':id/draft')
+  @Roles(UserRole.MENTOR)
+  @ApiOperation({ summary: 'Toggle draft mode for a service listing' })
+  @ApiResponse({ status: 200, description: 'Draft status updated successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Mentor access required' })
+  @ApiResponse({ status: 404, description: 'Service listing not found' })
+  toggleDraft(
+    @Param('id') id: string,
+    @Body() toggleDraftDto: ToggleDraftDto,
+    @Request() req,
+  ) {
+    return this.serviceListingService.toggleDraft(id, toggleDraftDto.isDraft, req.user.id);
   }
 
   @Delete(':id')

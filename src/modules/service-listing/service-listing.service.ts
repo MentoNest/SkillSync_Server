@@ -54,7 +54,8 @@ export class ServiceListingService {
       .createQueryBuilder('listing')
       .leftJoinAndSelect('listing.tags', 'tag')
       .where('listing.isDeleted = :isDeleted', { isDeleted: false })
-      .andWhere('listing.isActive = :isActive', { isActive: true });
+      .andWhere('listing.isActive = :isActive', { isActive: true })
+      .andWhere('listing.isDraft = :isDraft', { isDraft: false });
 
     if (query.keyword) {
       qb.andWhere(
@@ -106,7 +107,7 @@ export class ServiceListingService {
 
   async findOne(id: string): Promise<ServiceListing | null> {
     return this.serviceListingRepository.findOne({
-      where: { id, isDeleted: false },
+      where: { id, isDeleted: false, isDraft: false },
       relations: ['tags'],
     });
   }
@@ -199,12 +200,35 @@ export class ServiceListingService {
     return this.serviceListingRepository.save(serviceListing);
   }
 
+  async toggleDraft(id: string, isDraft: boolean, userId: string): Promise<ServiceListing> {
+    const serviceListing = await this.serviceListingRepository.findOne({
+      where: { id, isDeleted: false },
+    });
+
+    if (!serviceListing) {
+      throw new NotFoundException('Service listing not found');
+    }
+
+    if (serviceListing.mentorId !== userId) {
+      throw new ForbiddenException('You can only change draft status for your own listings');
+    }
+
+    serviceListing.isDraft = isDraft;
+    
+    // If setting to draft, also set to inactive
+    if (isDraft) {
+      serviceListing.isActive = false;
+    }
+    
+    return this.serviceListingRepository.save(serviceListing);
+  }
+
   /**
    * Find a service listing by its slug
    */
   async findBySlug(slug: string): Promise<ServiceListing | null> {
     return this.serviceListingRepository.findOne({
-      where: { slug, isDeleted: false },
+      where: { slug, isDeleted: false, isDraft: false },
       relations: ['tags'],
     });
   }

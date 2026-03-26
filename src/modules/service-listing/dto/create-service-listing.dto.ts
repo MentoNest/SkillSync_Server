@@ -1,8 +1,5 @@
-import { IsString, IsNumber, IsEnum, IsOptional, IsInt, Min, Max, MaxLength, Matches } from 'class-validator';
+import { IsString, IsNumber, IsEnum, IsOptional, IsInt, Min, Max, MaxLength, Matches, IsArray, IsBoolean } from 'class-validator';
 import { IsValidPrice } from '../../../common/decorators/price.decorator';
-import { IsString, IsNumber, IsEnum, IsOptional, MaxLength, Matches } from 'class-validator';
-import { IsValidPrice } from '../../../common/decorators/price.decorator';
-import { IsString, IsNumber, IsEnum, IsOptional, MaxLength, Matches, IsArray } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { ServiceCategory } from '../entities/service-listing.entity';
@@ -58,6 +55,12 @@ export class CreateServiceListingDto {
   @Min(1)
   @Max(100)
   maxMentees?: number;
+
+  @ApiPropertyOptional({ description: 'Save as draft (not visible publicly)', example: false })
+  @IsOptional()
+  @IsBoolean()
+  isDraft?: boolean;
+
   @ApiPropertyOptional({ description: 'Tags to associate with this listing (array of tag slugs)', example: ['typescript', 'nodejs', 'web-development'] })
   @IsOptional()
   @IsArray()
