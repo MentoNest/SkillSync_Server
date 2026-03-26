@@ -1,7 +1,7 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { ServiceListing } from './entities/service-listing.entity';
+import { Repository, Not } from 'typeorm';
+import { ServiceListing, generateSlug } from './entities/service-listing.entity';
 import { CreateServiceListingDto } from './dto/create-service-listing.dto';
 import { UpdateServiceListingDto } from './dto/update-service-listing.dto';
 import { PaginatedServiceListingsDto, ServiceListingQueryDto } from './dto/service-listing-query.dto';
@@ -13,9 +13,19 @@ export class ServiceListingService {
     private serviceListingRepository: Repository<ServiceListing>,
   ) {}
 
-  create(createServiceListingDto: CreateServiceListingDto, userId: string): Promise<ServiceListing> {
+  async create(createServiceListingDto: CreateServiceListingDto, userId: string): Promise<ServiceListing> {
+    // Generate slug from title if not provided
+    let slug = createServiceListingDto.slug;
+    if (!slug) {
+      slug = generateSlug(createServiceListingDto.title);
+    }
+
+    // Ensure slug uniqueness
+    slug = await this.generateUniqueSlug(slug);
+
     const serviceListing = this.serviceListingRepository.create({
       ...createServiceListingDto,
+      slug,
       mentorId: userId,
     });
     return this.serviceListingRepository.save(serviceListing);
@@ -73,10 +83,18 @@ export class ServiceListingService {
     };
   }
 
+  async findOne(id: string): Promise<ServiceListing> {
+    const serviceListing = await this.serviceListingRepository.findOne({
   async findOne(id: string): Promise<ServiceListing | null> {
     return this.serviceListingRepository.findOne({
       where: { id, isDeleted: false },
     });
+
+    if (!serviceListing) {
+      throw new NotFoundException('Service listing not found');
+    }
+
+    return serviceListing;
   }
 
   async update(id: string, updateServiceListingDto: UpdateServiceListingDto, userId: string): Promise<ServiceListing> {
@@ -92,7 +110,19 @@ export class ServiceListingService {
       throw new ForbiddenException('You can only update your own listings');
     }
 
-    Object.assign(serviceListing, updateServiceListingDto);
+    // Handle slug update with uniqueness check
+    if (updateServiceListingDto.title !== undefined || updateServiceListingDto.slug !== undefined) {
+      serviceListing.slug = await this.updateSlugIfNeeded(
+        serviceListing,
+        updateServiceListingDto.title,
+        updateServiceListingDto.slug,
+      );
+    }
+
+    // Update other fields
+    const { slug: _, ...otherFields } = updateServiceListingDto;
+    Object.assign(serviceListing, otherFields);
+
     return this.serviceListingRepository.save(serviceListing);
   }
 
@@ -142,5 +172,72 @@ export class ServiceListingService {
 
     serviceListing.isActive = isActive;
     return this.serviceListingRepository.save(serviceListing);
+  }
+
+  /**
+   * Find a service listing by its slug
+   */
+  async findBySlug(slug: string): Promise<ServiceListing> {
+    const serviceListing = await this.serviceListingRepository.findOne({
+      where: { slug, isDeleted: false },
+    });
+
+    if (!serviceListing) {
+      throw new NotFoundException(`Service listing with slug "${slug}" not found`);
+    }
+
+    return serviceListing;
+  }
+
+  /**
+   * Generate a unique slug by appending a number if needed
+   */
+  private async generateUniqueSlug(baseSlug: string, excludeId?: string): Promise<string> {
+    let slug = baseSlug;
+    let counter = 1;
+
+    while (await this.slugExists(slug, excludeId)) {
+      slug = `${baseSlug}-${counter}`;
+      counter++;
+    }
+
+    return slug;
+  }
+
+  /**
+   * Check if a slug already exists (optionally excluding a specific ID)
+   */
+  private async slugExists(slug: string, excludeId?: string): Promise<boolean> {
+    const existing = await this.serviceListingRepository.findOne({
+      where: {
+        slug,
+        ...(excludeId ? { id: Not(excludeId) } : {}),
+      },
+    });
+
+    return !!existing;
+  }
+
+  /**
+   * Update slug when title changes, ensuring uniqueness
+   */
+  private async updateSlugIfNeeded(
+    currentListing: ServiceListing,
+    newTitle?: string,
+    newSlug?: string,
+  ): Promise<string> {
+    // If slug is explicitly provided, use it (after ensuring uniqueness)
+    if (newSlug !== undefined) {
+      return this.generateUniqueSlug(newSlug, currentListing.id);
+    }
+
+    // If title changes and no explicit slug, regenerate from title
+    if (newTitle && newTitle !== currentListing.title) {
+      const baseSlug = generateSlug(newTitle);
+      return this.generateUniqueSlug(baseSlug, currentListing.id);
+    }
+
+    // Keep existing slug
+    return currentListing.slug;
   }
 }

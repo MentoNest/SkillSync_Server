@@ -1,5 +1,6 @@
-import { IsString, IsNumber, IsEnum, IsOptional } from 'class-validator';
+import { IsString, IsNumber, IsEnum, IsOptional, MaxLength, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import { ServiceCategory } from '../entities/service-listing.entity';
 import { IsValidDuration, DurationUnit } from '../../../common/decorators/duration.decorator';
 
@@ -7,6 +8,18 @@ export class CreateServiceListingDto {
   @ApiProperty({ description: 'Service listing title' })
   @IsString()
   title: string;
+
+  @ApiPropertyOptional({
+    description: 'SEO-friendly slug (auto-generated from title if not provided)',
+    example: 'advanced-typescript-mentorship',
+    maxLength: 150,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  @Matches(/^[a-z0-9-]+$/, { message: 'slug must contain only lowercase letters, numbers, and hyphens' })
+  @Transform(({ value }) => value?.trim().toLowerCase())
+  slug?: string;
 
   @ApiProperty({ description: 'Service listing description' })
   @IsString()
