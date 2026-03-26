@@ -36,6 +36,15 @@ export class BookingsService {
       throw new BadRequestException('Service listing does not have a defined duration');
     }
 
+    // Enforce mentee capacity
+    if (
+      serviceListing.maxMentees !== null &&
+      serviceListing.maxMentees !== undefined &&
+      serviceListing.currentMenteeCount >= serviceListing.maxMentees
+    ) {
+      throw new BadRequestException('This listing has reached its maximum mentee capacity');
+    }
+
     // Calculate total price based on duration
     const totalPrice = this.calculateTotalPrice(serviceListing.price, dto.duration);
 
@@ -49,7 +58,15 @@ export class BookingsService {
       status: BookingStatus.PENDING,
     });
 
-    return this.bookingRepo.save(booking);
+    const saved = await this.bookingRepo.save(booking);
+
+    await this.serviceListingRepo.increment(
+      { id: serviceListing.id },
+      'currentMenteeCount',
+      1,
+    );
+
+    return saved;
   }
 
   /**
@@ -130,33 +147,18 @@ export class BookingsService {
    */
   async cancel(id: string): Promise<Booking> {
     const booking = await this.findOne(id);
+    if (booking.status === BookingStatus.PENDING || booking.status === BookingStatus.CONFIRMED) {
+      await this.serviceListingRepo.decrement({ id: booking.serviceListingId }, 'currentMenteeCount', 1);
+    }
     booking.status = BookingStatus.CANCELLED;
     return this.bookingRepo.save(booking);
   }
 
-  /**
-   * Confirm a booking
-   */
-  async confirm(id: string): Promise<Booking> {
-    const booking = await this.findOne(id);
-    booking.status = BookingStatus.CONFIRMED;
-    return this.bookingRepo.save(booking);
-  }
-
-  /**
-   * Complete a booking
-   */
-  async complete(id: string): Promise<Booking> {
-    const booking = await this.findOne(id);
-    booking.status = BookingStatus.COMPLETED;
-    return this.bookingRepo.save(booking);
-  }
-
-  /**
-   * Reject a booking
-   */
   async reject(id: string): Promise<Booking> {
     const booking = await this.findOne(id);
+    if (booking.status === BookingStatus.PENDING || booking.status === BookingStatus.CONFIRMED) {
+      await this.serviceListingRepo.decrement({ id: booking.serviceListingId }, 'currentMenteeCount', 1);
+    }
     booking.status = BookingStatus.REJECTED;
     return this.bookingRepo.save(booking);
   }

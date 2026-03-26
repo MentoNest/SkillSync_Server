@@ -1,4 +1,5 @@
-import { IsString, IsNumber, IsEnum, IsOptional, MaxLength, Matches } from 'class-validator';
+import { IsString, IsNumber, IsEnum, IsOptional, IsInt, Min, Max, MaxLength, Matches } from 'class-validator';
+import { IsValidPrice } from '../../../common/decorators/price.decorator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { ServiceCategory } from '../entities/service-listing.entity';
@@ -46,4 +47,11 @@ export class CreateServiceListingDto {
   @IsOptional()
   @IsString()
   imageUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Maximum number of mentees allowed (1–100)', example: 10 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  maxMentees?: number;
 }
