@@ -32,4 +32,23 @@ export class TagService {
     const tag = this.tagRepo.create({ name, slug });
     return this.tagRepo.save(tag);
   }
+
+  /**
+   * Find tags by their slugs. If any tag doesn't exist, throw an error.
+   */
+  async findTagsBySlugs(tagSlugs: string[]): Promise<Tag[]> {
+    if (!tagSlugs || tagSlugs.length === 0) {
+      return [];
+    }
+
+    const tags = await this.tagRepo.find({ where: { slug: In(tagSlugs) } });
+    
+    if (tags.length !== tagSlugs.length) {
+      const foundSlugs = new Set(tags.map(t => t.slug));
+      const missingSlugs = tagSlugs.filter(slug => !foundSlugs.has(slug));
+      throw new BadRequestException(`Tags not found: ${missingSlugs.join(', ')}`);
+    }
+
+    return tags;
+  }
 }
