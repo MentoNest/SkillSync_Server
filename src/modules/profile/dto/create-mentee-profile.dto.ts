@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsArray, IsEnum, IsNumber } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsEnum, IsNumber, IsTimeZone, IsUrl } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { MenteeGoal } from '../entities/mentee-profile.entity';
 
@@ -40,6 +40,15 @@ export class CreateMenteeProfileDto {
   @IsNumber()
   weeklyAvailability?: number;
 
+  @ApiPropertyOptional({
+    description: 'List of portfolio or project URLs',
+    example: ['https://github.com/user', 'https://myproject.dev'],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUrl({}, { each: true })
+  portfolioLinks?: string[];
+
   @ApiPropertyOptional({ description: 'Profile image URL' })
   @IsOptional()
   @IsString()
@@ -48,4 +57,12 @@ export class CreateMenteeProfileDto {
   @ApiPropertyOptional({ description: 'Is profile actively seeking mentorship' })
   @IsOptional()
   isSeekingMentor?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'IANA timezone identifier (e.g. "America/New_York", "Europe/London")',
+    example: 'America/New_York',
+  })
+  @IsOptional()
+  @IsTimeZone()
+  timezone?: string;
 }

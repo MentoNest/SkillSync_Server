@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MentorProfile } from '../entities/mentor-profile.entity';
@@ -7,6 +7,9 @@ import { CreateMentorProfileDto } from '../dto/create-mentor-profile.dto';
 import { UpdateMentorProfileDto } from '../dto/update-mentor-profile.dto';
 import { ListingsService } from '../../listings/providers/listings.service';
 import { ListingType } from '../../listings/entities/listing.entity';
+import { ProfileHistoryService } from './profile-history.service';
+import { ProfileType } from '../entities/profile-history.entity';
+import { MentorSkillsService } from '../../mentor_skills/mentor-skills.service';
 
 @Injectable()
 export class MentorProfileService {
@@ -16,6 +19,10 @@ export class MentorProfileService {
     @InjectRepository(User)
     private userRepository: Repository<User>,
     private listingsService: ListingsService,
+    private profileHistoryService: ProfileHistoryService,
+    
+    @Inject(forwardRef(() => MentorSkillsService))
+    private mentorSkillsService: MentorSkillsService
   ) {}
 
   async create(createMentorProfileDto: CreateMentorProfileDto, userId: string): Promise<MentorProfile> {
@@ -62,37 +69,48 @@ export class MentorProfileService {
     return this.mentorProfileRepository.save(mentorProfile);
   }
 
-  async findByUserId(userId: string): Promise<MentorProfile> {
+  async findByUserId(userId: string): Promise<any> {
     const profile = await this.mentorProfileRepository.findOne({
       where: { user: { id: userId } },
       relations: ['user'],
     });
-
     if (!profile) {
       throw new NotFoundException('Mentor profile not found');
     }
-
-    return profile;
+    const skills = await this.mentorSkillsService.getMentorSkills(profile.id);
+    return { ...profile, skills };
   }
 
-  async findOne(id: string): Promise<MentorProfile> {
+  async findOne(id: string): Promise<any> {
     const profile = await this.mentorProfileRepository.findOne({
       where: { id },
       relations: ['user'],
     });
-
     if (!profile) {
       throw new NotFoundException('Mentor profile not found');
     }
-
-    return profile;
+    const skills = await this.mentorSkillsService.getMentorSkills(profile.id);
+    return { ...profile, skills };
   }
 
-  async update(id: string, updateMentorProfileDto: UpdateMentorProfileDto): Promise<MentorProfile> {
+  async update(id: string, updateMentorProfileDto: UpdateMentorProfileDto, changedBy?: User): Promise<MentorProfile> {
     const profile = await this.findOne(id);
+    const oldData = { ...profile };
 
     Object.assign(profile, updateMentorProfileDto);
-    return this.mentorProfileRepository.save(profile);
+    const updated = await this.mentorProfileRepository.save(profile);
+
+    // Log changes to history
+    await this.profileHistoryService.trackChanges(
+      profile.user,
+      ProfileType.MENTOR,
+      profile.id,
+      oldData,
+      updateMentorProfileDto,
+      changedBy,
+    );
+
+    return updated;
   }
 
   async remove(id: string): Promise<void> {
@@ -114,5 +132,33 @@ export class MentorProfileService {
       .where('mentorProfile.isAvailable = :isAvailable', { isAvailable: true })
       .andWhere('mentorProfile.skills && :skills', { skills })
       .getMany();
+  }
+
+  async toggleVerification(id: string, isVerified: boolean, changedBy?: User): Promise<MentorProfile> {
+    const profile = await this.findOne(id);
+    const oldValue = profile.isVerified;
+
+    profile.isVerified = isVerified;
+    const updated = await this.mentorProfileRepository.save(profile);
+
+    // Log verification change to history
+    await this.profileHistoryService.logChange(
+      profile.user,
+      ProfileType.MENTOR,
+      profile.id,
+      'isVerified',
+      oldValue,
+      isVerified,
+      changedBy,
+    );
+
+    return updated;
+  }
+
+  async findByUserIdOptional(userId: string): Promise<MentorProfile | null> {
+    return this.mentorProfileRepository.findOne({
+      where: { user: { id: userId } },
+      relations: ['user'],
+    });
   }
 }

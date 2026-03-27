@@ -6,10 +6,16 @@ import { Wallet } from './wallet.entity';
 
 @Entity('users')
 @Index(['email'], { unique: true })
+@Index(['username'], { unique: true })
 export class User {
   @ApiProperty({ description: 'User unique identifier' })
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  @ApiProperty({ description: 'User unique username', example: 'johndoe123' })
+  @IsString()
+  @Column({ unique: true, nullable: false })
+  username: string;
 
   @ApiProperty({ description: 'User email address', example: 'user@example.com' })
   @IsEmail()

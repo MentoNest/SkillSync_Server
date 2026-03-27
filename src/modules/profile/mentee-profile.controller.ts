@@ -89,7 +89,7 @@ export class MenteeProfileController {
     if (profile.user.id !== req.user.id) {
       throw new Error('Unauthorized to update this profile');
     }
-    return this.menteeProfileService.update(id, updateMenteeProfileDto);
+    return this.menteeProfileService.update(id, updateMenteeProfileDto, req.user);
   }
 
   @Delete(':id')

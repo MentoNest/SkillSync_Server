@@ -5,6 +5,8 @@ import { MenteeProfile } from '../entities/mentee-profile.entity';
 import { User } from '../../user/entities/user.entity';
 import { CreateMenteeProfileDto } from '../dto/create-mentee-profile.dto';
 import { UpdateMenteeProfileDto } from '../dto/update-mentee-profile.dto';
+import { ProfileHistoryService } from './profile-history.service';
+import { ProfileType } from '../entities/profile-history.entity';
 
 @Injectable()
 export class MenteeProfileService {
@@ -13,6 +15,7 @@ export class MenteeProfileService {
     private menteeProfileRepository: Repository<MenteeProfile>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    private profileHistoryService: ProfileHistoryService,
   ) {}
 
   async create(createMenteeProfileDto: CreateMenteeProfileDto, userId: string): Promise<MenteeProfile> {
@@ -67,11 +70,24 @@ export class MenteeProfileService {
     return profile;
   }
 
-  async update(id: string, updateMenteeProfileDto: UpdateMenteeProfileDto): Promise<MenteeProfile> {
+  async update(id: string, updateMenteeProfileDto: UpdateMenteeProfileDto, changedBy?: User): Promise<MenteeProfile> {
     const profile = await this.findOne(id);
+    const oldData = { ...profile };
 
     Object.assign(profile, updateMenteeProfileDto);
-    return this.menteeProfileRepository.save(profile);
+    const updated = await this.menteeProfileRepository.save(profile);
+
+    // Log changes to history
+    await this.profileHistoryService.trackChanges(
+      profile.user,
+      ProfileType.MENTEE,
+      profile.id,
+      oldData,
+      updateMenteeProfileDto,
+      changedBy,
+    );
+
+    return updated;
   }
 
   async remove(id: string): Promise<void> {
@@ -102,6 +118,13 @@ export class MenteeProfileService {
         isSeekingMentor: true,
         primaryGoal: goal as any,
       },
+    });
+  }
+
+  async findByUserIdOptional(userId: string): Promise<MenteeProfile | null> {
+    return this.menteeProfileRepository.findOne({
+      where: { user: { id: userId } },
+      relations: ['user'],
     });
   }
 }

@@ -8,6 +8,7 @@ import {
   HttpException,
   Post,
   Req,
+  Res,
   Delete,
   Patch,
   Param,
@@ -23,7 +24,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { STELLAR_STRATEGY } from './strategies/stellar.strategy';
 import { AuthGuard } from '@nestjs/passport';
 import { CreateStellarAuthDto } from './dto/create-stellar-auth.dto';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { NonceRequestDto } from './dto/nonce-request.dto';
 import { StellarNonceService } from './providers/nonce.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -32,6 +33,11 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { LinkWalletDto } from './dto/link-wallet.dto';
 import { User } from '../user/entities/user.entity';
 import { LoginDto, RegisterDto } from './dto/create-auth.dto';
+import { CsrfService } from '../../common/services/csrf.service';
+import { CsrfGuard } from '../../common/guards/csrf.guard';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -39,7 +45,8 @@ import { LoginDto, RegisterDto } from './dto/create-auth.dto';
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
-    private readonly nonceService: StellarNonceService
+    private readonly nonceService: StellarNonceService,
+    private readonly csrfService: CsrfService
   ) { }
 
   @Get('nonce')
@@ -70,10 +77,12 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @UseGuards(CsrfGuard)
   @RateLimit(RateLimits.NORMAL)
   @ApiOperation({ summary: 'Rotate refresh token and issue a new token pair' })
   @ApiResponse({ status: 200, description: 'Returns a new access/refresh token pair' })
   @ApiResponse({ status: 401, description: 'Invalid, reused, or revoked refresh token' })
+  @ApiResponse({ status: 403, description: 'CSRF token validation failed' })
   async refresh(
     @Body() body: RefreshTokenDto,
     @Ip() ip: string,
@@ -83,10 +92,12 @@ export class AuthController {
   }
 
   @Post('logout')
+  @UseGuards(CsrfGuard)
   @RateLimit(RateLimits.NORMAL)
   @ApiOperation({ summary: 'Logout user and revoke session' })
   @ApiResponse({ status: 200, description: 'Logout successful' })
   @ApiResponse({ status: 401, description: 'Invalid refresh token' })
+  @ApiResponse({ status: 403, description: 'CSRF token validation failed' })
   async logout(
     @Body() body: RefreshTokenDto,
     @Ip() ip: string,
@@ -96,10 +107,12 @@ export class AuthController {
   }
 
   @Post('login')
+  @UseGuards(CsrfGuard)
   @RateLimit(RateLimits.STRICT)
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiResponse({ status: 200, description: 'Login successful' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  @ApiResponse({ status: 403, description: 'CSRF token validation failed' })
   async login(
     @Body() loginDto: LoginDto,
     @Ip() ip: string,
@@ -109,10 +122,12 @@ export class AuthController {
   }
 
   @Post('register')
+  @UseGuards(CsrfGuard)
   @RateLimit(RateLimits.STRICT)
   @ApiOperation({ summary: 'Register a new user' })
   @ApiResponse({ status: 201, description: 'Registration successful' })
   @ApiResponse({ status: 409, description: 'User already exists' })
+  @ApiResponse({ status: 403, description: 'CSRF token validation failed' })
   async register(
     @Body() registerDto: RegisterDto,
     @Ip() ip: string,
@@ -135,15 +150,21 @@ export class AuthController {
   @ApiBody({ type: CreateStellarAuthDto })
   @ApiResponse({ status: 200, description: 'Authenticated user context' })
   @ApiResponse({ status: 401, description: 'Invalid signature or nonce' })
-  stellarLogin(@Req() req: Request) {
-    return { user: req.user };
+  async stellarLogin(
+    @Req() req: Request,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+  ) {
+    const user = req.user as User;
+    return this.authService.issueTokenPairForUser(user, { ipAddress: ip, userAgent });
   }
 
   @Post('wallets/link')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, CsrfGuard)
   @ApiOperation({ summary: 'Link a new Stellar wallet to the account' })
   @ApiBody({ type: LinkWalletDto })
   @ApiResponse({ status: 201, description: 'Wallet linked successfully' })
+  @ApiResponse({ status: 403, description: 'CSRF token validation failed' })
   async linkWallet(@Req() req: Request, @Body() dto: LinkWalletDto) {
     const user = req.user as User;
     return this.authService.linkWallet(user.id, dto);
@@ -226,6 +247,60 @@ export class AuthController {
     const except = (requester as any).sid as string | undefined;
     await this.authService.revokeAllSessionsExcept(requester.sub, except);
     return { message: 'All other sessions revoked' };
+  }
+
+  @Get('csrf')
+  @ApiOperation({ summary: 'Get CSRF token for state-changing requests' })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Returns CSRF token',
+    type: Object
+  })
+  getCsrfToken(@Res() res: Response) {
+    const csrfToken = this.csrfService.generateToken();
+    
+    // Set CSRF token in httpOnly cookie
+    res.cookie('csrf-token', csrfToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 3600000 // 1 hour
+    });
+    
+    return res.json({ csrfToken });
+  }
+
+  @Post('forgot-password')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Request password reset OTP' })
+  @ApiBody({ type: ForgotPasswordDto })
+  @ApiResponse({ status: 200, description: 'OTP sent successfully (or email not found to prevent enumeration)' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @Post('verify-otp')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Verify password reset OTP' })
+  @ApiBody({ type: VerifyOtpDto })
+  @ApiResponse({ status: 200, description: 'OTP verification result' })
+  @ApiResponse({ status: 400, description: 'Invalid or expired OTP' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async verifyOtp(@Body() dto: VerifyOtpDto) {
+    return this.authService.verifyOtp(dto);
+  }
+
+  @Post('reset-password')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Reset password with OTP' })
+  @ApiBody({ type: ResetPasswordDto })
+  @ApiResponse({ status: 200, description: 'Password reset successful' })
+  @ApiResponse({ status: 400, description: 'Invalid or expired OTP' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 }
 

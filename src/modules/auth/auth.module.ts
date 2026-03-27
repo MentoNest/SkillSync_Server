@@ -15,6 +15,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AuditModule } from '../audit/audit.module';
 import { StellarNonceService } from './providers/nonce.service';
 import { StellarStrategy } from './strategies/stellar.strategy';
+import { CommonModule } from '../../common/common.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { StellarStrategy } from './strategies/stellar.strategy';
     forwardRef(() => AuditModule),
     UserModule,
     MailModule,
+    CommonModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       useFactory: (configService: ConfigService) => ({

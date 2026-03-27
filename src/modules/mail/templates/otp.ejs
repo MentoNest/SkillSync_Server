@@ -1,0 +1,159 @@
+<h1>Password Reset Request</h1>
+<p>Hello,</p>
+<p>You have requested to reset your password. Please use the following one-time password (OTP) to complete the process:</p>
+<h2 style="color: #007bff;"><%= otp %></h2>
+<p>This OTP is valid for 10 minutes only.</p>
+<p>If you did not request a password reset, please ignore this email.</p>
+<p>Best regards,<br>The <%= appName %> Team</p>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Your One-Time Password – <%= appName %></title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #f0f2f5;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #333333;
+    }
+    .wrapper {
+      max-width: 600px;
+      margin: 40px auto;
+      background: #ffffff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+    .header {
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      padding: 36px 40px;
+      text-align: center;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 24px;
+      color: #ffffff;
+      letter-spacing: 0.5px;
+    }
+    .header p {
+      margin: 8px 0 0;
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.85);
+    }
+    .body {
+      padding: 40px;
+    }
+    .body p {
+      font-size: 15px;
+      line-height: 1.6;
+      margin: 0 0 16px;
+    }
+    .otp-box {
+      background: #f5f3ff;
+      border: 2px dashed #7c3aed;
+      border-radius: 12px;
+      padding: 28px 20px;
+      text-align: center;
+      margin: 28px 0;
+    }
+    .otp-label {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #6b7280;
+      margin: 0 0 10px;
+    }
+    .otp-code {
+      font-size: 48px;
+      font-weight: 700;
+      letter-spacing: 12px;
+      color: #4f46e5;
+      margin: 0;
+      font-family: 'Courier New', Courier, monospace;
+    }
+    .expiry-note {
+      font-size: 13px;
+      color: #ef4444;
+      margin: 0;
+      padding-top: 12px;
+    }
+    .divider {
+      border: none;
+      border-top: 1px solid #e5e7eb;
+      margin: 28px 0;
+    }
+    .warning {
+      background: #fffbeb;
+      border-left: 4px solid #f59e0b;
+      border-radius: 4px;
+      padding: 12px 16px;
+      font-size: 13px;
+      color: #92400e;
+      line-height: 1.5;
+    }
+    .footer {
+      background: #f9fafb;
+      padding: 24px 40px;
+      text-align: center;
+      font-size: 12px;
+      color: #9ca3af;
+      border-top: 1px solid #e5e7eb;
+    }
+    .footer a {
+      color: #6b7280;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <!-- Header -->
+    <div class="header">
+      <h1>🔐 One-Time Password</h1>
+      <p><%= appName %> Security</p>
+    </div>
+
+    <!-- Body -->
+    <div class="body">
+      <p>
+        You (or someone acting on your behalf) requested a one-time password for your
+        <strong><%= appName %></strong> account. Use the code below to proceed.
+      </p>
+
+      <!-- OTP Display -->
+      <div class="otp-box">
+        <p class="otp-label">Your OTP Code</p>
+        <p class="otp-code"><%= otp %></p>
+        <p class="expiry-note">
+          ⏱ Expires on <strong><%= expiresAt %></strong><br />
+          (valid for <%= expiryMinutes %> minutes)
+        </p>
+      </div>
+
+      <hr class="divider" />
+
+      <div class="warning">
+        <strong>⚠ Did not request this?</strong><br />
+        If you did not request a one-time password, please ignore this email. Your account
+        remains secure. Consider changing your password if you are concerned.
+      </div>
+
+      <hr class="divider" />
+
+      <p style="font-size: 13px; color: #6b7280; margin: 0;">
+        For your security, never share this code with anyone — including <%= appName %> support.
+        This code is single-use and will be invalidated as soon as it is used.
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>&copy; <%= year %> <%= appName %>. All rights reserved.</p>
+      <p>This is an automated message — please do not reply.</p>
+    </div>
+  </div>
+</body>
+</html>

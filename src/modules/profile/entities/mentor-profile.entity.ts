@@ -1,4 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column, OneToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, OneToOne, JoinColumn, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import { MentorSkill } from '../../mentor_skills/entities/mentor-skill.entity';
 import { IsString, IsOptional, IsArray, IsNumber, IsUrl } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { User } from '../../user/entities/user.entity';
@@ -20,12 +21,8 @@ export class MentorProfile {
   @Column({ type: 'text', nullable: true })
   bio?: string;
 
-  @ApiPropertyOptional({ description: 'List of technical skills', example: ['JavaScript', 'React', 'Node.js', 'TypeScript'] })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  @Column('text', { array: true, nullable: true })
-  skills?: string[];
+  @OneToMany(() => MentorSkill, mentorSkill => mentorSkill.mentor)
+  mentorSkills: MentorSkill[];
 
   @ApiPropertyOptional({ description: 'Years of experience', example: 5 })
   @IsOptional()
@@ -57,6 +54,16 @@ export class MentorProfile {
   @Column({ nullable: true })
   portfolioUrl?: string;
 
+  @ApiPropertyOptional({
+    description: 'List of portfolio or project URLs',
+    example: ['https://github.com/user', 'https://myproject.dev'],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUrl({}, { each: true })
+  @Column('text', { array: true, nullable: true })
+  portfolioLinks?: string[];
+
   @ApiPropertyOptional({ description: 'Hourly rate', example: 50 })
   @IsOptional()
   @IsNumber()
@@ -72,6 +79,17 @@ export class MentorProfile {
   @ApiPropertyOptional({ description: 'Is profile available for mentoring' })
   @Column({ default: true })
   isAvailable: boolean;
+
+  @ApiPropertyOptional({ description: 'Is mentor profile verified by admin' })
+  @Column({ default: false })
+  isVerified: boolean;
+
+  @ApiPropertyOptional({
+    description: 'IANA timezone identifier for the mentor (e.g. "America/New_York")',
+    example: 'America/New_York',
+  })
+  @Column({ type: 'varchar', default: 'UTC' })
+  timezone: string;
 
   @ApiProperty({ description: 'Profile creation date' })
   @CreateDateColumn()

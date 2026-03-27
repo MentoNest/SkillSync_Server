@@ -14,6 +14,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { MentorProfileService } from './providers/mentor-profile.service';
 import { CreateMentorProfileDto } from './dto/create-mentor-profile.dto';
 import { UpdateMentorProfileDto } from './dto/update-mentor-profile.dto';
+import { ToggleVerificationDto } from './dto/toggle-verification.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -82,7 +83,7 @@ export class MentorProfileController {
     if (profile.user.id !== req.user.id) {
       throw new Error('Unauthorized to update this profile');
     }
-    return this.mentorProfileService.update(id, updateMentorProfileDto);
+    return this.mentorProfileService.update(id, updateMentorProfileDto, req.user);
   }
 
   @Delete(':id')
@@ -97,5 +98,19 @@ export class MentorProfileController {
       throw new Error('Unauthorized to delete this profile');
     }
     return this.mentorProfileService.remove(id);
+  }
+
+  @Patch(':id/verification')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Toggle mentor profile verification status (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Verification status updated successfully' })
+  @ApiResponse({ status: 404, description: 'Mentor profile not found' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  async toggleVerification(
+    @Param('id') id: string,
+    @Body() toggleVerificationDto: ToggleVerificationDto,
+    @Request() req,
+  ) {
+    return this.mentorProfileService.toggleVerification(id, toggleVerificationDto.isVerified, req.user);
   }
 }

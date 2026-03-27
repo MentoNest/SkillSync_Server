@@ -42,7 +42,6 @@ export class ConfigService {
   }
 
   /**
-
    * 📧 Mail Configuration
    */
   get mailSender(): string {
@@ -75,6 +74,14 @@ export class ConfigService {
 
   get smtpSecure(): boolean {
     return process.env.SMTP_SECURE === 'true';
+  }
+
+  get otpTtlMinutes(): number {
+    return parseInt(process.env.OTP_TTL_MINUTES ?? '10', 10);
+  }
+
+  get otpSubject(): string {
+    return process.env.OTP_SUBJECT ?? 'Your One-Time Password (OTP)';
   }
 
   /**

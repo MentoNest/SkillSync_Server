@@ -1,4 +1,7 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
+import { SkillModule } from './modules/skill/skill.module';
+import { TagModule } from './modules/tag/tag.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UserModule } from './modules/user/user.module';
@@ -16,20 +19,31 @@ import { PaginationModule } from './modules/pagination/pagination.module';
 import { DatabaseModule } from './modules/database/database.module';
 import { ConfigModule } from './config/config.module';
 import { CacheModule } from './common/cache/cache.module';
+import { CommonModule } from './common/common.module';
 import { HealthModule } from './modules/health/health.module';
 import { ListingsModule } from './modules/listings/listings.module';
+import { AvailabilityModule } from './modules/availability/availability.module';
+import { SkillsModule } from './modules/skills/skills.module';
+import { ServiceListingModule } from './modules/service-listing/service-listing.module';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
+    SkillModule,
+    TagModule,
     ConfigModule,
     DatabaseModule,
     CacheModule,
+    CommonModule,
     HealthModule,
     UserModule,
     AuthModule,
     ProfileModule,
     NotificationModule,
     BookingsModule,
+    AvailabilityModule,
+    SkillsModule,
+    ServiceListingModule,
     PaymentsModule,
     AuditModule,
     ReviewsModule,
