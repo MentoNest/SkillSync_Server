@@ -7,9 +7,12 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { IsEnum } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { User } from '../../user/entities/user.entity';
 import { ServiceListing } from '../../service-listing/entities/service-listing.entity';
+import { CurrencyCode } from '../../../common/enums/currency-code.enum';
+import { decimalTransformer } from '../../../common/utils/decimal.transformer';
 
 export enum BookingStatus {
   PENDING = 'pending',
@@ -61,8 +64,17 @@ export class Booking {
   @Column({ type: 'timestamp' })
   scheduledAt: Date;
 
+  @ApiProperty({ description: 'Currency for booking price', enum: CurrencyCode })
+  @IsEnum(CurrencyCode)
+  @Column({
+    type: 'enum',
+    enum: CurrencyCode,
+    default: CurrencyCode.USD,
+  })
+  currency: CurrencyCode;
+
   @ApiProperty({ description: 'Total price for the booking' })
-  @Column('decimal', { precision: 10, scale: 2 })
+  @Column('decimal', { precision: 10, scale: 2, transformer: decimalTransformer })
   totalPrice: number;
 
   @ApiPropertyOptional({ description: 'Additional notes or requirements' })

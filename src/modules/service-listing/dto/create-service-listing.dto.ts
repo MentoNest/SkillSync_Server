@@ -3,6 +3,7 @@ import { IsValidPrice } from '../../../common/decorators/price.decorator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { ServiceCategory } from '../entities/service-listing.entity';
+import { CurrencyCode } from '../../../common/enums/currency-code.enum';
 import { IsValidDuration, DurationUnit } from '../../../common/decorators/duration.decorator';
 
 export class CreateServiceListingDto {
@@ -30,6 +31,12 @@ export class CreateServiceListingDto {
   @IsNumber()
   @IsValidPrice({ min: 0, max: 10000 })
   price: number;
+
+  @ApiPropertyOptional({ description: 'Currency for service price', enum: CurrencyCode, example: CurrencyCode.USD })
+  @IsOptional()
+  @IsEnum(CurrencyCode)
+  @Transform(({ value }) => value?.trim().toUpperCase())
+  currency?: CurrencyCode;
 
   @ApiPropertyOptional({ 
     description: 'Service duration in hours (min: 0.5, max: 24)',

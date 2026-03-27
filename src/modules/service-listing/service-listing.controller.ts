@@ -40,6 +40,7 @@ export class ServiceListingController {
   @ApiQuery({ name: 'limit', required: false, description: 'Items per page', example: 20 })
   @ApiQuery({ name: 'keyword', required: false, description: 'Search by title or description' })
   @ApiQuery({ name: 'category', required: false, description: 'Filter by category', enum: ['technical', 'business', 'design', 'marketing', 'career', 'language', 'other'] })
+  @ApiQuery({ name: 'currency', required: false, description: 'Filter by currency code', example: 'USD' })
   @ApiQuery({ name: 'minPrice', required: false, description: 'Minimum price', example: 10 })
   @ApiQuery({ name: 'maxPrice', required: false, description: 'Maximum price', example: 500 })
   @ApiQuery({ name: 'minDuration', required: false, description: 'Minimum duration in hours', example: 1 })

@@ -55,6 +55,7 @@ export class BookingsService {
       mentorId: serviceListing.mentorId,
       menteeId,
       totalPrice,
+      currency: serviceListing.currency,
       status: BookingStatus.PENDING,
     });
 
