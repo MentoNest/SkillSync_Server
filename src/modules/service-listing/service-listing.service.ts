@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException, ForbiddenException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not, In } from 'typeorm';
 import { ServiceListing, generateSlug } from './entities/service-listing.entity';
@@ -19,6 +20,8 @@ export class ServiceListingService {
     private fileUploadService: FileUploadService,
     private configService: ConfigService,
   ) {}
+
+  private readonly logger = new Logger(ServiceListingService.name);
 
   async create(createServiceListingDto: CreateServiceListingDto, userId: string): Promise<ServiceListing> {
     // Generate slug from title if not provided
@@ -460,6 +463,31 @@ export class ServiceListingService {
     });
 
     return !!existing;
+  }
+
+  /**
+   * Cron job that runs every hour to automatically expire listings
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async handleListingExpiry() {
+    this.logger.log('Running automated listing expiry check...');
+    
+    const now = new Date();
+    
+    // Efficiently update all relevant listings in one go
+    const result = await this.serviceListingRepository
+      .createQueryBuilder()
+      .update(ServiceListing)
+      .set({ isActive: false })
+      .where('isActive = :isActive', { isActive: true })
+      .andWhere('isDeleted = :isDeleted', { isDeleted: false })
+      .andWhere('expiresAt IS NOT NULL')
+      .andWhere('expiresAt <= :now', { now })
+      .execute();
+
+    if (result.affected && result.affected > 0) {
+      this.logger.log(`Expired ${result.affected} listings automatically.`);
+    }
   }
 
   /**
