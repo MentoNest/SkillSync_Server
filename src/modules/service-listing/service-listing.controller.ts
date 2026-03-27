@@ -3,6 +3,8 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery, ApiConsume
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ServiceListingService } from './service-listing.service';
 import { CreateServiceListingDto } from './dto/create-service-listing.dto';
+import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
+import { RateLimit, RateLimits } from '../../common/decorators/rate-limit.decorator';
 import { UpdateServiceListingDto } from './dto/update-service-listing.dto';
 import { ToggleFeaturedDto } from './dto/toggle-featured.dto';
 import { ToggleListingVisibilityDto } from './dto/toggle-listing-visibility.dto';
@@ -18,11 +20,12 @@ import { UserRole } from '../../common/enums/user-role.enum';
 @ApiTags('service-listings')
 @ApiBearerAuth()
 @Controller('service-listings')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, RateLimitGuard)
 export class ServiceListingController {
   constructor(private readonly serviceListingService: ServiceListingService) {}
 
   @Post()
+  @RateLimit(RateLimits.NORMAL)
   @ApiOperation({ summary: 'Create a new service listing' })
   @ApiResponse({ status: 201, description: 'Listing created successfully' })
   @ApiResponse({ status: 400, description: 'Invalid input' })
@@ -31,6 +34,7 @@ export class ServiceListingController {
   }
 
   @Get()
+  @RateLimit(RateLimits.NORMAL)
   @ApiOperation({ summary: 'Search and list service listings' })
   @ApiQuery({ name: 'page', required: false, description: 'Page number', example: 1 })
   @ApiQuery({ name: 'limit', required: false, description: 'Items per page', example: 20 })
@@ -46,6 +50,7 @@ export class ServiceListingController {
   }
 
   @Get(':id')
+  @RateLimit(RateLimits.NORMAL)
   @ApiOperation({ summary: 'Get service listing by ID' })
   @ApiResponse({ status: 200, description: 'Service listing found' })
   @ApiResponse({ status: 404, description: 'Service listing not found' })
@@ -54,6 +59,7 @@ export class ServiceListingController {
   }
 
   @Get('slug/:slug')
+  @RateLimit(RateLimits.NORMAL)
   @ApiOperation({ summary: 'Get service listing by slug' })
   @ApiResponse({ status: 200, description: 'Service listing found' })
   @ApiResponse({ status: 404, description: 'Service listing not found' })
@@ -62,6 +68,7 @@ export class ServiceListingController {
   }
 
   @Post(':id/view')
+  @RateLimit(RateLimits.NORMAL)
   @ApiOperation({ summary: 'Track view for a service listing' })
   @ApiResponse({ status: 200, description: 'View count incremented' })
   @ApiResponse({ status: 404, description: 'Service listing not found' })
@@ -70,6 +77,7 @@ export class ServiceListingController {
   }
 
   @Post(':id/click')
+  @RateLimit(RateLimits.NORMAL)
   @ApiOperation({ summary: 'Track click for a service listing' })
   @ApiResponse({ status: 200, description: 'Click count incremented' })
   @ApiResponse({ status: 404, description: 'Service listing not found' })
@@ -78,6 +86,7 @@ export class ServiceListingController {
   }
 
   @Patch(':id')
+  @RateLimit(RateLimits.NORMAL)
   @ApiOperation({ summary: 'Update service listing' })
   @ApiResponse({ status: 200, description: 'Service listing updated successfully' })
   @ApiResponse({ status: 404, description: 'Service listing not found' })
@@ -86,6 +95,7 @@ export class ServiceListingController {
   }
 
   @Patch(':id/featured')
+  @RateLimit(RateLimits.NORMAL)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Toggle featured status for a service listing (Admin only)' })
   @ApiResponse({ status: 200, description: 'Featured status updated successfully' })
@@ -96,6 +106,7 @@ export class ServiceListingController {
   }
 
   @Patch(':id/visibility')
+  @RateLimit(RateLimits.NORMAL)
   @Roles(UserRole.MENTOR)
   @ApiOperation({ summary: 'Toggle visibility for a service listing' })
   @ApiResponse({ status: 200, description: 'Listing visibility updated successfully' })
@@ -110,6 +121,7 @@ export class ServiceListingController {
   }
 
   @Patch(':id/draft')
+  @RateLimit(RateLimits.NORMAL)
   @Roles(UserRole.MENTOR)
   @ApiOperation({ summary: 'Toggle draft mode for a service listing' })
   @ApiResponse({ status: 200, description: 'Draft status updated successfully' })
@@ -124,6 +136,7 @@ export class ServiceListingController {
   }
 
   @Delete(':id')
+  @RateLimit(RateLimits.NORMAL)
   @Roles(UserRole.MENTOR)
   @ApiOperation({ summary: 'Soft delete a service listing (owner only)' })
   @ApiResponse({ status: 200, description: 'Service listing deleted successfully' })
@@ -134,6 +147,7 @@ export class ServiceListingController {
   }
 
   @Post(':id/upload-image')
+  @RateLimit(RateLimits.NORMAL)
   @Roles(UserRole.MENTOR)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Upload image for a service listing' })
@@ -187,6 +201,7 @@ export class ServiceListingController {
   // ==================== Admin Endpoints ====================
 
   @Post(':id/approve')
+  @RateLimit(RateLimits.NORMAL)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Approve or reject a service listing (Admin only)' })
   @ApiResponse({ status: 200, description: 'Listing approval status updated successfully' })
@@ -206,6 +221,7 @@ export class ServiceListingController {
   }
 
   @Get('admin/pending')
+  @RateLimit(RateLimits.NORMAL)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get all pending listings (Admin only)' })
   @ApiQuery({ name: 'page', required: false, description: 'Page number', example: 1 })
@@ -219,6 +235,7 @@ export class ServiceListingController {
   }
 
   @Get('admin/all')
+  @RateLimit(RateLimits.NORMAL)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get all listings for admin management' })
   @ApiQuery({ name: 'page', required: false, description: 'Page number', example: 1 })
@@ -233,6 +250,7 @@ export class ServiceListingController {
   }
 
   @Get(':id/analytics')
+  @RateLimit(RateLimits.NORMAL)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get analytics for a service listing (Admin only)' })
   @ApiResponse({ status: 200, description: 'Listing analytics retrieved successfully' })
