@@ -3,6 +3,8 @@ import { IsString, IsNumber, IsOptional, IsEnum, IsArray } from 'class-validator
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Tag } from '../../tag/entities/tag.entity';
 import { ListingApprovalStatus } from '../../../common/enums/skill-status.enum';
+import { CurrencyCode } from '../../../common/enums/currency-code.enum';
+import { decimalTransformer } from '../../../common/utils/decimal.transformer';
 
 export enum ServiceCategory {
   TECHNICAL = 'technical',
@@ -82,8 +84,17 @@ export class ServiceListing {
 
   @ApiProperty({ description: 'Service price' })
   @IsNumber()
-  @Column('decimal', { precision: 10, scale: 2 })
+  @Column('decimal', { precision: 10, scale: 2, transformer: decimalTransformer })
   price: number;
+
+  @ApiProperty({ description: 'Currency for service price', enum: CurrencyCode })
+  @IsEnum(CurrencyCode)
+  @Column({
+    type: 'enum',
+    enum: CurrencyCode,
+    default: CurrencyCode.USD,
+  })
+  currency: CurrencyCode;
 
   @ApiPropertyOptional({ description: 'Service duration in hours' })
   @IsOptional()
@@ -118,7 +129,7 @@ export class ServiceListing {
   isDraft: boolean;
 
   @ApiPropertyOptional({ description: 'Average rating for this listing' })
-  @Column('decimal', { precision: 3, scale: 2, default: 0 })
+  @Column('decimal', { precision: 3, scale: 2, default: 0, transformer: decimalTransformer })
   averageRating: number;
 
   @ApiPropertyOptional({ description: 'Number of reviews for this listing' })

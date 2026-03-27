@@ -1,7 +1,8 @@
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEnum, IsInt, IsNumber, IsOptional, IsString, IsArray, Max, Min } from 'class-validator';
 import { ServiceCategory } from '../entities/service-listing.entity';
+import { CurrencyCode } from '../../../common/enums/currency-code.enum';
 import { ListingApprovalStatus } from '../../../common/enums/skill-status.enum';
 
 export enum ServiceListingSort {
@@ -41,6 +42,12 @@ export class ServiceListingQueryDto {
   @IsOptional()
   @IsEnum(ServiceCategory)
   category?: ServiceCategory;
+
+  @ApiPropertyOptional({ description: 'Filter by currency code', enum: CurrencyCode, example: CurrencyCode.USD })
+  @IsOptional()
+  @IsEnum(CurrencyCode)
+  @Transform(({ value }) => value?.trim().toUpperCase())
+  currency?: CurrencyCode;
 
   @ApiPropertyOptional({ description: 'Filter by tags (array of tag slugs)', example: ['typescript', 'nodejs'] })
   @IsOptional()

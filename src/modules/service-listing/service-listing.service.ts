@@ -10,6 +10,7 @@ import { TagService } from '../tag/tag.service';
 import { FileUploadService } from '../profile/providers/file-upload.service';
 import { ConfigService } from '@nestjs/config';
 import { ListingApprovalStatus } from '../../common/enums/skill-status.enum';
+import { CurrencyCode } from '../../common/enums/currency-code.enum';
 
 @Injectable()
 export class ServiceListingService {
@@ -39,6 +40,7 @@ export class ServiceListingService {
       ...listingData,
       slug,
       mentorId: userId,
+      currency: createServiceListingDto.currency ?? CurrencyCode.USD,
     });
 
     // Save the listing first
@@ -97,6 +99,10 @@ export class ServiceListingService {
 
     if (query.maxDuration !== undefined) {
       qb.andWhere('listing.duration <= :maxDuration', { maxDuration: query.maxDuration });
+    }
+
+    if (query.currency) {
+      qb.andWhere('listing.currency = :currency', { currency: query.currency });
     }
 
     // Sorting
@@ -338,6 +344,10 @@ export class ServiceListingService {
       qb.andWhere('listing.category = :category', { category: query.category });
     }
 
+    if (query.currency) {
+      qb.andWhere('listing.currency = :currency', { currency: query.currency });
+    }
+
     qb.orderBy('listing.createdAt', 'ASC');
     qb.skip((page - 1) * limit).take(limit);
 
@@ -375,6 +385,10 @@ export class ServiceListingService {
 
     if (query.category) {
       qb.andWhere('listing.category = :category', { category: query.category });
+    }
+
+    if (query.currency) {
+      qb.andWhere('listing.currency = :currency', { currency: query.currency });
     }
 
     // Filter by approval status if provided
