@@ -1,4 +1,4 @@
-import { Injectable, CanActivate, ExecutionContext, HttpStatus } from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, HttpStatus, HttpException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { RateLimitService, RateLimitConfig, RateLimitResult } from '../cache/rate-limit.service';
 
@@ -52,14 +52,14 @@ export class RateLimitGuard implements CanActivate {
     this.setRateLimitHeaders(response, result, config);
 
     if (!result.allowed) {
-      // Set response status and throw error
+      // Set response status and throw rate-limit exception
       response.status(HttpStatus.TOO_MANY_REQUESTS);
       response.setHeader(
         'Retry-After',
         Math.ceil((result.resetTime - Date.now()) / 1000).toString(),
       );
 
-      throw new Error('Too Many Requests');
+      throw new HttpException('Too Many Requests', HttpStatus.TOO_MANY_REQUESTS);
     }
 
     return true;
