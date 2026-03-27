@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException, ForbiddenException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not, In } from 'typeorm';
 import { ServiceListing, generateSlug } from './entities/service-listing.entity';
@@ -19,6 +20,8 @@ export class ServiceListingService {
     private fileUploadService: FileUploadService,
     private configService: ConfigService,
   ) {}
+
+  private readonly logger = new Logger(ServiceListingService.name);
 
   async create(createServiceListingDto: CreateServiceListingDto, userId: string): Promise<ServiceListing> {
     // Generate slug from title if not provided
@@ -61,7 +64,8 @@ export class ServiceListingService {
       .where('listing.isDeleted = :isDeleted', { isDeleted: false })
       .andWhere('listing.isActive = :isActive', { isActive: true })
       .andWhere('listing.isDraft = :isDraft', { isDraft: false })
-      .andWhere('listing.approvalStatus = :approvalStatus', { approvalStatus: ListingApprovalStatus.APPROVED });
+      .andWhere('listing.approvalStatus = :approvalStatus', { approvalStatus: ListingApprovalStatus.APPROVED })
+      .andWhere('(listing.expiresAt IS NULL OR listing.expiresAt > :now)', { now: new Date() });
 
     if (query.keyword) {
       qb.andWhere(
@@ -112,10 +116,15 @@ export class ServiceListingService {
   }
 
   async findOne(id: string): Promise<ServiceListing | null> {
-    return this.serviceListingRepository.findOne({
-      where: { id, isDeleted: false, isDraft: false },
-      relations: ['tags'],
-    });
+    const qb = this.serviceListingRepository
+      .createQueryBuilder('listing')
+      .leftJoinAndSelect('listing.tags', 'tag')
+      .where('listing.id = :id', { id })
+      .andWhere('listing.isDeleted = :isDeleted', { isDeleted: false })
+      .andWhere('listing.isDraft = :isDraft', { isDraft: false })
+      .andWhere('(listing.expiresAt IS NULL OR listing.expiresAt > :now)', { now: new Date() });
+
+    return qb.getOne();
   }
 
   async update(id: string, updateServiceListingDto: UpdateServiceListingDto, userId: string): Promise<ServiceListing> {
@@ -415,15 +424,16 @@ export class ServiceListingService {
    * Find a service listing by its slug
    */
    async findBySlug(slug: string): Promise<ServiceListing | null> {
-    return this.serviceListingRepository.findOne({
-      where: { 
-        slug, 
-        isDeleted: false, 
-        isDraft: false,
-        approvalStatus: ListingApprovalStatus.APPROVED,
-      },
-      relations: ['tags'],
-    });
+    const qb = this.serviceListingRepository
+      .createQueryBuilder('listing')
+      .leftJoinAndSelect('listing.tags', 'tag')
+      .where('listing.slug = :slug', { slug })
+      .andWhere('listing.isDeleted = :isDeleted', { isDeleted: false })
+      .andWhere('listing.isDraft = :isDraft', { isDraft: false })
+      .andWhere('listing.approvalStatus = :approvalStatus', { approvalStatus: ListingApprovalStatus.APPROVED })
+      .andWhere('(listing.expiresAt IS NULL OR listing.expiresAt > :now)', { now: new Date() });
+
+    return qb.getOne();
   }
 
   /**
@@ -453,6 +463,31 @@ export class ServiceListingService {
     });
 
     return !!existing;
+  }
+
+  /**
+   * Cron job that runs every hour to automatically expire listings
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async handleListingExpiry() {
+    this.logger.log('Running automated listing expiry check...');
+    
+    const now = new Date();
+    
+    // Efficiently update all relevant listings in one go
+    const result = await this.serviceListingRepository
+      .createQueryBuilder()
+      .update(ServiceListing)
+      .set({ isActive: false })
+      .where('isActive = :isActive', { isActive: true })
+      .andWhere('isDeleted = :isDeleted', { isDeleted: false })
+      .andWhere('expiresAt IS NOT NULL')
+      .andWhere('expiresAt <= :now', { now })
+      .execute();
+
+    if (result.affected && result.affected > 0) {
+      this.logger.log(`Expired ${result.affected} listings automatically.`);
+    }
   }
 
   /**

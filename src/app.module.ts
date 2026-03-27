@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { SkillModule } from './modules/skill/skill.module';
 import { TagModule } from './modules/tag/tag.module';
 import { AppController } from './app.controller';
@@ -26,6 +27,7 @@ import { ServiceListingModule } from './modules/service-listing/service-listing.
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     SkillModule,
     TagModule,
     ConfigModule,
