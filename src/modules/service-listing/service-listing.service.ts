@@ -5,7 +5,7 @@ import { Repository, Not, In } from 'typeorm';
 import { ServiceListing, generateSlug } from './entities/service-listing.entity';
 import { CreateServiceListingDto } from './dto/create-service-listing.dto';
 import { UpdateServiceListingDto } from './dto/update-service-listing.dto';
-import { PaginatedServiceListingsDto, ServiceListingQueryDto } from './dto/service-listing-query.dto';
+import { PaginatedServiceListingsDto, ServiceListingQueryDto, ServiceListingSort, SortOrder } from './dto/service-listing-query.dto';
 import { TagService } from '../tag/tag.service';
 import { FileUploadService } from '../profile/providers/file-upload.service';
 import { ConfigService } from '@nestjs/config';
@@ -99,7 +99,27 @@ export class ServiceListingService {
       qb.andWhere('listing.duration <= :maxDuration', { maxDuration: query.maxDuration });
     }
 
-    qb.orderBy('listing.isFeatured', 'DESC').addOrderBy('listing.createdAt', 'DESC');
+    // Sorting
+    const sortBy = query.sortBy || ServiceListingSort.RELEVANCE;
+    const sortOrder = query.sortOrder || SortOrder.DESC;
+
+    switch (sortBy) {
+      case ServiceListingSort.PRICE:
+        qb.orderBy('listing.price', sortOrder);
+        break;
+      case ServiceListingSort.RATING:
+        qb.orderBy('listing.averageRating', sortOrder);
+        break;
+      case ServiceListingSort.NEWEST:
+        qb.orderBy('listing.createdAt', sortOrder);
+        break;
+      case ServiceListingSort.RELEVANCE:
+      default:
+        // Featured first, then newest
+        qb.orderBy('listing.isFeatured', 'DESC').addOrderBy('listing.createdAt', 'DESC');
+        break;
+    }
+
     qb.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
