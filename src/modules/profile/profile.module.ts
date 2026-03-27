@@ -13,6 +13,7 @@ import { FileUploadController } from './file-upload.controller';
 import { ProfileHistoryController } from './profile-history.controller';
 import { AuthModule } from '../auth/auth.module';
 import { UserModule } from '../user/user.module';
+import { ListingsModule } from '../listings/listings.module';
 import { UserService } from '../user/providers/user.service';
 import { MentorSkillsModule } from '../mentor_skills/mentor-skills.module';
 import { RolesGuard } from '../../common/guards/roles.guard';

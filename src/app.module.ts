@@ -21,6 +21,7 @@ import { ConfigModule } from './config/config.module';
 import { CacheModule } from './common/cache/cache.module';
 import { CommonModule } from './common/common.module';
 import { HealthModule } from './modules/health/health.module';
+import { ListingsModule } from './modules/listings/listings.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
 import { SkillsModule } from './modules/skills/skills.module';
 import { ServiceListingModule } from './modules/service-listing/service-listing.module';
@@ -50,6 +51,7 @@ import { ServiceListingModule } from './modules/service-listing/service-listing.
     RedisModule,
     MailModule,
     PaginationModule,
+    ListingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
