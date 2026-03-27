@@ -59,6 +59,22 @@ export class ServiceListing {
     }
   }
 
+  @BeforeInsert()
+  @BeforeUpdate()
+  updateExpiry() {
+    if (this.duration && this.createdAt) {
+      const expiryDate = new Date(this.createdAt);
+      // duration is in hours
+      expiryDate.setMilliseconds(expiryDate.getMilliseconds() + this.duration * 60 * 60 * 1000);
+      this.expiresAt = expiryDate;
+    } else if (this.duration) {
+      // For new records where createdAt isn't set yet (BeforeInsert)
+      const now = new Date();
+      now.setMilliseconds(now.getMilliseconds() + this.duration * 60 * 60 * 1000);
+      this.expiresAt = now;
+    }
+  }
+
   @ApiProperty({ description: 'Service listing description' })
   @IsString()
   @Column('text')
@@ -155,6 +171,10 @@ export class ServiceListing {
   @ApiProperty({ description: 'Soft delete flag' })
   @Column({ default: false })
   isDeleted: boolean;
+
+  @ApiPropertyOptional({ description: 'Expiration date of the listing' })
+  @Column({ nullable: true })
+  expiresAt: Date;
 
   @ApiProperty({ description: 'Creation date' })
   @CreateDateColumn()

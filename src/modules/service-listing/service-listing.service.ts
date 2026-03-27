@@ -61,7 +61,8 @@ export class ServiceListingService {
       .where('listing.isDeleted = :isDeleted', { isDeleted: false })
       .andWhere('listing.isActive = :isActive', { isActive: true })
       .andWhere('listing.isDraft = :isDraft', { isDraft: false })
-      .andWhere('listing.approvalStatus = :approvalStatus', { approvalStatus: ListingApprovalStatus.APPROVED });
+      .andWhere('listing.approvalStatus = :approvalStatus', { approvalStatus: ListingApprovalStatus.APPROVED })
+      .andWhere('(listing.expiresAt IS NULL OR listing.expiresAt > :now)', { now: new Date() });
 
     if (query.keyword) {
       qb.andWhere(
@@ -112,10 +113,15 @@ export class ServiceListingService {
   }
 
   async findOne(id: string): Promise<ServiceListing | null> {
-    return this.serviceListingRepository.findOne({
-      where: { id, isDeleted: false, isDraft: false },
-      relations: ['tags'],
-    });
+    const qb = this.serviceListingRepository
+      .createQueryBuilder('listing')
+      .leftJoinAndSelect('listing.tags', 'tag')
+      .where('listing.id = :id', { id })
+      .andWhere('listing.isDeleted = :isDeleted', { isDeleted: false })
+      .andWhere('listing.isDraft = :isDraft', { isDraft: false })
+      .andWhere('(listing.expiresAt IS NULL OR listing.expiresAt > :now)', { now: new Date() });
+
+    return qb.getOne();
   }
 
   async update(id: string, updateServiceListingDto: UpdateServiceListingDto, userId: string): Promise<ServiceListing> {
@@ -415,15 +421,16 @@ export class ServiceListingService {
    * Find a service listing by its slug
    */
    async findBySlug(slug: string): Promise<ServiceListing | null> {
-    return this.serviceListingRepository.findOne({
-      where: { 
-        slug, 
-        isDeleted: false, 
-        isDraft: false,
-        approvalStatus: ListingApprovalStatus.APPROVED,
-      },
-      relations: ['tags'],
-    });
+    const qb = this.serviceListingRepository
+      .createQueryBuilder('listing')
+      .leftJoinAndSelect('listing.tags', 'tag')
+      .where('listing.slug = :slug', { slug })
+      .andWhere('listing.isDeleted = :isDeleted', { isDeleted: false })
+      .andWhere('listing.isDraft = :isDraft', { isDraft: false })
+      .andWhere('listing.approvalStatus = :approvalStatus', { approvalStatus: ListingApprovalStatus.APPROVED })
+      .andWhere('(listing.expiresAt IS NULL OR listing.expiresAt > :now)', { now: new Date() });
+
+    return qb.getOne();
   }
 
   /**
