@@ -17,6 +17,7 @@ import { DatabaseModule } from './modules/database/database.module';
 import { ConfigModule } from './config/config.module';
 import { CacheModule } from './common/cache/cache.module';
 import { HealthModule } from './modules/health/health.module';
+import { ListingsModule } from './modules/listings/listings.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { HealthModule } from './modules/health/health.module';
     RedisModule,
     MailModule,
     PaginationModule,
+    ListingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
