@@ -4,6 +4,18 @@ import { IsEnum, IsInt, IsNumber, IsOptional, IsString, IsArray, Max, Min } from
 import { ServiceCategory } from '../entities/service-listing.entity';
 import { ListingApprovalStatus } from '../../../common/enums/skill-status.enum';
 
+export enum ServiceListingSort {
+  RELEVANCE = 'relevance',
+  PRICE = 'price',
+  RATING = 'rating',
+  NEWEST = 'newest'
+}
+
+export enum SortOrder {
+  ASC = 'ASC',
+  DESC = 'DESC'
+}
+
 export class ServiceListingQueryDto {
   @ApiPropertyOptional({ description: 'Page number', default: 1 })
   @IsOptional()
@@ -68,6 +80,16 @@ export class ServiceListingQueryDto {
   @IsOptional()
   @IsEnum(ListingApprovalStatus)
   approvalStatus?: ListingApprovalStatus;
+
+  @ApiPropertyOptional({ description: 'Sort by field', enum: ServiceListingSort, default: ServiceListingSort.RELEVANCE })
+  @IsOptional()
+  @IsEnum(ServiceListingSort)
+  sortBy?: ServiceListingSort = ServiceListingSort.RELEVANCE;
+
+  @ApiPropertyOptional({ description: 'Sort order', enum: SortOrder, default: SortOrder.DESC })
+  @IsOptional()
+  @IsEnum(SortOrder)
+  sortOrder?: SortOrder = SortOrder.DESC;
 }
 
 export class ServiceListingPaginationMetaDto {
