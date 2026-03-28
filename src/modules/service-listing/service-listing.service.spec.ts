@@ -1,4 +1,5 @@
 import { generateSlug } from './entities/service-listing.entity';
+import { ServiceListingService } from './service-listing.service';
 
 describe('Slug Generation', () => {
   describe('generateSlug function', () => {
@@ -41,5 +42,56 @@ describe('Slug Generation', () => {
     it('should handle already slugged text', () => {
       expect(generateSlug('already-slugged-text')).toBe('already-slugged-text');
     });
+  });
+});
+
+describe('ServiceListingService.createBulk', () => {
+  let serviceListingService: any;
+  let mockRepository: any;
+  let mockTagService: any;
+
+  beforeEach(() => {
+    mockRepository = {
+      create: jest.fn().mockImplementation((data) => ({ ...data })),
+      save: jest.fn().mockImplementation(async (entity) => ({ ...entity, id: 'id-' + Math.random().toString(16).slice(2) })),
+      findOne: jest.fn().mockResolvedValue(null),
+    };
+    mockTagService = {
+      findTagsBySlugs: jest.fn().mockResolvedValue([]),
+    };
+
+    const FileUploadService = {};
+    const ConfigService = {};
+
+    serviceListingService = new ServiceListingService(mockRepository, mockTagService, FileUploadService, ConfigService);
+  });
+
+  it('creates multiple listings and returns created items', async () => {
+    const payload = [
+      {
+        title: 'First Listing',
+        description: 'Description 1',
+        price: 100,
+        category: 'technical',
+      },
+      {
+        title: 'Second Listing',
+        description: 'Description 2',
+        price: 200,
+        category: 'business',
+      },
+    ];
+
+    const result = await serviceListingService.createBulk(payload, 'mentor-123');
+
+    expect(result).toHaveLength(2);
+    expect(mockRepository.create).toHaveBeenCalledTimes(2);
+    expect(mockRepository.save).toHaveBeenCalledTimes(2);
+    expect(result[0].mentorId).toBe('mentor-123');
+    expect(result[1].mentorId).toBe('mentor-123');
+  });
+
+  it('throws BadRequestException if payload is empty', async () => {
+    await expect(serviceListingService.createBulk([], 'mentor-123')).rejects.toThrow('Listing array must be provided and contain at least one item');
   });
 });

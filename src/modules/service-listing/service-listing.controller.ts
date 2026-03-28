@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery, ApiConsume
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ServiceListingService } from './service-listing.service';
 import { CreateServiceListingDto } from './dto/create-service-listing.dto';
+import { BulkCreateServiceListingDto } from './dto/bulk-create-service-listing.dto';
 import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { RateLimit, RateLimits } from '../../common/decorators/rate-limit.decorator';
 import { UpdateServiceListingDto } from './dto/update-service-listing.dto';
@@ -14,6 +15,7 @@ import { ServiceListingQueryDto } from './dto/service-listing-query.dto';
 import { ApproveListingDto } from './dto/approve-listing.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { ListingOwnershipGuard } from './guards/listing-ownership.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 
@@ -31,6 +33,15 @@ export class ServiceListingController {
   @ApiResponse({ status: 400, description: 'Invalid input' })
   create(@Body() createServiceListingDto: CreateServiceListingDto, @Request() req) {
     return this.serviceListingService.create(createServiceListingDto, req.user.id);
+  }
+
+  @Post('bulk')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Create multiple service listings in a single request' })
+  @ApiResponse({ status: 201, description: 'Listings created successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid input' })
+  createBulk(@Body() bulkCreateServiceListingDto: BulkCreateServiceListingDto, @Request() req) {
+    return this.serviceListingService.createBulk(bulkCreateServiceListingDto.listings, req.user.id);
   }
 
   @Get()
@@ -88,6 +99,7 @@ export class ServiceListingController {
 
   @Patch(':id')
   @RateLimit(RateLimits.NORMAL)
+  @UseGuards(ListingOwnershipGuard)
   @ApiOperation({ summary: 'Update service listing' })
   @ApiResponse({ status: 200, description: 'Service listing updated successfully' })
   @ApiResponse({ status: 404, description: 'Service listing not found' })
@@ -109,6 +121,7 @@ export class ServiceListingController {
   @Patch(':id/visibility')
   @RateLimit(RateLimits.NORMAL)
   @Roles(UserRole.MENTOR)
+  @UseGuards(ListingOwnershipGuard)
   @ApiOperation({ summary: 'Toggle visibility for a service listing' })
   @ApiResponse({ status: 200, description: 'Listing visibility updated successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - Mentor access required' })
@@ -124,6 +137,7 @@ export class ServiceListingController {
   @Patch(':id/draft')
   @RateLimit(RateLimits.NORMAL)
   @Roles(UserRole.MENTOR)
+  @UseGuards(ListingOwnershipGuard)
   @ApiOperation({ summary: 'Toggle draft mode for a service listing' })
   @ApiResponse({ status: 200, description: 'Draft status updated successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - Mentor access required' })
@@ -139,6 +153,7 @@ export class ServiceListingController {
   @Delete(':id')
   @RateLimit(RateLimits.NORMAL)
   @Roles(UserRole.MENTOR)
+  @UseGuards(ListingOwnershipGuard)
   @ApiOperation({ summary: 'Soft delete a service listing (owner only)' })
   @ApiResponse({ status: 200, description: 'Service listing deleted successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - you can only delete your own listings' })
@@ -150,6 +165,7 @@ export class ServiceListingController {
   @Post(':id/upload-image')
   @RateLimit(RateLimits.NORMAL)
   @Roles(UserRole.MENTOR)
+  @UseGuards(ListingOwnershipGuard)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Upload image for a service listing' })
   @ApiConsumes('multipart/form-data')
