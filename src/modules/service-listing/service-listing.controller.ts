@@ -28,18 +28,22 @@ export class ServiceListingController {
 
   @Post()
   @RateLimit(RateLimits.NORMAL)
-  @ApiOperation({ summary: 'Create a new service listing' })
+  @Roles(UserRole.MENTOR)
+  @ApiOperation({ summary: 'Create a new service listing (Mentor only)' })
   @ApiResponse({ status: 201, description: 'Listing created successfully' })
   @ApiResponse({ status: 400, description: 'Invalid input' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Mentor access required' })
   create(@Body() createServiceListingDto: CreateServiceListingDto, @Request() req) {
     return this.serviceListingService.create(createServiceListingDto, req.user.id);
   }
 
   @Post('bulk')
   @RateLimit(RateLimits.NORMAL)
-  @ApiOperation({ summary: 'Create multiple service listings in a single request' })
+  @Roles(UserRole.MENTOR)
+  @ApiOperation({ summary: 'Create multiple service listings in a single request (Mentor only)' })
   @ApiResponse({ status: 201, description: 'Listings created successfully' })
   @ApiResponse({ status: 400, description: 'Invalid input' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Mentor access required' })
   createBulk(@Body() bulkCreateServiceListingDto: BulkCreateServiceListingDto, @Request() req) {
     return this.serviceListingService.createBulk(bulkCreateServiceListingDto.listings, req.user.id);
   }
@@ -68,6 +72,15 @@ export class ServiceListingController {
   @ApiResponse({ status: 404, description: 'Service listing not found' })
   findOne(@Param('id') id: string) {
     return this.serviceListingService.findOne(id);
+  }
+
+  @Get(':id/with-reviews')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Get service listing with reviews' })
+  @ApiResponse({ status: 200, description: 'Service listing with reviews found' })
+  @ApiResponse({ status: 404, description: 'Service listing not found' })
+  findOneWithReviews(@Param('id') id: string) {
+    return this.serviceListingService.findOneWithReviews(id);
   }
 
   @Get('slug/:slug')
@@ -99,9 +112,11 @@ export class ServiceListingController {
 
   @Patch(':id')
   @RateLimit(RateLimits.NORMAL)
+  @Roles(UserRole.MENTOR)
   @UseGuards(ListingOwnershipGuard)
-  @ApiOperation({ summary: 'Update service listing' })
+  @ApiOperation({ summary: 'Update service listing (owner only)' })
   @ApiResponse({ status: 200, description: 'Service listing updated successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Mentor access required' })
   @ApiResponse({ status: 404, description: 'Service listing not found' })
   update(@Param('id') id: string, @Body() updateServiceListingDto: UpdateServiceListingDto, @Request() req) {
     return this.serviceListingService.update(id, updateServiceListingDto, req.user.id);
@@ -216,6 +231,28 @@ export class ServiceListingController {
   }
 
   // ==================== Admin Endpoints ====================
+
+  @Patch('admin/:id')
+  @RateLimit(RateLimits.NORMAL)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Update any service listing (Admin only, bypasses ownership check)' })
+  @ApiResponse({ status: 200, description: 'Service listing updated successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 404, description: 'Service listing not found' })
+  adminUpdate(@Param('id') id: string, @Body() updateServiceListingDto: UpdateServiceListingDto) {
+    return this.serviceListingService.adminUpdate(id, updateServiceListingDto);
+  }
+
+  @Delete('admin/:id')
+  @RateLimit(RateLimits.NORMAL)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Delete any service listing (Admin only, bypasses ownership check)' })
+  @ApiResponse({ status: 200, description: 'Service listing deleted successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 404, description: 'Service listing not found' })
+  adminRemove(@Param('id') id: string) {
+    return this.serviceListingService.adminRemove(id);
+  }
 
   @Post(':id/approve')
   @RateLimit(RateLimits.NORMAL)

@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, BeforeInsert, BeforeUpdate, Index, ManyToMany, JoinTable } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, BeforeInsert, BeforeUpdate, Index, ManyToMany, JoinTable, OneToMany } from 'typeorm';
 import { IsString, IsNumber, IsOptional, IsEnum, IsArray } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Tag } from '../../tag/entities/tag.entity';
@@ -211,4 +211,10 @@ export class ServiceListing {
     },
   })
   tags?: Tag[];
+
+  @ApiPropertyOptional({ description: 'Reviews for this listing', type: 'array' })
+  @IsOptional()
+  @IsArray()
+  @OneToMany(() => (require('../../reviews/entities/review.entity').Review), review => review.listing, { cascade: true })
+  reviews?: any[];
 }

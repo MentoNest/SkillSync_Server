@@ -168,6 +168,20 @@ export class ServiceListingService {
     return qb.getOne();
   }
 
+  async findOneWithReviews(id: string): Promise<ServiceListing | null> {
+    const qb = this.serviceListingRepository
+      .createQueryBuilder('listing')
+      .leftJoinAndSelect('listing.tags', 'tag')
+      .leftJoinAndSelect('listing.reviews', 'review', 'review.listingId = listing.id')
+      .where('listing.id = :id', { id })
+      .andWhere('listing.isDeleted = :isDeleted', { isDeleted: false })
+      .andWhere('listing.isDraft = :isDraft', { isDraft: false })
+      .andWhere('(listing.expiresAt IS NULL OR listing.expiresAt > :now)', { now: new Date() })
+      .orderBy('review.createdAt', 'DESC');
+
+    return qb.getOne();
+  }
+
   async getById(id: string): Promise<ServiceListing> {
     const serviceListing = await this.serviceListingRepository.findOne({
       where: { id, isDeleted: false },
@@ -234,6 +248,59 @@ export class ServiceListingService {
       throw new ForbiddenException('You can only delete your own listings');
     }
 
+    // Soft delete
+    serviceListing.isDeleted = true;
+    await this.serviceListingRepository.save(serviceListing);
+  }
+
+  async adminUpdate(id: string, updateServiceListingDto: UpdateServiceListingDto): Promise<ServiceListing> {
+    const serviceListing = await this.serviceListingRepository.findOne({
+      where: { id, isDeleted: false },
+      relations: ['tags'],
+    });
+
+    if (!serviceListing) {
+      throw new NotFoundException('Service listing not found');
+    }
+
+    // Admin can update any listing without ownership check
+
+    // Handle slug update with uniqueness check
+    if (updateServiceListingDto.title !== undefined || updateServiceListingDto.slug !== undefined) {
+      serviceListing.slug = await this.updateSlugIfNeeded(
+        serviceListing,
+        updateServiceListingDto.title,
+        updateServiceListingDto.slug,
+      );
+    }
+
+    // Update other fields
+    const { slug: _, tags: tagSlugs, ...otherFields } = updateServiceListingDto;
+    Object.assign(serviceListing, otherFields);
+
+    // Update tags if provided
+    if (tagSlugs !== undefined) {
+      if (tagSlugs.length === 0) {
+        serviceListing.tags = [];
+      } else {
+        const tags = await this.tagService.findTagsBySlugs(tagSlugs);
+        serviceListing.tags = tags;
+      }
+    }
+
+    return this.serviceListingRepository.save(serviceListing);
+  }
+
+  async adminRemove(id: string): Promise<void> {
+    const serviceListing = await this.serviceListingRepository.findOne({
+      where: { id, isDeleted: false },
+    });
+
+    if (!serviceListing) {
+      throw new NotFoundException('Service listing not found');
+    }
+
+    // Admin can delete any listing without ownership check
     // Soft delete
     serviceListing.isDeleted = true;
     await this.serviceListingRepository.save(serviceListing);

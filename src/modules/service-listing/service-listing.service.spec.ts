@@ -95,3 +95,124 @@ describe('ServiceListingService.createBulk', () => {
     await expect(serviceListingService.createBulk([], 'mentor-123')).rejects.toThrow('Listing array must be provided and contain at least one item');
   });
 });
+
+describe('ServiceListingService.findOneWithReviews', () => {
+  let serviceListingService: any;
+  let mockRepository: any;
+
+  beforeEach(() => {
+    mockRepository = {
+      createQueryBuilder: jest.fn().mockReturnThis(),
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getOne: jest.fn(),
+    };
+
+    const mockTagService = {};
+    const FileUploadService = {};
+    const ConfigService = {};
+
+    serviceListingService = new ServiceListingService(mockRepository, mockTagService, FileUploadService, ConfigService);
+  });
+
+  it('returns listing with reviews included', async () => {
+    const mockListing = {
+      id: 'listing-1',
+      title: 'Mock Listing',
+      reviews: [
+        { id: 'review-1', rating: 5, comment: 'Great!' },
+        { id: 'review-2', rating: 4, comment: 'Good' },
+      ],
+    };
+
+    mockRepository.getOne.mockResolvedValue(mockListing);
+
+    const result = await serviceListingService.findOneWithReviews('listing-1');
+
+    expect(result).toEqual(mockListing);
+    expect(result.reviews).toHaveLength(2);
+    expect(mockRepository.leftJoinAndSelect).toHaveBeenCalledWith('listing.reviews', 'review', 'review.listingId = listing.id');
+  });
+
+  it('executes proper query with reviews sorted by createdAt DESC', async () => {
+    mockRepository.getOne.mockResolvedValue(null);
+
+    await serviceListingService.findOneWithReviews('listing-1');
+
+    expect(mockRepository.orderBy).toHaveBeenCalledWith('review.createdAt', 'DESC');
+  });
+});
+
+describe('ServiceListingService - RBAC', () => {
+  let serviceListingService: any;
+  let mockRepository: any;
+  let mockTagService: any;
+
+  beforeEach(() => {
+    mockRepository = {
+      findOne: jest.fn(),
+      create: jest.fn(),
+      save: jest.fn(),
+    };
+
+    mockTagService = {
+      findTagsBySlugs: jest.fn().mockResolvedValue([]),
+    };
+
+    const FileUploadService = {};
+    const ConfigService = {};
+
+    serviceListingService = new ServiceListingService(mockRepository, mockTagService, FileUploadService, ConfigService);
+  });
+
+  describe('adminUpdate', () => {
+    it('allows admin to update any listing without ownership check', async () => {
+      const mockListing = {
+        id: 'listing-1',
+        mentorId: 'mentor-999',
+        title: 'Original Title',
+        isDeleted: false,
+        tags: [],
+      };
+
+      mockRepository.findOne.mockResolvedValue(mockListing);
+      mockRepository.save.mockResolvedValue({ ...mockListing, title: 'Updated Title' });
+
+      const result = await serviceListingService.adminUpdate('listing-1', { title: 'Updated Title' });
+
+      expect(result.title).toBe('Updated Title');
+      expect(mockRepository.save).toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException if listing does not exist', async () => {
+      mockRepository.findOne.mockResolvedValue(null);
+
+      await expect(serviceListingService.adminUpdate('listing-1', { title: 'Updated Title' })).rejects.toThrow('Service listing not found');
+    });
+  });
+
+  describe('adminRemove', () => {
+    it('allows admin to delete any listing without ownership check', async () => {
+      const mockListing = {
+        id: 'listing-1',
+        mentorId: 'mentor-999',
+        isDeleted: false,
+      };
+
+      mockRepository.findOne.mockResolvedValue(mockListing);
+      mockRepository.save.mockResolvedValue({ ...mockListing, isDeleted: true });
+
+      await serviceListingService.adminRemove('listing-1');
+
+      expect(mockRepository.save).toHaveBeenCalledWith(expect.objectContaining({ isDeleted: true }));
+    });
+
+    it('throws NotFoundException if listing does not exist', async () => {
+      mockRepository.findOne.mockResolvedValue(null);
+
+      await expect(serviceListingService.adminRemove('listing-1')).rejects.toThrow('Service listing not found');
+    });
+  });
+});
