@@ -253,6 +253,59 @@ export class ServiceListingService {
     await this.serviceListingRepository.save(serviceListing);
   }
 
+  async adminUpdate(id: string, updateServiceListingDto: UpdateServiceListingDto): Promise<ServiceListing> {
+    const serviceListing = await this.serviceListingRepository.findOne({
+      where: { id, isDeleted: false },
+      relations: ['tags'],
+    });
+
+    if (!serviceListing) {
+      throw new NotFoundException('Service listing not found');
+    }
+
+    // Admin can update any listing without ownership check
+
+    // Handle slug update with uniqueness check
+    if (updateServiceListingDto.title !== undefined || updateServiceListingDto.slug !== undefined) {
+      serviceListing.slug = await this.updateSlugIfNeeded(
+        serviceListing,
+        updateServiceListingDto.title,
+        updateServiceListingDto.slug,
+      );
+    }
+
+    // Update other fields
+    const { slug: _, tags: tagSlugs, ...otherFields } = updateServiceListingDto;
+    Object.assign(serviceListing, otherFields);
+
+    // Update tags if provided
+    if (tagSlugs !== undefined) {
+      if (tagSlugs.length === 0) {
+        serviceListing.tags = [];
+      } else {
+        const tags = await this.tagService.findTagsBySlugs(tagSlugs);
+        serviceListing.tags = tags;
+      }
+    }
+
+    return this.serviceListingRepository.save(serviceListing);
+  }
+
+  async adminRemove(id: string): Promise<void> {
+    const serviceListing = await this.serviceListingRepository.findOne({
+      where: { id, isDeleted: false },
+    });
+
+    if (!serviceListing) {
+      throw new NotFoundException('Service listing not found');
+    }
+
+    // Admin can delete any listing without ownership check
+    // Soft delete
+    serviceListing.isDeleted = true;
+    await this.serviceListingRepository.save(serviceListing);
+  }
+
   async toggleFeatured(id: string, isFeatured: boolean): Promise<ServiceListing> {
     const serviceListing = await this.serviceListingRepository.findOne({
       where: { id, isDeleted: false },
