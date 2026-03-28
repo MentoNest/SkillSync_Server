@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { ServiceListing } from '../../service-listing/entities/service-listing.entity';
 
 @Entity('reviews')
 export class Review {
@@ -10,6 +11,11 @@ export class Review {
   @ApiProperty({ description: 'Reviewed listing identifier' })
   @Column('uuid')
   listingId: string;
+
+  @ApiPropertyOptional({ description: 'Service listing being reviewed', type: () => ServiceListing })
+  @ManyToOne(() => ServiceListing, (listing) => listing.reviews, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'listingId' })
+  listing?: ServiceListing;
 
   @ApiProperty({ description: 'Reviewer identifier' })
   @Column('uuid')

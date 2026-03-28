@@ -168,6 +168,20 @@ export class ServiceListingService {
     return qb.getOne();
   }
 
+  async findOneWithReviews(id: string): Promise<ServiceListing | null> {
+    const qb = this.serviceListingRepository
+      .createQueryBuilder('listing')
+      .leftJoinAndSelect('listing.tags', 'tag')
+      .leftJoinAndSelect('listing.reviews', 'review', 'review.listingId = listing.id')
+      .where('listing.id = :id', { id })
+      .andWhere('listing.isDeleted = :isDeleted', { isDeleted: false })
+      .andWhere('listing.isDraft = :isDraft', { isDraft: false })
+      .andWhere('(listing.expiresAt IS NULL OR listing.expiresAt > :now)', { now: new Date() })
+      .orderBy('review.createdAt', 'DESC');
+
+    return qb.getOne();
+  }
+
   async getById(id: string): Promise<ServiceListing> {
     const serviceListing = await this.serviceListingRepository.findOne({
       where: { id, isDeleted: false },

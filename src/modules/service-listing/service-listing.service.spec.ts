@@ -95,3 +95,52 @@ describe('ServiceListingService.createBulk', () => {
     await expect(serviceListingService.createBulk([], 'mentor-123')).rejects.toThrow('Listing array must be provided and contain at least one item');
   });
 });
+
+describe('ServiceListingService.findOneWithReviews', () => {
+  let serviceListingService: any;
+  let mockRepository: any;
+
+  beforeEach(() => {
+    mockRepository = {
+      createQueryBuilder: jest.fn().mockReturnThis(),
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getOne: jest.fn(),
+    };
+
+    const mockTagService = {};
+    const FileUploadService = {};
+    const ConfigService = {};
+
+    serviceListingService = new ServiceListingService(mockRepository, mockTagService, FileUploadService, ConfigService);
+  });
+
+  it('returns listing with reviews included', async () => {
+    const mockListing = {
+      id: 'listing-1',
+      title: 'Mock Listing',
+      reviews: [
+        { id: 'review-1', rating: 5, comment: 'Great!' },
+        { id: 'review-2', rating: 4, comment: 'Good' },
+      ],
+    };
+
+    mockRepository.getOne.mockResolvedValue(mockListing);
+
+    const result = await serviceListingService.findOneWithReviews('listing-1');
+
+    expect(result).toEqual(mockListing);
+    expect(result.reviews).toHaveLength(2);
+    expect(mockRepository.leftJoinAndSelect).toHaveBeenCalledWith('listing.reviews', 'review', 'review.listingId = listing.id');
+  });
+
+  it('executes proper query with reviews sorted by createdAt DESC', async () => {
+    mockRepository.getOne.mockResolvedValue(null);
+
+    await serviceListingService.findOneWithReviews('listing-1');
+
+    expect(mockRepository.orderBy).toHaveBeenCalledWith('review.createdAt', 'DESC');
+  });
+});

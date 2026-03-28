@@ -70,6 +70,15 @@ export class ServiceListingController {
     return this.serviceListingService.findOne(id);
   }
 
+  @Get(':id/with-reviews')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Get service listing with reviews' })
+  @ApiResponse({ status: 200, description: 'Service listing with reviews found' })
+  @ApiResponse({ status: 404, description: 'Service listing not found' })
+  findOneWithReviews(@Param('id') id: string) {
+    return this.serviceListingService.findOneWithReviews(id);
+  }
+
   @Get('slug/:slug')
   @RateLimit(RateLimits.NORMAL)
   @ApiOperation({ summary: 'Get service listing by slug' })
