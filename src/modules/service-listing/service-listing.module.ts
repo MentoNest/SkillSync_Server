@@ -6,6 +6,7 @@ import { ServiceListingService } from './service-listing.service';
 import { ServiceListing } from './entities/service-listing.entity';
 import { TagModule } from '../tag/tag.module';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { ListingOwnershipGuard } from './guards/listing-ownership.guard';
 import { FileUploadService } from '../profile/providers/file-upload.service';
 import { ConfigModule } from '@nestjs/config';
 
@@ -19,7 +20,7 @@ import { ConfigModule } from '@nestjs/config';
     ConfigModule,
   ],
   controllers: [ServiceListingController],
-  providers: [ServiceListingService, RolesGuard, FileUploadService],
+  providers: [ServiceListingService, RolesGuard, ListingOwnershipGuard, FileUploadService],
   exports: [ServiceListingService],
 })
 export class ServiceListingModule {}
