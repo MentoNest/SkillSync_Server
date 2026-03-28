@@ -18,17 +18,17 @@ export class CreateSkillDto {
   @Transform(({ value }) => normalizeSpaces(value))
   name: string;
 
-  @ApiProperty({
-    description: 'URL-friendly slug (lowercase letters, numbers, hyphens only)',
+  @ApiPropertyOptional({
+    description: 'URL-friendly slug (lowercase letters, numbers, hyphens only). If not provided, will be generated from name.',
     example: 'typescript',
     maxLength: 120,
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(120)
   @Matches(/^[a-z0-9-]+$/, { message: 'slug must contain only lowercase letters, numbers, and hyphens' })
   @Transform(({ value }) => value?.trim().toLowerCase())
-  slug: string;
+  slug?: string;
 
   @ApiPropertyOptional({ description: 'Optional skill description', example: 'A strongly typed superset of JavaScript' })
   @IsOptional()

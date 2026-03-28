@@ -44,7 +44,7 @@ export class Skill {
   @Column({ type: 'varchar', length: 100, unique: true })
   normalizedName: string;
 
-  @ApiProperty({ description: 'URL-friendly slug', example: 'typescript' })
+  @ApiProperty({ description: 'URL-friendly slug (immutable after creation)', example: 'typescript' })
   @Column({ type: 'varchar', length: 120, unique: true })
   slug: string;
 

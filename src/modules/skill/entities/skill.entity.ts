@@ -30,6 +30,9 @@ export class Skill {
   normalizedName: string;
 
   @Column({ unique: true })
+  /**
+   * URL-friendly slug, immutable after creation.
+   */
   slug: string;
 
   @BeforeInsert()

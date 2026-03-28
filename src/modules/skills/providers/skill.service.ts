@@ -29,8 +29,28 @@ export class SkillService {
   ) {}
 
   async create(dto: CreateSkillDto): Promise<Skill> {
-    // Check for duplicates with suggestions
-    await this.checkForDuplicates(dto.name, dto.slug);
+    const normalizedName = normalizeSkillName(dto.name);
+
+    // 1. Check for duplicate name (case/space variations handled by normalizedName)
+    const existingName = await this.skillRepo.findOne({
+      where: { normalizedName },
+    });
+    if (existingName) {
+      throw this.createDuplicateError(
+        `A skill with name "${dto.name}" already exists`,
+        'normalized',
+        [existingName],
+      );
+    }
+
+    // 2. Generate unique slug if not provided, or ensure provided one is unique
+    let slug = dto.slug;
+    if (!slug) {
+      slug = await this.generateUniqueSlug(dto.name);
+    } else {
+      // If slug provided manually, still ensure it's unique with suffixing if needed
+      slug = await this.ensureUniqueSlug(slug);
+    }
 
     let category: SkillCategory | undefined;
     if (dto.categoryId) {
@@ -41,12 +61,10 @@ export class SkillService {
       }
     }
 
-    const normalizedName = normalizeSkillName(dto.name);
-
     const skill = this.skillRepo.create({
       name: dto.name,
       normalizedName,
-      slug: dto.slug,
+      slug,
       description: dto.description,
       category,
     });
@@ -85,13 +103,26 @@ export class SkillService {
   async update(id: string, dto: UpdateSkillDto): Promise<Skill> {
     const skill = await this.findOne(id);
 
-    if (dto.name !== undefined || dto.slug !== undefined) {
-      await this.checkForDuplicates(
-        dto.name ?? skill.name,
-        dto.slug ?? skill.slug,
-        id,
-      );
+    // If name is changed, normalizedName will be updated via @BeforeUpdate in entity,
+    // but slug remains immutable per requirements.
+    if (dto.name !== undefined && dto.name !== skill.name) {
+      const normalizedName = normalizeSkillName(dto.name);
+      const existingName = await this.skillRepo.findOne({
+        where: { id: Not(id), normalizedName },
+      });
+      if (existingName) {
+        throw this.createDuplicateError(
+          `Cannot rename to "${dto.name}": similarity with "${existingName.name}"`,
+          'normalized',
+          [existingName],
+        );
+      }
     }
+
+    // Slug is immutable on update/rename as per requirements.
+    // If user explicitly tries to change slug, we can either ignore it or throw.
+    // Given the task says "keep immutable on rename", we'll ignore slug changes in update.
+    const { categoryId: _, slug: _slug, ...rest } = dto;
 
     if (dto.categoryId !== undefined) {
       if (dto.categoryId === null) {
@@ -105,7 +136,6 @@ export class SkillService {
       }
     }
 
-    const { categoryId: _, ...rest } = dto;
     Object.assign(skill, rest);
     return this.skillRepo.save(skill);
   }
@@ -337,7 +367,44 @@ export class SkillService {
   }
 
   /**
-   * @deprecated Use checkForDuplicates instead
+   * Generates a unique, URL-safe slug from a skill name
+   */
+  private async generateUniqueSlug(name: string): Promise<string> {
+    const baseSlug = name
+      .toLowerCase()
+      .trim()
+      .replace(/[^\w\s-]/g, '') // Keep alphanumeric, spaces, and hyphens (ASCII-safe)
+      .replace(/\s+/g, '-')     // Spaces to hyphens
+      .replace(/-+/g, '-');     // Collapse hyphens
+
+    return this.ensureUniqueSlug(baseSlug);
+  }
+
+  /**
+   * Checks if a slug is taken and appends a numeric suffix if needed
+   */
+  private async ensureUniqueSlug(baseSlug: string): Promise<string> {
+    let slug = baseSlug;
+    let counter = 1;
+
+    while (true) {
+      // Case-insensitive check for slug uniqueness
+      const existing = await this.skillRepo
+        .createQueryBuilder('skill')
+        .where('LOWER(skill.slug) = :slug', { slug: slug.toLowerCase() })
+        .getOne();
+
+      if (!existing) break;
+
+      counter++;
+      slug = `${baseSlug}-${counter}`;
+    }
+
+    return slug;
+  }
+
+  /**
+   * @deprecated Use check for duplicates logic directly in create/update
    */
   private async assertUnique(name: string, slug: string, excludeId?: string): Promise<void> {
     await this.checkForDuplicates(name, slug, excludeId);
