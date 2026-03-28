@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery, ApiConsume
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ServiceListingService } from './service-listing.service';
 import { CreateServiceListingDto } from './dto/create-service-listing.dto';
+import { BulkCreateServiceListingDto } from './dto/bulk-create-service-listing.dto';
 import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { RateLimit, RateLimits } from '../../common/decorators/rate-limit.decorator';
 import { UpdateServiceListingDto } from './dto/update-service-listing.dto';
@@ -31,6 +32,15 @@ export class ServiceListingController {
   @ApiResponse({ status: 400, description: 'Invalid input' })
   create(@Body() createServiceListingDto: CreateServiceListingDto, @Request() req) {
     return this.serviceListingService.create(createServiceListingDto, req.user.id);
+  }
+
+  @Post('bulk')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Create multiple service listings in a single request' })
+  @ApiResponse({ status: 201, description: 'Listings created successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid input' })
+  createBulk(@Body() bulkCreateServiceListingDto: BulkCreateServiceListingDto, @Request() req) {
+    return this.serviceListingService.createBulk(bulkCreateServiceListingDto.listings, req.user.id);
   }
 
   @Get()

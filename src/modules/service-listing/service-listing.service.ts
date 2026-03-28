@@ -56,6 +56,21 @@ export class ServiceListingService {
     return savedListing;
   }
 
+  async createBulk(createServiceListingDtos: CreateServiceListingDto[], userId: string): Promise<ServiceListing[]> {
+    if (!Array.isArray(createServiceListingDtos) || createServiceListingDtos.length === 0) {
+      throw new BadRequestException('Listing array must be provided and contain at least one item');
+    }
+
+    const createdListings: ServiceListing[] = [];
+
+    for (const createServiceListingDto of createServiceListingDtos) {
+      const created = await this.create(createServiceListingDto, userId);
+      createdListings.push(created);
+    }
+
+    return createdListings;
+  }
+
   async findAll(query: ServiceListingQueryDto): Promise<PaginatedServiceListingsDto<ServiceListing>> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
