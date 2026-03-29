@@ -13,6 +13,7 @@ import { ListingOwnershipGuard } from './guards/listing-ownership.guard';
 import { FileUploadService } from '../profile/providers/file-upload.service';
 import { ConfigModule } from '@nestjs/config';
 import { NotificationModule } from '../notification/notification.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { NotificationModule } from '../notification/notification.module';
     }),
     ConfigModule,
     NotificationModule,
+    AuditModule,
   ],
   controllers: [ServiceListingController],
   providers: [ServiceListingService, TrendingService, RecommendationService, RolesGuard, ListingOwnershipGuard, FileUploadService],

@@ -92,7 +92,7 @@ export class ListingsController {
       throw new Error('Unauthorized to update this listing');
     }
     
-    return this.listingsService.update(id, updateListingDto);
+    return this.listingsService.update(id, updateListingDto, req.user.id);
   }
 
   @Delete(':id')
@@ -110,7 +110,7 @@ export class ListingsController {
       throw new Error('Unauthorized to remove this listing');
     }
     
-    await this.listingsService.remove(id);
+    await this.listingsService.remove(id, req.user.id);
   }
 
   @Get('stats/duplicates')

@@ -339,8 +339,8 @@ export class ServiceListingController {
   @ApiResponse({ status: 200, description: 'Service listing updated successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
   @ApiResponse({ status: 404, description: 'Service listing not found' })
-  adminUpdate(@Param('id') id: string, @Body() updateServiceListingDto: UpdateServiceListingDto) {
-    return this.serviceListingService.adminUpdate(id, updateServiceListingDto);
+  adminUpdate(@Param('id') id: string, @Body() updateServiceListingDto: UpdateServiceListingDto, @Request() req) {
+    return this.serviceListingService.adminUpdate(id, updateServiceListingDto, req.user.id);
   }
 
   @Delete('admin/bulk')
@@ -350,8 +350,8 @@ export class ServiceListingController {
   @ApiResponse({ status: 200, description: 'Service listings deleted successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
   @ApiResponse({ status: 404, description: 'No listings found for deletion' })
-  adminRemoveBulk(@Body() bulkDeleteDto: BulkDeleteServiceListingDto) {
-    return this.serviceListingService.adminRemoveBulk(bulkDeleteDto.ids);
+  adminRemoveBulk(@Body() bulkDeleteDto: BulkDeleteServiceListingDto, @Request() req) {
+    return this.serviceListingService.adminRemoveBulk(bulkDeleteDto.ids, req.user.id);
   }
 
   @Delete('admin/:id')
@@ -361,8 +361,8 @@ export class ServiceListingController {
   @ApiResponse({ status: 200, description: 'Service listing deleted successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
   @ApiResponse({ status: 404, description: 'Service listing not found' })
-  adminRemove(@Param('id') id: string) {
-    return this.serviceListingService.adminRemove(id);
+  adminRemove(@Param('id') id: string, @Request() req) {
+    return this.serviceListingService.adminRemove(id, req.user.id);
   }
 
   @Post(':id/approve')

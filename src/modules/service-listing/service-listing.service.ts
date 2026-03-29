@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not, In } from 'typeorm';
@@ -16,6 +16,8 @@ import { NotificationType } from '../notification/entities/notification.entity';
 import { TrendingService } from './providers/trending.service';
 import { RecommendationService } from './providers/recommendation.service';
 import { UserBehavior, BehaviorType } from './entities/user-behavior.entity';
+import { AuditService } from '../audit/providers/audit.service';
+import { AuditEventType } from '../audit/entities/audit.entity';
 
 @Injectable()
 export class ServiceListingService {
@@ -30,6 +32,8 @@ export class ServiceListingService {
     private notificationService: NotificationService,
     private trendingService: TrendingService,
     private recommendationService: RecommendationService,
+    @Optional()
+    private readonly auditService?: AuditService,
   ) {}
 
   private readonly logger = new Logger(ServiceListingService.name);
@@ -62,6 +66,19 @@ export class ServiceListingService {
       savedListing.tags = tags;
       await this.serviceListingRepository.save(savedListing);
     }
+
+    await this.auditService?.log({
+      eventType: AuditEventType.LISTING_CREATED,
+      userId,
+      success: true,
+      metadata: {
+        listingId: savedListing.id,
+        title: savedListing.title,
+        slug: savedListing.slug,
+        category: savedListing.category,
+        domain: 'service_listings',
+      },
+    });
 
     await this.notificationService.createForAdmins(
       NotificationType.LISTING_CREATED,
@@ -280,6 +297,19 @@ export class ServiceListingService {
 
     const updatedListing = await this.serviceListingRepository.save(serviceListing);
 
+    await this.auditService?.log({
+      eventType: AuditEventType.LISTING_UPDATED,
+      userId,
+      success: true,
+      metadata: {
+        listingId: updatedListing.id,
+        title: updatedListing.title,
+        slug: updatedListing.slug,
+        changedFields: Object.keys(updateServiceListingDto),
+        domain: 'service_listings',
+      },
+    });
+
     await this.notificationService.createForAdmins(
       NotificationType.LISTING_UPDATED,
       'Listing updated',
@@ -310,9 +340,21 @@ export class ServiceListingService {
     // Soft delete
     serviceListing.isDeleted = true;
     await this.serviceListingRepository.save(serviceListing);
+
+    await this.auditService?.log({
+      eventType: AuditEventType.LISTING_DELETED,
+      userId,
+      success: true,
+      metadata: {
+        listingId: serviceListing.id,
+        title: serviceListing.title,
+        slug: serviceListing.slug,
+        domain: 'service_listings',
+      },
+    });
   }
 
-  async adminUpdate(id: string, updateServiceListingDto: UpdateServiceListingDto): Promise<ServiceListing> {
+  async adminUpdate(id: string, updateServiceListingDto: UpdateServiceListingDto, adminId?: string): Promise<ServiceListing> {
     const serviceListing = await this.serviceListingRepository.findOne({
       where: { id, isDeleted: false },
       relations: ['tags'],
@@ -349,13 +391,29 @@ export class ServiceListingService {
 
     const updatedListing = await this.serviceListingRepository.save(serviceListing);
 
+    await this.auditService?.log({
+      eventType: AuditEventType.LISTING_UPDATED,
+      userId: adminId ?? null,
+      success: true,
+      metadata: {
+        listingId: updatedListing.id,
+        title: updatedListing.title,
+        slug: updatedListing.slug,
+        changedFields: Object.keys(updateServiceListingDto),
+        actedAs: 'admin',
+        domain: 'service_listings',
+      },
+    });
+
+    const isApproved = updatedListing.approvalStatus === ListingApprovalStatus.APPROVED;
+
     await this.notificationService.createForUser(
       updatedListing.mentorId,
-      status === ListingApprovalStatus.APPROVED
+      isApproved
         ? NotificationType.LISTING_APPROVED
         : NotificationType.LISTING_REJECTED,
-      status === ListingApprovalStatus.APPROVED ? 'Listing approved' : 'Listing rejected',
-      status === ListingApprovalStatus.APPROVED
+      isApproved ? 'Listing approved' : 'Listing rejected',
+      isApproved
         ? `Your listing "${updatedListing.title}" is now live.`
         : `Your listing "${updatedListing.title}" was rejected.${updatedListing.rejectionReason ? ` Reason: ${updatedListing.rejectionReason}` : ''}`,
       {
@@ -368,7 +426,7 @@ export class ServiceListingService {
     return updatedListing;
   }
 
-  async adminRemove(id: string): Promise<void> {
+  async adminRemove(id: string, adminId?: string): Promise<void> {
     const serviceListing = await this.serviceListingRepository.findOne({
       where: { id, isDeleted: false },
     });
@@ -381,6 +439,19 @@ export class ServiceListingService {
     // Soft delete
     serviceListing.isDeleted = true;
     await this.serviceListingRepository.save(serviceListing);
+
+    await this.auditService?.log({
+      eventType: AuditEventType.LISTING_DELETED,
+      userId: adminId ?? null,
+      success: true,
+      metadata: {
+        listingId: serviceListing.id,
+        title: serviceListing.title,
+        slug: serviceListing.slug,
+        actedAs: 'admin',
+        domain: 'service_listings',
+      },
+    });
   }
 
   async removeBulk(ids: string[], userId: string): Promise<{ deleted: number; notFound: number; unauthorized: number }> {
@@ -421,6 +492,21 @@ export class ServiceListingService {
 
     await this.serviceListingRepository.save(listingsToDelete);
 
+    for (const deletedListing of listingsToDelete) {
+      await this.auditService?.log({
+        eventType: AuditEventType.LISTING_DELETED,
+        userId,
+        success: true,
+        metadata: {
+          listingId: deletedListing.id,
+          title: deletedListing.title,
+          slug: deletedListing.slug,
+          domain: 'service_listings',
+          bulkOperation: true,
+        },
+      });
+    }
+
     return {
       deleted: listingsToDelete.length,
       notFound,
@@ -428,7 +514,7 @@ export class ServiceListingService {
     };
   }
 
-  async adminRemoveBulk(ids: string[]): Promise<{ deleted: number; notFound: number }> {
+  async adminRemoveBulk(ids: string[], adminId?: string): Promise<{ deleted: number; notFound: number }> {
     if (!Array.isArray(ids) || ids.length === 0) {
       throw new BadRequestException('IDs array must be provided and contain at least one item');
     }
@@ -449,6 +535,22 @@ export class ServiceListingService {
     }
 
     await this.serviceListingRepository.save(serviceListings);
+
+    for (const deletedListing of serviceListings) {
+      await this.auditService?.log({
+        eventType: AuditEventType.LISTING_DELETED,
+        userId: adminId ?? null,
+        success: true,
+        metadata: {
+          listingId: deletedListing.id,
+          title: deletedListing.title,
+          slug: deletedListing.slug,
+          actedAs: 'admin',
+          domain: 'service_listings',
+          bulkOperation: true,
+        },
+      });
+    }
 
     return {
       deleted: serviceListings.length,

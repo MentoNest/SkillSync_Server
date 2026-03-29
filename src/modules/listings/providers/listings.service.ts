@@ -1,16 +1,20 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Listing, ListingStatus, ListingType } from '../entities/listing.entity';
 import { CreateListingDto } from '../dto/create-listing.dto';
 import { UpdateListingDto } from '../dto/update-listing.dto';
 import * as crypto from 'crypto';
+import { AuditService } from '../../audit/providers/audit.service';
+import { AuditEventType } from '../../audit/entities/audit.entity';
 
 @Injectable()
 export class ListingsService {
   constructor(
     @InjectRepository(Listing)
     private listingsRepository: Repository<Listing>,
+    @Optional()
+    private readonly auditService?: AuditService,
   ) {}
 
   /**
@@ -176,7 +180,21 @@ export class ListingsService {
       }
     }
 
-    return this.listingsRepository.save(listing);
+    const createdListing = await this.listingsRepository.save(listing);
+
+    await this.auditService?.log({
+      eventType: AuditEventType.LISTING_CREATED,
+      userId,
+      success: true,
+      metadata: {
+        listingId: createdListing.id,
+        listingType: createdListing.type,
+        title: createdListing.title,
+        domain: 'listings',
+      },
+    });
+
+    return createdListing;
   }
 
   /**
@@ -242,7 +260,7 @@ export class ListingsService {
   /**
    * Update a listing
    */
-  async update(id: string, updateListingDto: UpdateListingDto): Promise<Listing> {
+  async update(id: string, updateListingDto: UpdateListingDto, actorUserId?: string): Promise<Listing> {
     const listing = await this.findOne(id);
 
     // If updating sensitive fields, regenerate content hash
@@ -273,16 +291,41 @@ export class ListingsService {
     }
 
     Object.assign(listing, updateListingDto);
-    return this.listingsRepository.save(listing);
+    const updatedListing = await this.listingsRepository.save(listing);
+
+    await this.auditService?.log({
+      eventType: AuditEventType.LISTING_UPDATED,
+      userId: actorUserId ?? listing.userId,
+      success: true,
+      metadata: {
+        listingId: updatedListing.id,
+        changedFields: Object.keys(updateListingDto),
+        listingType: updatedListing.type,
+        domain: 'listings',
+      },
+    });
+
+    return updatedListing;
   }
 
   /**
    * Remove a listing (soft delete by setting status to INACTIVE)
    */
-  async remove(id: string): Promise<void> {
+  async remove(id: string, actorUserId?: string): Promise<void> {
     const listing = await this.findOne(id);
     listing.status = ListingStatus.INACTIVE;
     await this.listingsRepository.save(listing);
+
+    await this.auditService?.log({
+      eventType: AuditEventType.LISTING_DELETED,
+      userId: actorUserId ?? listing.userId,
+      success: true,
+      metadata: {
+        listingId: listing.id,
+        listingType: listing.type,
+        domain: 'listings',
+      },
+    });
   }
 
   /**

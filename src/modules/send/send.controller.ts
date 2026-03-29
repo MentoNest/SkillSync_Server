@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { JwtPayload } from '../auth/interfaces/auth.interface';
+import type { JwtPayload } from '../auth/interfaces/auth.interface';
 import { SendService } from './providers/send.service';
 import { PreviewSendDto, ConfirmSendDto } from './dto/send.dto';
 import { ConfirmRateLimitGuard } from './confirm-rate-limit.guard';
