@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Param, Delete, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Param, Patch, Request, UseGuards } from '@nestjs/common';
 import { NotificationService } from './providers/notification.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -8,28 +8,29 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 export class NotificationController {
   constructor(private readonly notificationService: NotificationService) {}
 
-  @Post()
-  create() {
-    return this.notificationService.create();
-  }
-
   @Get()
-  findAll() {
-    return this.notificationService.findAll();
+  findAll(@Request() req) {
+    return this.notificationService.findAllForUser(req.user.id ?? req.user.sub);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.notificationService.findOne(+id);
+  findOne(@Param('id') id: string, @Request() req) {
+    return this.notificationService.findOneForUser(req.user.id ?? req.user.sub, id);
   }
 
-  @Patch(':id')
-  update(@Param('id') id: string) {
-    return this.notificationService.update(+id);
+  @Patch(':id/read')
+  markAsRead(@Param('id') id: string, @Request() req) {
+    return this.notificationService.markAsRead(req.user.id ?? req.user.sub, id);
+  }
+
+  @Patch('read-all')
+  markAllAsRead(@Request() req) {
+    return this.notificationService.markAllAsRead(req.user.id ?? req.user.sub);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.notificationService.remove(+id);
+  async remove(@Param('id') id: string, @Request() req) {
+    await this.notificationService.removeForUser(req.user.id ?? req.user.sub, id);
+    return { message: 'Notification deleted' };
   }
 }

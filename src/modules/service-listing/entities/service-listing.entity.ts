@@ -223,6 +223,6 @@ export class ServiceListing {
   @ApiPropertyOptional({ description: 'Reviews for this listing', type: 'array' })
   @IsOptional()
   @IsArray()
-  @OneToMany(() => (require('../../reviews/entities/review.entity').Review), review => review.listing, { cascade: true })
+  @OneToMany(() => (require('../../reviews/entities/review.entity').Review), (review: any) => review.listing, { cascade: true })
   reviews?: any[];
 }

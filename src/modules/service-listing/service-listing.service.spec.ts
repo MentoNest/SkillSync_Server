@@ -62,8 +62,12 @@ describe('ServiceListingService.createBulk', () => {
 
     const FileUploadService = {};
     const ConfigService = {};
+    const NotificationService = {
+      createForAdmins: jest.fn(),
+      createForUser: jest.fn(),
+    };
 
-    serviceListingService = new ServiceListingService(mockRepository, mockTagService, FileUploadService, ConfigService);
+    serviceListingService = new ServiceListingService(mockRepository, mockTagService, FileUploadService, ConfigService, NotificationService);
   });
 
   it('creates multiple listings and returns created items', async () => {
@@ -113,8 +117,12 @@ describe('ServiceListingService.findOneWithReviews', () => {
     const mockTagService = {};
     const FileUploadService = {};
     const ConfigService = {};
+    const NotificationService = {
+      createForAdmins: jest.fn(),
+      createForUser: jest.fn(),
+    };
 
-    serviceListingService = new ServiceListingService(mockRepository, mockTagService, FileUploadService, ConfigService);
+    serviceListingService = new ServiceListingService(mockRepository, mockTagService, FileUploadService, ConfigService, NotificationService);
   });
 
   it('returns listing with reviews included', async () => {
@@ -163,8 +171,12 @@ describe('ServiceListingService - RBAC', () => {
 
     const FileUploadService = {};
     const ConfigService = {};
+    const NotificationService = {
+      createForAdmins: jest.fn(),
+      createForUser: jest.fn(),
+    };
 
-    serviceListingService = new ServiceListingService(mockRepository, mockTagService, FileUploadService, ConfigService);
+    serviceListingService = new ServiceListingService(mockRepository, mockTagService, FileUploadService, ConfigService, NotificationService);
   });
 
   describe('adminUpdate', () => {
@@ -214,5 +226,87 @@ describe('ServiceListingService - RBAC', () => {
 
       await expect(serviceListingService.adminRemove('listing-1')).rejects.toThrow('Service listing not found');
     });
+  });
+});
+
+describe('ServiceListingService - Notifications', () => {
+  let serviceListingService: any;
+  let mockRepository: any;
+  let mockTagService: any;
+  let mockNotificationService: any;
+
+  beforeEach(() => {
+    mockRepository = {
+      create: jest.fn().mockImplementation((data) => ({ ...data })),
+      save: jest.fn().mockImplementation(async (entity) => ({ ...entity, id: entity.id ?? 'listing-1' })),
+      findOne: jest.fn(),
+    };
+
+    mockTagService = {
+      findTagsBySlugs: jest.fn().mockResolvedValue([]),
+    };
+
+    mockNotificationService = {
+      createForAdmins: jest.fn().mockResolvedValue([]),
+      createForUser: jest.fn().mockResolvedValue({}),
+    };
+
+    const FileUploadService = {};
+    const ConfigService = {};
+
+    serviceListingService = new ServiceListingService(
+      mockRepository,
+      mockTagService,
+      FileUploadService,
+      ConfigService,
+      mockNotificationService,
+    );
+  });
+
+  it('notifies admins when a listing is created', async () => {
+    mockRepository.findOne.mockResolvedValue(null);
+
+    await serviceListingService.create(
+      {
+        title: 'TypeScript Coaching',
+        description: 'Deep dive session',
+        price: 100,
+        category: 'technical',
+      },
+      'mentor-1',
+    );
+
+    expect(mockNotificationService.createForAdmins).toHaveBeenCalled();
+  });
+
+  it('notifies listing owner when admin approves a listing', async () => {
+    const existing = {
+      id: 'listing-1',
+      title: 'System Design',
+      mentorId: 'mentor-1',
+      approvalStatus: 'pending',
+      isDeleted: false,
+      isActive: false,
+      isDraft: true,
+    };
+
+    mockRepository.findOne.mockResolvedValue(existing);
+    mockRepository.save.mockResolvedValue({
+      ...existing,
+      approvalStatus: 'approved',
+      isActive: true,
+      isDraft: false,
+    });
+
+    await serviceListingService.approveListing('listing-1', 'approved', undefined, 'admin-1');
+
+    expect(mockNotificationService.createForUser).toHaveBeenCalled();
+    expect(mockNotificationService.createForUser).toHaveBeenCalledWith(
+      'mentor-1',
+      expect.any(String),
+      expect.any(String),
+      expect.stringContaining('now live'),
+      expect.any(Object),
+    );
   });
 });

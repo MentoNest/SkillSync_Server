@@ -1,4 +1,4 @@
-import { MigrationInterface, QueryRunner, Table } from 'typeorm';
+import { MigrationInterface, QueryRunner, Table, TableForeignKey } from 'typeorm';
 
 export class CreateServiceListingTags1700000000005 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -25,24 +25,24 @@ export class CreateServiceListingTags1700000000005 implements MigrationInterface
     // Add foreign key constraints
     await queryRunner.createForeignKey(
       'service_listing_tags',
-      new Table({
+      new TableForeignKey({
         name: 'FK_service_listing_tags_service_listing',
         columnNames: ['service_listing_id'],
         referencedTableName: 'service_listings',
         referencedColumnNames: ['id'],
         onDelete: 'CASCADE',
-      }) as any,
+      }),
     );
 
     await queryRunner.createForeignKey(
       'service_listing_tags',
-      new Table({
+      new TableForeignKey({
         name: 'FK_service_listing_tags_tag',
         columnNames: ['tag_id'],
         referencedTableName: 'tags',
         referencedColumnNames: ['id'],
         onDelete: 'CASCADE',
-      }) as any,
+      }),
     );
   }
 
