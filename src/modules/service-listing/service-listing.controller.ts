@@ -166,6 +166,17 @@ export class ServiceListingController {
     return this.serviceListingService.toggleDraft(id, toggleDraftDto.isDraft, req.user.id);
   }
 
+  @Delete('bulk')
+  @RateLimit(RateLimits.NORMAL)
+  @Roles(UserRole.MENTOR)
+  @ApiOperation({ summary: 'Soft delete multiple service listings (owner only)' })
+  @ApiResponse({ status: 200, description: 'Service listings deleted successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - you can only delete your own listings' })
+  @ApiResponse({ status: 404, description: 'No listings found for deletion' })
+  removeBulk(@Body() bulkDeleteDto: BulkDeleteServiceListingDto, @Request() req) {
+    return this.serviceListingService.removeBulk(bulkDeleteDto.ids, req.user.id);
+  }
+
   @Delete(':id')
   @RateLimit(RateLimits.NORMAL)
   @Roles(UserRole.MENTOR)
@@ -176,17 +187,6 @@ export class ServiceListingController {
   @ApiResponse({ status: 404, description: 'Service listing not found' })
   remove(@Param('id') id: string, @Request() req) {
     return this.serviceListingService.remove(id, req.user.id);
-  }
-
-  @Delete('bulk')
-  @RateLimit(RateLimits.NORMAL)
-  @Roles(UserRole.MENTOR)
-  @ApiOperation({ summary: 'Soft delete multiple service listings (owner only)' })
-  @ApiResponse({ status: 200, description: 'Service listings deleted successfully' })
-  @ApiResponse({ status: 403, description: 'Forbidden - you can only delete your own listings' })
-  @ApiResponse({ status: 404, description: 'No listings found for deletion' })
-  removeBulk(@Body() bulkDeleteDto: BulkDeleteServiceListingDto, @Request() req) {
-    return this.serviceListingService.removeBulk(bulkDeleteDto.ids, req.user.id);
   }
 
   @Post(':id/upload-image')
@@ -253,6 +253,17 @@ export class ServiceListingController {
   @ApiResponse({ status: 404, description: 'Service listing not found' })
   adminUpdate(@Param('id') id: string, @Body() updateServiceListingDto: UpdateServiceListingDto) {
     return this.serviceListingService.adminUpdate(id, updateServiceListingDto);
+  }
+
+  @Delete('admin/bulk')
+  @RateLimit(RateLimits.NORMAL)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Delete multiple service listings (Admin only, bypasses ownership check)' })
+  @ApiResponse({ status: 200, description: 'Service listings deleted successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 404, description: 'No listings found for deletion' })
+  adminRemoveBulk(@Body() bulkDeleteDto: BulkDeleteServiceListingDto) {
+    return this.serviceListingService.adminRemoveBulk(bulkDeleteDto.ids);
   }
 
   @Delete('admin/:id')
