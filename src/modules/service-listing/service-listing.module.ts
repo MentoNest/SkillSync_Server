@@ -9,6 +9,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { ListingOwnershipGuard } from './guards/listing-ownership.guard';
 import { FileUploadService } from '../profile/providers/file-upload.service';
 import { ConfigModule } from '@nestjs/config';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { ConfigModule } from '@nestjs/config';
       dest: './uploads/listing-images',
     }),
     ConfigModule,
+    NotificationModule,
   ],
   controllers: [ServiceListingController],
   providers: [ServiceListingService, RolesGuard, ListingOwnershipGuard, FileUploadService],

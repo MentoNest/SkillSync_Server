@@ -11,6 +11,8 @@ import { FileUploadService } from '../profile/providers/file-upload.service';
 import { ConfigService } from '@nestjs/config';
 import { ListingApprovalStatus } from '../../common/enums/skill-status.enum';
 import { CurrencyCode } from '../../common/enums/currency-code.enum';
+import { NotificationService } from '../notification/providers/notification.service';
+import { NotificationType } from '../notification/entities/notification.entity';
 
 @Injectable()
 export class ServiceListingService {
@@ -20,6 +22,7 @@ export class ServiceListingService {
     private tagService: TagService,
     private fileUploadService: FileUploadService,
     private configService: ConfigService,
+    private notificationService: NotificationService,
   ) {}
 
   private readonly logger = new Logger(ServiceListingService.name);
@@ -52,6 +55,17 @@ export class ServiceListingService {
       savedListing.tags = tags;
       await this.serviceListingRepository.save(savedListing);
     }
+
+    await this.notificationService.createForAdmins(
+      NotificationType.LISTING_CREATED,
+      'New listing submitted',
+      `A new listing "${savedListing.title}" is awaiting review.`,
+      {
+        listingId: savedListing.id,
+        mentorId: savedListing.mentorId,
+        slug: savedListing.slug,
+      },
+    );
 
     return savedListing;
   }
@@ -257,7 +271,20 @@ export class ServiceListingService {
       }
     }
 
-    return this.serviceListingRepository.save(serviceListing);
+    const updatedListing = await this.serviceListingRepository.save(serviceListing);
+
+    await this.notificationService.createForAdmins(
+      NotificationType.LISTING_UPDATED,
+      'Listing updated',
+      `Listing "${updatedListing.title}" was updated and may require re-review.`,
+      {
+        listingId: updatedListing.id,
+        mentorId: updatedListing.mentorId,
+        slug: updatedListing.slug,
+      },
+    );
+
+    return updatedListing;
   }
 
   async remove(id: string, userId: string): Promise<void> {
@@ -313,7 +340,25 @@ export class ServiceListingService {
       }
     }
 
-    return this.serviceListingRepository.save(serviceListing);
+    const updatedListing = await this.serviceListingRepository.save(serviceListing);
+
+    await this.notificationService.createForUser(
+      updatedListing.mentorId,
+      status === ListingApprovalStatus.APPROVED
+        ? NotificationType.LISTING_APPROVED
+        : NotificationType.LISTING_REJECTED,
+      status === ListingApprovalStatus.APPROVED ? 'Listing approved' : 'Listing rejected',
+      status === ListingApprovalStatus.APPROVED
+        ? `Your listing "${updatedListing.title}" is now live.`
+        : `Your listing "${updatedListing.title}" was rejected.${updatedListing.rejectionReason ? ` Reason: ${updatedListing.rejectionReason}` : ''}`,
+      {
+        listingId: updatedListing.id,
+        approvalStatus: updatedListing.approvalStatus,
+        rejectionReason: updatedListing.rejectionReason,
+      },
+    );
+
+    return updatedListing;
   }
 
   async adminRemove(id: string): Promise<void> {

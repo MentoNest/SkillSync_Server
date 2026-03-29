@@ -12,10 +12,10 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { BookmarksService } from '../providers/bookmarks.service';
-import { CreateBookmarkDto } from '../dto/create-bookmark.dto';
-import { UpdateBookmarkDto } from '../dto/update-bookmark.dto';
-import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { BookmarksService } from './providers/bookmarks.service';
+import { CreateBookmarkDto } from './dto/create-bookmark.dto';
+import { UpdateBookmarkDto } from './dto/update-bookmark.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('bookmarks')
 @Controller('bookmarks')
