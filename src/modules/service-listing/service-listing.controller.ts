@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Patch, Delete, UseGuards, Request, Query, BadRequestException, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Patch, Delete, UseGuards, Request, Query, BadRequestException, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator, UseInterceptors, UploadedFile, Optional } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery, ApiConsumes } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ServiceListingService } from './service-listing.service';
@@ -14,6 +14,8 @@ import { ToggleDraftDto } from './dto/toggle-draft.dto';
 import { UploadListingImageResponseDto } from './dto/upload-listing-image-response.dto';
 import { ServiceListingQueryDto } from './dto/service-listing-query.dto';
 import { ApproveListingDto } from './dto/approve-listing.dto';
+import { TrendingListingsResponseDto } from './dto/trending-listings-response.dto';
+import { RecordBehaviorDto, PersonalizedRecommendationsDto, SimilarListingsDto, CategoryRecommendationsDto } from './dto/recommendation.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ListingOwnershipGuard } from './guards/listing-ownership.guard';
@@ -64,6 +66,92 @@ export class ServiceListingController {
   @ApiResponse({ status: 200, description: 'Paginated list of service listings' })
   findAll(@Query() query: ServiceListingQueryDto) {
     return this.serviceListingService.findAll(query);
+  }
+
+  @Get('trending')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Get trending service listings based on activity metrics' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Items per page', example: 20 })
+  @ApiQuery({ name: 'page', required: false, description: 'Page number', example: 1 })
+  @ApiResponse({ status: 200, description: 'Paginated list of trending service listings', type: TrendingListingsResponseDto })
+  async getTrendingListings(
+    @Query('limit') limit: string = '20',
+    @Query('page') page: string = '1',
+  ): Promise<TrendingListingsResponseDto> {
+    const limitNum = Math.min(Math.max(parseInt(limit) || 20, 1), 100); // Min 1, max 100
+    const pageNum = Math.max(parseInt(page) || 1, 1);
+    const offset = (pageNum - 1) * limitNum;
+
+    const result = await this.serviceListingService.getTrending(limitNum, offset);
+
+    return {
+      listings: result.listings,
+      meta: {
+        total: result.total,
+        limit: limitNum,
+        offset,
+        pages: Math.ceil(result.total / limitNum),
+        currentPage: pageNum,
+      },
+    };
+  }
+
+  @Get('recommendations/personalized')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Get personalized recommendations for the authenticated user' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Number of recommendations', example: 10 })
+  @ApiResponse({ status: 200, description: 'List of personalized recommendations' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - authentication required' })
+  async getPersonalizedRecommendations(
+    @Query('limit') limit: string = '10',
+    @Request() req,
+  ) {
+    const limitNum = Math.min(Math.max(parseInt(limit) || 10, 1), 100);
+    return this.serviceListingService.getPersonalizedRecommendations(req.user.id, limitNum);
+  }
+
+  @Get('recommendations/similar/:id')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Get similar listings based on a given listing' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Number of similar listings', example: 5 })
+  @ApiResponse({ status: 200, description: 'List of similar listings' })
+  @ApiResponse({ status: 404, description: 'Listing not found' })
+  async getSimilarListings(
+    @Param('id') id: string,
+    @Query('limit') limit: string = '5',
+  ) {
+    const limitNum = Math.min(Math.max(parseInt(limit) || 5, 1), 50);
+    return this.serviceListingService.getSimilarListings(id, limitNum);
+  }
+
+  @Get('recommendations/category/:category')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Get recommendations for a specific category' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Number of recommendations', example: 10 })
+  @ApiResponse({ status: 200, description: 'List of category recommendations' })
+  async getRecommendationsByCategory(
+    @Param('category') category: string,
+    @Query('limit') limit: string = '10',
+  ) {
+    const limitNum = Math.min(Math.max(parseInt(limit) || 10, 1), 100);
+    return this.serviceListingService.getRecommendationsByCategory(category, limitNum);
+  }
+
+  @Post('recommendations/track-behavior')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Record user behavior for recommendation system' })
+  @ApiResponse({ status: 201, description: 'Behavior recorded successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - authentication required' })
+  async recordBehavior(
+    @Body() recordBehaviorDto: RecordBehaviorDto,
+    @Request() req,
+  ) {
+    return this.serviceListingService.recordUserBehavior(
+      req.user.id,
+      recordBehaviorDto.listingId,
+      recordBehaviorDto.behaviorType,
+      recordBehaviorDto.metadata,
+    );
   }
 
   @Get(':id')
