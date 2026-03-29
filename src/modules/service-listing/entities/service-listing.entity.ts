@@ -195,6 +195,10 @@ export class ServiceListing {
   @UpdateDateColumn()
   updatedAt: Date;
 
+  @ApiPropertyOptional({ description: 'Full-text search vector (PostgreSQL tsvector)' })
+  @Column({ type: 'tsvector', nullable: true, select: false })
+  searchVector?: string;
+
   @ApiPropertyOptional({ description: 'Tags associated with this listing', type: [Tag] })
   @IsOptional()
   @IsArray()
