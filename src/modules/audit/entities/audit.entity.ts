@@ -12,6 +12,9 @@ export enum AuditEventType {
   ACCOUNT_LOCKED = 'account_locked',
   ACCOUNT_UNLOCKED = 'account_unlocked',
   REGISTRATION = 'registration',
+  LISTING_CREATED = 'listing_created',
+  LISTING_UPDATED = 'listing_updated',
+  LISTING_DELETED = 'listing_deleted',
 }
 
 @Entity('audit_logs')

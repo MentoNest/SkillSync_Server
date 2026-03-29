@@ -5,7 +5,7 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { JwtPayload } from '../../auth/interfaces/auth.interface';
+import type { JwtPayload } from '../auth/interfaces/auth.interface';
 
 const WINDOW_MS = 60_000;
 const MAX_REQUESTS = 10;
