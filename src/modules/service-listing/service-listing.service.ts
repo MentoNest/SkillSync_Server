@@ -527,9 +527,16 @@ export class ServiceListingService {
       .andWhere('listing.approvalStatus = :status', { status: ListingApprovalStatus.PENDING });
 
     if (query.keyword) {
+      // Use PostgreSQL full-text search
       qb.andWhere(
-        '(listing.title ILIKE :keyword OR listing.description ILIKE :keyword)',
-        { keyword: `%${query.keyword}%` },
+        'listing.search_vector @@ plainto_tsquery(:searchQuery)',
+        { searchQuery: query.keyword },
+      );
+
+      // Add ranking for relevance
+      qb.addSelect(
+        'ts_rank(listing.search_vector, plainto_tsquery(:searchQuery))',
+        'relevance',
       );
     }
 
@@ -541,6 +548,7 @@ export class ServiceListingService {
       qb.andWhere('listing.currency = :currency', { currency: query.currency });
     }
 
+    // Order by created date (newest first for pending review)
     qb.orderBy('listing.createdAt', 'ASC');
     qb.skip((page - 1) * limit).take(limit);
 
@@ -570,9 +578,16 @@ export class ServiceListingService {
       .where('listing.isDeleted = :isDeleted', { isDeleted: false });
 
     if (query.keyword) {
+      // Use PostgreSQL full-text search
       qb.andWhere(
-        '(listing.title ILIKE :keyword OR listing.description ILIKE :keyword)',
-        { keyword: `%${query.keyword}%` },
+        'listing.search_vector @@ plainto_tsquery(:searchQuery)',
+        { searchQuery: query.keyword },
+      );
+
+      // Add ranking for relevance
+      qb.addSelect(
+        'ts_rank(listing.search_vector, plainto_tsquery(:searchQuery))',
+        'relevance',
       );
     }
 
