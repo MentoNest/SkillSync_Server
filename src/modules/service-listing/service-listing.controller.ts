@@ -14,6 +14,7 @@ import { ToggleDraftDto } from './dto/toggle-draft.dto';
 import { UploadListingImageResponseDto } from './dto/upload-listing-image-response.dto';
 import { ServiceListingQueryDto } from './dto/service-listing-query.dto';
 import { ApproveListingDto } from './dto/approve-listing.dto';
+import { TrendingListingsResponseDto } from './dto/trending-listings-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ListingOwnershipGuard } from './guards/listing-ownership.guard';
@@ -64,6 +65,34 @@ export class ServiceListingController {
   @ApiResponse({ status: 200, description: 'Paginated list of service listings' })
   findAll(@Query() query: ServiceListingQueryDto) {
     return this.serviceListingService.findAll(query);
+  }
+
+  @Get('trending')
+  @RateLimit(RateLimits.NORMAL)
+  @ApiOperation({ summary: 'Get trending service listings based on activity metrics' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Items per page', example: 20 })
+  @ApiQuery({ name: 'page', required: false, description: 'Page number', example: 1 })
+  @ApiResponse({ status: 200, description: 'Paginated list of trending service listings', type: TrendingListingsResponseDto })
+  async getTrendingListings(
+    @Query('limit') limit: string = '20',
+    @Query('page') page: string = '1',
+  ): Promise<TrendingListingsResponseDto> {
+    const limitNum = Math.min(Math.max(parseInt(limit) || 20, 1), 100); // Min 1, max 100
+    const pageNum = Math.max(parseInt(page) || 1, 1);
+    const offset = (pageNum - 1) * limitNum;
+
+    const result = await this.serviceListingService.getTrending(limitNum, offset);
+
+    return {
+      listings: result.listings,
+      meta: {
+        total: result.total,
+        limit: limitNum,
+        offset,
+        pages: Math.ceil(result.total / limitNum),
+        currentPage: pageNum,
+      },
+    };
   }
 
   @Get(':id')

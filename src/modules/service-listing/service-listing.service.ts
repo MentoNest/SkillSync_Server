@@ -11,6 +11,7 @@ import { FileUploadService } from '../profile/providers/file-upload.service';
 import { ConfigService } from '@nestjs/config';
 import { ListingApprovalStatus } from '../../common/enums/skill-status.enum';
 import { CurrencyCode } from '../../common/enums/currency-code.enum';
+import { TrendingService } from './providers/trending.service';
 
 @Injectable()
 export class ServiceListingService {
@@ -20,6 +21,7 @@ export class ServiceListingService {
     private tagService: TagService,
     private fileUploadService: FileUploadService,
     private configService: ConfigService,
+    private trendingService: TrendingService,
   ) {}
 
   private readonly logger = new Logger(ServiceListingService.name);
@@ -753,5 +755,27 @@ export class ServiceListingService {
 
     // Keep existing slug
     return currentListing.slug;
+  }
+
+  /**
+   * Cron job that runs every 15 minutes to update trending scores dynamically
+   */
+  @Cron('0 */15 * * * *') // Every 15 minutes
+  async handleTrendingScoresUpdate() {
+    this.logger.debug('Running automated trending scores update...');
+    const result = await this.trendingService.updateAllTrendingScores();
+    
+    if (result.error) {
+      this.logger.error(`Error updating trending scores: ${result.error}`);
+    } else {
+      this.logger.debug(`Updated trending scores for ${result.updated} listings`);
+    }
+  }
+
+  /**
+   * Get trending listings with pagination
+   */
+  async getTrending(limit: number = 20, offset: number = 0): Promise<{ listings: ServiceListing[]; total: number }> {
+    return this.trendingService.getTrendingListings(limit, offset);
   }
 }

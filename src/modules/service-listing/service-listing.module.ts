@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { MulterModule } from '@nestjs/platform-express';
 import { ServiceListingController } from './service-listing.controller';
 import { ServiceListingService } from './service-listing.service';
+import { TrendingService } from './providers/trending.service';
 import { ServiceListing } from './entities/service-listing.entity';
 import { TagModule } from '../tag/tag.module';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -20,7 +21,7 @@ import { ConfigModule } from '@nestjs/config';
     ConfigModule,
   ],
   controllers: [ServiceListingController],
-  providers: [ServiceListingService, RolesGuard, ListingOwnershipGuard, FileUploadService],
-  exports: [ServiceListingService],
+  providers: [ServiceListingService, TrendingService, RolesGuard, ListingOwnershipGuard, FileUploadService],
+  exports: [ServiceListingService, TrendingService],
 })
 export class ServiceListingModule {}
