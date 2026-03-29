@@ -306,6 +306,79 @@ export class ServiceListingService {
     await this.serviceListingRepository.save(serviceListing);
   }
 
+  async removeBulk(ids: string[], userId: string): Promise<{ deleted: number; notFound: number; unauthorized: number }> {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new BadRequestException('IDs array must be provided and contain at least one item');
+    }
+
+    const serviceListings = await this.serviceListingRepository.find({
+      where: { id: In(ids), isDeleted: false },
+    });
+
+    if (serviceListings.length === 0) {
+      throw new NotFoundException('No listings found for deletion');
+    }
+
+    const notFound = ids.length - serviceListings.length;
+    let unauthorized = 0;
+    const listingsToDelete: ServiceListing[] = [];
+
+    // Check ownership for each listing
+    for (const listing of serviceListings) {
+      if (listing.mentorId !== userId) {
+        unauthorized++;
+      } else {
+        listingsToDelete.push(listing);
+      }
+    }
+
+    // If no listings can be deleted due to authorization, throw error
+    if (listingsToDelete.length === 0) {
+      throw new ForbiddenException('You can only delete your own listings');
+    }
+
+    // Soft delete all authorized listings
+    for (const listing of listingsToDelete) {
+      listing.isDeleted = true;
+    }
+
+    await this.serviceListingRepository.save(listingsToDelete);
+
+    return {
+      deleted: listingsToDelete.length,
+      notFound,
+      unauthorized,
+    };
+  }
+
+  async adminRemoveBulk(ids: string[]): Promise<{ deleted: number; notFound: number }> {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new BadRequestException('IDs array must be provided and contain at least one item');
+    }
+
+    const serviceListings = await this.serviceListingRepository.find({
+      where: { id: In(ids), isDeleted: false },
+    });
+
+    if (serviceListings.length === 0) {
+      throw new NotFoundException('No listings found for deletion');
+    }
+
+    const notFound = ids.length - serviceListings.length;
+
+    // Soft delete all listings
+    for (const listing of serviceListings) {
+      listing.isDeleted = true;
+    }
+
+    await this.serviceListingRepository.save(serviceListings);
+
+    return {
+      deleted: serviceListings.length,
+      notFound,
+    };
+  }
+
   async toggleFeatured(id: string, isFeatured: boolean): Promise<ServiceListing> {
     const serviceListing = await this.serviceListingRepository.findOne({
       where: { id, isDeleted: false },
