@@ -84,11 +84,29 @@ export class ServiceListingService {
       .andWhere('listing.approvalStatus = :approvalStatus', { approvalStatus: ListingApprovalStatus.APPROVED })
       .andWhere('(listing.expiresAt IS NULL OR listing.expiresAt > :now)', { now: new Date() });
 
+    let hasFullTextSearch = false;
+
     if (query.keyword) {
+      // Use PostgreSQL full-text search for better relevance
+      // Normalize the search query for tsquery
+      const searchQuery = query.keyword
+        .trim()
+        .split(/\s+/)
+        .map(word => word + ':*') // Add prefix matching
+        .join(' & '); // AND operator between terms
+
       qb.andWhere(
-        '(listing.title ILIKE :keyword OR listing.description ILIKE :keyword)',
-        { keyword: `%${query.keyword}%` },
+        'listing.search_vector @@ plainto_tsquery(:searchQuery)',
+        { searchQuery: query.keyword },
       );
+
+      // Add ranking for better relevance ordering
+      qb.addSelect(
+        'ts_rank(listing.search_vector, plainto_tsquery(:searchQuery))',
+        'relevance',
+      );
+
+      hasFullTextSearch = true;
     }
 
     if (query.category) {
@@ -124,21 +142,28 @@ export class ServiceListingService {
     const sortBy = query.sortBy || ServiceListingSort.RELEVANCE;
     const sortOrder = query.sortOrder || SortOrder.DESC;
 
-    switch (sortBy) {
-      case ServiceListingSort.PRICE:
-        qb.orderBy('listing.price', sortOrder);
-        break;
-      case ServiceListingSort.RATING:
-        qb.orderBy('listing.averageRating', sortOrder);
-        break;
-      case ServiceListingSort.NEWEST:
-        qb.orderBy('listing.createdAt', sortOrder);
-        break;
-      case ServiceListingSort.RELEVANCE:
-      default:
-        // Featured first, then newest
-        qb.orderBy('listing.isFeatured', 'DESC').addOrderBy('listing.createdAt', 'DESC');
-        break;
+    // If we have a full-text search, prioritize relevance
+    if (hasFullTextSearch && sortBy === ServiceListingSort.RELEVANCE) {
+      qb.orderBy('relevance', 'DESC');
+      qb.addOrderBy('listing.isFeatured', 'DESC');
+      qb.addOrderBy('listing.createdAt', 'DESC');
+    } else {
+      switch (sortBy) {
+        case ServiceListingSort.PRICE:
+          qb.orderBy('listing.price', sortOrder);
+          break;
+        case ServiceListingSort.RATING:
+          qb.orderBy('listing.averageRating', sortOrder);
+          break;
+        case ServiceListingSort.NEWEST:
+          qb.orderBy('listing.createdAt', sortOrder);
+          break;
+        case ServiceListingSort.RELEVANCE:
+        default:
+          // Featured first, then newest
+          qb.orderBy('listing.isFeatured', 'DESC').addOrderBy('listing.createdAt', 'DESC');
+          break;
+      }
     }
 
     qb.skip((page - 1) * limit).take(limit);
