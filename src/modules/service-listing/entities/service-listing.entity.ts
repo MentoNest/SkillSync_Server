@@ -179,6 +179,10 @@ export class ServiceListing {
   @Column({ default: 0 })
   conversionCount: number;
 
+  @ApiPropertyOptional({ description: 'Trending score calculated from activity metrics' })
+  @Column('decimal', { precision: 10, scale: 4, default: 0, transformer: decimalTransformer })
+  trendingScore: number;
+
   @ApiProperty({ description: 'Soft delete flag' })
   @Column({ default: false })
   isDeleted: boolean;

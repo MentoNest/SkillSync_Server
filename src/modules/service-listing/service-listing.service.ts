@@ -13,16 +13,23 @@ import { ListingApprovalStatus } from '../../common/enums/skill-status.enum';
 import { CurrencyCode } from '../../common/enums/currency-code.enum';
 import { NotificationService } from '../notification/providers/notification.service';
 import { NotificationType } from '../notification/entities/notification.entity';
+import { TrendingService } from './providers/trending.service';
+import { RecommendationService } from './providers/recommendation.service';
+import { UserBehavior, BehaviorType } from './entities/user-behavior.entity';
 
 @Injectable()
 export class ServiceListingService {
   constructor(
     @InjectRepository(ServiceListing)
     private serviceListingRepository: Repository<ServiceListing>,
+    @InjectRepository(UserBehavior)
+    private userBehaviorRepository: Repository<UserBehavior>,
     private tagService: TagService,
     private fileUploadService: FileUploadService,
     private configService: ConfigService,
     private notificationService: NotificationService,
+    private trendingService: TrendingService,
+    private recommendationService: RecommendationService,
   ) {}
 
   private readonly logger = new Logger(ServiceListingService.name);
@@ -798,5 +805,64 @@ export class ServiceListingService {
 
     // Keep existing slug
     return currentListing.slug;
+  }
+
+  /**
+   * Cron job that runs every 15 minutes to update trending scores dynamically
+   */
+  @Cron('0 */15 * * * *') // Every 15 minutes
+  async handleTrendingScoresUpdate() {
+    this.logger.debug('Running automated trending scores update...');
+    const result = await this.trendingService.updateAllTrendingScores();
+    
+    if (result.error) {
+      this.logger.error(`Error updating trending scores: ${result.error}`);
+    } else {
+      this.logger.debug(`Updated trending scores for ${result.updated} listings`);
+    }
+  }
+
+  /**
+   * Get trending listings with pagination
+   */
+  async getTrending(limit: number = 20, offset: number = 0): Promise<{ listings: ServiceListing[]; total: number }> {
+    return this.trendingService.getTrendingListings(limit, offset);
+  }
+
+  /**
+   * Record user behavior for recommendation system
+   */
+  async recordUserBehavior(
+    userId: string,
+    listingId: string,
+    behaviorType: BehaviorType,
+    metadata?: Record<string, any>,
+  ): Promise<UserBehavior> {
+    return this.recommendationService.recordBehavior(userId, listingId, behaviorType, metadata);
+  }
+
+  /**
+   * Get personalized recommendations for a user
+   */
+  async getPersonalizedRecommendations(
+    userId: string,
+    limit: number = 10,
+  ): Promise<ServiceListing[]> {
+    return this.recommendationService.getRecommendationsForUser(userId, limit);
+  }
+
+  /**
+   * Get similar listings based on a given listing
+   */
+  async getSimilarListings(listingId: string, limit: number = 5): Promise<ServiceListing[]> {
+    const results = await this.recommendationService.getSimilarListings(listingId, limit);
+    return results.map((item) => item.listing);
+  }
+
+  /**
+   * Get recommendations by category
+   */
+  async getRecommendationsByCategory(category: string, limit: number = 10): Promise<ServiceListing[]> {
+    return this.recommendationService.getRecommendationsByCategory(category, limit);
   }
 }
