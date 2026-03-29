@@ -23,6 +23,7 @@ import { HealthModule } from './modules/health/health.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
 import { SkillsModule } from './modules/skills/skills.module';
 import { ServiceListingModule } from './modules/service-listing/service-listing.module';
+import { SendModule } from './modules/send/send.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { ServiceListingModule } from './modules/service-listing/service-listing.
     SkillsModule,
     ServiceListingModule,
     PaymentsModule,
+    SendModule,
     AuditModule,
     ReviewsModule,
     RatingsModule,
