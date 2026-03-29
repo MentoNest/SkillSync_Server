@@ -4,6 +4,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ServiceListingService } from './service-listing.service';
 import { CreateServiceListingDto } from './dto/create-service-listing.dto';
 import { BulkCreateServiceListingDto } from './dto/bulk-create-service-listing.dto';
+import { BulkDeleteServiceListingDto } from './dto/bulk-delete-service-listing.dto';
 import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { RateLimit, RateLimits } from '../../common/decorators/rate-limit.decorator';
 import { UpdateServiceListingDto } from './dto/update-service-listing.dto';
@@ -175,6 +176,17 @@ export class ServiceListingController {
   @ApiResponse({ status: 404, description: 'Service listing not found' })
   remove(@Param('id') id: string, @Request() req) {
     return this.serviceListingService.remove(id, req.user.id);
+  }
+
+  @Delete('bulk')
+  @RateLimit(RateLimits.NORMAL)
+  @Roles(UserRole.MENTOR)
+  @ApiOperation({ summary: 'Soft delete multiple service listings (owner only)' })
+  @ApiResponse({ status: 200, description: 'Service listings deleted successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - you can only delete your own listings' })
+  @ApiResponse({ status: 404, description: 'No listings found for deletion' })
+  removeBulk(@Body() bulkDeleteDto: BulkDeleteServiceListingDto, @Request() req) {
+    return this.serviceListingService.removeBulk(bulkDeleteDto.ids, req.user.id);
   }
 
   @Post(':id/upload-image')
