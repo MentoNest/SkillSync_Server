@@ -84,11 +84,29 @@ export class ServiceListingService {
       .andWhere('listing.approvalStatus = :approvalStatus', { approvalStatus: ListingApprovalStatus.APPROVED })
       .andWhere('(listing.expiresAt IS NULL OR listing.expiresAt > :now)', { now: new Date() });
 
+    let hasFullTextSearch = false;
+
     if (query.keyword) {
+      // Use PostgreSQL full-text search for better relevance
+      // Normalize the search query for tsquery
+      const searchQuery = query.keyword
+        .trim()
+        .split(/\s+/)
+        .map(word => word + ':*') // Add prefix matching
+        .join(' & '); // AND operator between terms
+
       qb.andWhere(
-        '(listing.title ILIKE :keyword OR listing.description ILIKE :keyword)',
-        { keyword: `%${query.keyword}%` },
+        'listing.search_vector @@ plainto_tsquery(:searchQuery)',
+        { searchQuery: query.keyword },
       );
+
+      // Add ranking for better relevance ordering
+      qb.addSelect(
+        'ts_rank(listing.search_vector, plainto_tsquery(:searchQuery))',
+        'relevance',
+      );
+
+      hasFullTextSearch = true;
     }
 
     if (query.category) {
@@ -124,21 +142,28 @@ export class ServiceListingService {
     const sortBy = query.sortBy || ServiceListingSort.RELEVANCE;
     const sortOrder = query.sortOrder || SortOrder.DESC;
 
-    switch (sortBy) {
-      case ServiceListingSort.PRICE:
-        qb.orderBy('listing.price', sortOrder);
-        break;
-      case ServiceListingSort.RATING:
-        qb.orderBy('listing.averageRating', sortOrder);
-        break;
-      case ServiceListingSort.NEWEST:
-        qb.orderBy('listing.createdAt', sortOrder);
-        break;
-      case ServiceListingSort.RELEVANCE:
-      default:
-        // Featured first, then newest
-        qb.orderBy('listing.isFeatured', 'DESC').addOrderBy('listing.createdAt', 'DESC');
-        break;
+    // If we have a full-text search, prioritize relevance
+    if (hasFullTextSearch && sortBy === ServiceListingSort.RELEVANCE) {
+      qb.orderBy('relevance', 'DESC');
+      qb.addOrderBy('listing.isFeatured', 'DESC');
+      qb.addOrderBy('listing.createdAt', 'DESC');
+    } else {
+      switch (sortBy) {
+        case ServiceListingSort.PRICE:
+          qb.orderBy('listing.price', sortOrder);
+          break;
+        case ServiceListingSort.RATING:
+          qb.orderBy('listing.averageRating', sortOrder);
+          break;
+        case ServiceListingSort.NEWEST:
+          qb.orderBy('listing.createdAt', sortOrder);
+          break;
+        case ServiceListingSort.RELEVANCE:
+        default:
+          // Featured first, then newest
+          qb.orderBy('listing.isFeatured', 'DESC').addOrderBy('listing.createdAt', 'DESC');
+          break;
+      }
     }
 
     qb.skip((page - 1) * limit).take(limit);
@@ -306,6 +331,79 @@ export class ServiceListingService {
     await this.serviceListingRepository.save(serviceListing);
   }
 
+  async removeBulk(ids: string[], userId: string): Promise<{ deleted: number; notFound: number; unauthorized: number }> {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new BadRequestException('IDs array must be provided and contain at least one item');
+    }
+
+    const serviceListings = await this.serviceListingRepository.find({
+      where: { id: In(ids), isDeleted: false },
+    });
+
+    if (serviceListings.length === 0) {
+      throw new NotFoundException('No listings found for deletion');
+    }
+
+    const notFound = ids.length - serviceListings.length;
+    let unauthorized = 0;
+    const listingsToDelete: ServiceListing[] = [];
+
+    // Check ownership for each listing
+    for (const listing of serviceListings) {
+      if (listing.mentorId !== userId) {
+        unauthorized++;
+      } else {
+        listingsToDelete.push(listing);
+      }
+    }
+
+    // If no listings can be deleted due to authorization, throw error
+    if (listingsToDelete.length === 0) {
+      throw new ForbiddenException('You can only delete your own listings');
+    }
+
+    // Soft delete all authorized listings
+    for (const listing of listingsToDelete) {
+      listing.isDeleted = true;
+    }
+
+    await this.serviceListingRepository.save(listingsToDelete);
+
+    return {
+      deleted: listingsToDelete.length,
+      notFound,
+      unauthorized,
+    };
+  }
+
+  async adminRemoveBulk(ids: string[]): Promise<{ deleted: number; notFound: number }> {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new BadRequestException('IDs array must be provided and contain at least one item');
+    }
+
+    const serviceListings = await this.serviceListingRepository.find({
+      where: { id: In(ids), isDeleted: false },
+    });
+
+    if (serviceListings.length === 0) {
+      throw new NotFoundException('No listings found for deletion');
+    }
+
+    const notFound = ids.length - serviceListings.length;
+
+    // Soft delete all listings
+    for (const listing of serviceListings) {
+      listing.isDeleted = true;
+    }
+
+    await this.serviceListingRepository.save(serviceListings);
+
+    return {
+      deleted: serviceListings.length,
+      notFound,
+    };
+  }
+
   async toggleFeatured(id: string, isFeatured: boolean): Promise<ServiceListing> {
     const serviceListing = await this.serviceListingRepository.findOne({
       where: { id, isDeleted: false },
@@ -429,9 +527,16 @@ export class ServiceListingService {
       .andWhere('listing.approvalStatus = :status', { status: ListingApprovalStatus.PENDING });
 
     if (query.keyword) {
+      // Use PostgreSQL full-text search
       qb.andWhere(
-        '(listing.title ILIKE :keyword OR listing.description ILIKE :keyword)',
-        { keyword: `%${query.keyword}%` },
+        'listing.search_vector @@ plainto_tsquery(:searchQuery)',
+        { searchQuery: query.keyword },
+      );
+
+      // Add ranking for relevance
+      qb.addSelect(
+        'ts_rank(listing.search_vector, plainto_tsquery(:searchQuery))',
+        'relevance',
       );
     }
 
@@ -443,6 +548,7 @@ export class ServiceListingService {
       qb.andWhere('listing.currency = :currency', { currency: query.currency });
     }
 
+    // Order by created date (newest first for pending review)
     qb.orderBy('listing.createdAt', 'ASC');
     qb.skip((page - 1) * limit).take(limit);
 
@@ -472,9 +578,16 @@ export class ServiceListingService {
       .where('listing.isDeleted = :isDeleted', { isDeleted: false });
 
     if (query.keyword) {
+      // Use PostgreSQL full-text search
       qb.andWhere(
-        '(listing.title ILIKE :keyword OR listing.description ILIKE :keyword)',
-        { keyword: `%${query.keyword}%` },
+        'listing.search_vector @@ plainto_tsquery(:searchQuery)',
+        { searchQuery: query.keyword },
+      );
+
+      // Add ranking for relevance
+      qb.addSelect(
+        'ts_rank(listing.search_vector, plainto_tsquery(:searchQuery))',
+        'relevance',
       );
     }
 
