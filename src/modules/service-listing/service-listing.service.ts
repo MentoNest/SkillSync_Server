@@ -354,6 +354,39 @@ export class ServiceListingService {
     });
   }
 
+  async restore(id: string, userId: string): Promise<ServiceListing> {
+    const serviceListing = await this.serviceListingRepository.findOne({
+      where: { id, isDeleted: true },
+    });
+
+    if (!serviceListing) {
+      throw new NotFoundException('Service listing not found or not deleted');
+    }
+
+    if (serviceListing.mentorId !== userId) {
+      throw new ForbiddenException('You can only restore your own listings');
+    }
+
+    // Restore the listing
+    serviceListing.isDeleted = false;
+    const restoredListing = await this.serviceListingRepository.save(serviceListing);
+
+    await this.auditService?.log({
+      eventType: AuditEventType.LISTING_UPDATED,
+      userId,
+      success: true,
+      metadata: {
+        listingId: restoredListing.id,
+        title: restoredListing.title,
+        slug: restoredListing.slug,
+        action: 'restored',
+        domain: 'service_listings',
+      },
+    });
+
+    return restoredListing;
+  }
+
   async adminUpdate(id: string, updateServiceListingDto: UpdateServiceListingDto, adminId?: string): Promise<ServiceListing> {
     const serviceListing = await this.serviceListingRepository.findOne({
       where: { id, isDeleted: false },

@@ -73,4 +73,21 @@ export class CreateServiceListingDto {
   @IsArray()
   @IsString({ each: true })
   tags?: string[];
+
+  @ApiPropertyOptional({ description: 'SEO meta title for search engines (max 500 characters)', example: 'Expert TypeScript Mentorship | Senior Developer' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  metaTitle?: string;
+
+  @ApiPropertyOptional({ description: 'SEO meta description for search engines', example: 'Get personalized mentorship in TypeScript, Node.js, and modern web development from a senior developer with 10+ years of experience.' })
+  @IsOptional()
+  @IsString()
+  metaDescription?: string;
+
+  @ApiPropertyOptional({ description: 'SEO meta keywords for search engines (comma-separated)', example: 'typescript,mentorship,nodejs,web-development,programming' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  metaKeywords?: string;
 }
