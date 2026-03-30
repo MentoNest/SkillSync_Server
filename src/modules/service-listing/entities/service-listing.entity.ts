@@ -183,6 +183,24 @@ export class ServiceListing {
   @Column('decimal', { precision: 10, scale: 4, default: 0, transformer: decimalTransformer })
   trendingScore: number;
 
+  @ApiPropertyOptional({ description: 'SEO meta title for search engines' })
+  @IsOptional()
+  @IsString()
+  @Column({ length: 500, nullable: true })
+  metaTitle?: string;
+
+  @ApiPropertyOptional({ description: 'SEO meta description for search engines' })
+  @IsOptional()
+  @IsString()
+  @Column({ type: 'text', nullable: true })
+  metaDescription?: string;
+
+  @ApiPropertyOptional({ description: 'SEO meta keywords for search engines (comma-separated)' })
+  @IsOptional()
+  @IsString()
+  @Column({ length: 1000, nullable: true })
+  metaKeywords?: string;
+
   @ApiProperty({ description: 'Soft delete flag' })
   @Column({ default: false })
   isDeleted: boolean;
