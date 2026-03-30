@@ -277,6 +277,18 @@ export class ServiceListingController {
     return this.serviceListingService.remove(id, req.user.id);
   }
 
+  @Post(':id/restore')
+  @RateLimit(RateLimits.NORMAL)
+  @Roles(UserRole.MENTOR)
+  @UseGuards(ListingOwnershipGuard)
+  @ApiOperation({ summary: 'Restore a soft deleted service listing (owner only)' })
+  @ApiResponse({ status: 200, description: 'Service listing restored successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden - you can only restore your own listings' })
+  @ApiResponse({ status: 404, description: 'Service listing not found or not deleted' })
+  restore(@Param('id') id: string, @Request() req) {
+    return this.serviceListingService.restore(id, req.user.id);
+  }
+
   @Post(':id/upload-image')
   @RateLimit(RateLimits.NORMAL)
   @Roles(UserRole.MENTOR)
