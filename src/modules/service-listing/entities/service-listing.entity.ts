@@ -205,6 +205,10 @@ export class ServiceListing {
   @Column({ default: false })
   isDeleted: boolean;
 
+  @ApiPropertyOptional({ description: 'Soft delete date' })
+  @Column({ nullable: true })
+  deletedAt?: Date;
+
   @ApiPropertyOptional({ description: 'Expiration date of the listing' })
   @Column({ nullable: true })
   expiresAt: Date;

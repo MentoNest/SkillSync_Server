@@ -227,6 +227,31 @@ describe('ServiceListingService - RBAC', () => {
       await expect(serviceListingService.adminRemove('listing-1')).rejects.toThrow('Service listing not found');
     });
   });
+
+  describe('handleSoftDeletedListingCleanup', () => {
+    it('hard deletes soft-deleted listings older than retention threshold', async () => {
+      const fakeQueryBuilder: any = {
+        delete: jest.fn().mockReturnThis(),
+        from: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 5 }),
+      };
+
+      mockRepository.createQueryBuilder = jest.fn().mockReturnValue(fakeQueryBuilder);
+      mockRepository.findOne.mockResolvedValue(null);
+
+      await serviceListingService.handleSoftDeletedListingCleanup();
+
+      expect(mockRepository.createQueryBuilder).toHaveBeenCalled();
+      expect(fakeQueryBuilder.delete).toHaveBeenCalled();
+      expect(fakeQueryBuilder.from).toHaveBeenCalled();
+      expect(fakeQueryBuilder.where).toHaveBeenCalledWith('isDeleted = :isDeleted', { isDeleted: true });
+      expect(fakeQueryBuilder.andWhere).toHaveBeenCalledWith('deletedAt IS NOT NULL');
+      expect(fakeQueryBuilder.andWhere).toHaveBeenCalledWith(expect.stringContaining('deletedAt <= :thresholdDate'), expect.any(Object));
+      expect(fakeQueryBuilder.execute).toHaveBeenCalled();
+    });
+  });
 });
 
 describe('ServiceListingService - Notifications', () => {

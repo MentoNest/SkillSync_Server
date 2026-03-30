@@ -339,6 +339,7 @@ export class ServiceListingService {
 
     // Soft delete
     serviceListing.isDeleted = true;
+    serviceListing.deletedAt = new Date();
     await this.serviceListingRepository.save(serviceListing);
 
     await this.auditService?.log({
@@ -369,6 +370,7 @@ export class ServiceListingService {
 
     // Restore the listing
     serviceListing.isDeleted = false;
+    serviceListing.deletedAt = null;
     const restoredListing = await this.serviceListingRepository.save(serviceListing);
 
     await this.auditService?.log({
@@ -471,6 +473,7 @@ export class ServiceListingService {
     // Admin can delete any listing without ownership check
     // Soft delete
     serviceListing.isDeleted = true;
+    serviceListing.deletedAt = new Date();
     await this.serviceListingRepository.save(serviceListing);
 
     await this.auditService?.log({
@@ -521,6 +524,7 @@ export class ServiceListingService {
     // Soft delete all authorized listings
     for (const listing of listingsToDelete) {
       listing.isDeleted = true;
+      listing.deletedAt = new Date();
     }
 
     await this.serviceListingRepository.save(listingsToDelete);
@@ -565,6 +569,7 @@ export class ServiceListingService {
     // Soft delete all listings
     for (const listing of serviceListings) {
       listing.isDeleted = true;
+      listing.deletedAt = new Date();
     }
 
     await this.serviceListingRepository.save(serviceListings);
@@ -916,6 +921,30 @@ export class ServiceListingService {
 
     if (result.affected && result.affected > 0) {
       this.logger.log(`Expired ${result.affected} listings automatically.`);
+    }
+  }
+
+  /**
+   * Cron job that runs daily to hard delete old soft-deleted listings
+   */
+  @Cron(CronExpression.EVERY_DAY)
+  async handleSoftDeletedListingCleanup() {
+    const retentionDays = this.configService.get<number>('SERVICE_LISTING_SOFT_DELETE_RETENTION_DAYS', 30);
+    const thresholdDate = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+
+    this.logger.log(`Running soft-deleted listing cleanup job, removing entries deleted before ${thresholdDate.toISOString()}`);
+
+    const result = await this.serviceListingRepository
+      .createQueryBuilder()
+      .delete()
+      .from(ServiceListing)
+      .where('isDeleted = :isDeleted', { isDeleted: true })
+      .andWhere('deletedAt IS NOT NULL')
+      .andWhere('deletedAt <= :thresholdDate', { thresholdDate })
+      .execute();
+
+    if (result.affected && result.affected > 0) {
+      this.logger.log(`Hard-deleted ${result.affected} soft-deleted listings older than ${retentionDays} days.`);
     }
   }
 
