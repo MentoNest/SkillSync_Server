@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import * as compression from 'compression';
+import { DataSource } from 'typeorm';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -50,6 +51,17 @@ async function bootstrap() {
     
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('api/docs', app, document);
+  }
+
+  // Verify database connection before starting server
+  try {
+    const dataSource = app.get(DataSource);
+    if (dataSource.isInitialized) {
+      console.log('Database connection verified successfully');
+    }
+  } catch (error) {
+    console.error('Failed to verify database connection:', error.message);
+    process.exit(1);
   }
 
   const port = configService.get<number>('PORT') || 3000;
