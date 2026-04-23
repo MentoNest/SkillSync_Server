@@ -1,9 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { DataSource } from 'typeorm';
 
 @Injectable()
 export class HealthService {
-  constructor(private configService: ConfigService) {}
+  private readonly logger = new Logger(HealthService.name);
+
+  constructor(
+    private configService: ConfigService,
+    private dataSource: DataSource,
+  ) {}
 
   check() {
     return {
@@ -14,7 +20,10 @@ export class HealthService {
     };
   }
 
-  checkDetailed() {
+  async checkDetailed() {
+    const databaseHealth = await this.checkDatabase();
+    const redisHealth = this.checkRedis();
+
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),
@@ -27,18 +36,35 @@ export class HealthService {
         nodeVersion: process.version,
       },
       services: {
-        database: this.checkDatabase(),
-        redis: this.checkRedis(),
+        database: databaseHealth,
+        redis: redisHealth,
       },
     };
   }
 
-  private checkDatabase() {
-    // In a real application, you would check database connectivity
-    return {
-      status: 'healthy',
-      responseTime: '1ms',
-    };
+  private async checkDatabase() {
+    const startTime = Date.now();
+    
+    try {
+      // Test database connection with a simple query
+      await this.dataSource.query('SELECT 1');
+      const responseTime = Date.now() - startTime;
+
+      return {
+        status: 'healthy',
+        responseTime: `${responseTime}ms`,
+        connections: {
+          master: this.dataSource.isInitialized ? 'connected' : 'disconnected',
+        },
+      };
+    } catch (error) {
+      this.logger.error('Database health check failed', error.stack);
+      return {
+        status: 'unhealthy',
+        responseTime: `${Date.now() - startTime}ms`,
+        error: error.message,
+      };
+    }
   }
 
   private checkRedis() {

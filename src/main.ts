@@ -69,6 +69,17 @@ async function bootstrap() {
     SwaggerModule.setup('api/docs', app, document);
   }
 
+  // Verify database connection before starting server
+  try {
+    const dataSource = app.get(DataSource);
+    if (dataSource.isInitialized) {
+      console.log('Database connection verified successfully');
+    }
+  } catch (error) {
+    console.error('Failed to verify database connection:', error.message);
+    process.exit(1);
+  }
+
   const port = configService.get<number>('PORT') || 3000;
   await app.listen(port);
 
