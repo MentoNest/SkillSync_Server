@@ -53,6 +53,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     // Log the error
     this.logError(exception, errorResponse, request);
 
+    // Attach raw error to request for the logger middleware to capture stack trace
+    (request as any).rawError = exception;
+
     // Send response
     response.status(errorResponse.statusCode).json(errorResponse);
   }

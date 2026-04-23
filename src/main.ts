@@ -6,7 +6,8 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import * as compression from 'compression';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
-import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
+import { DataSource } from 'typeorm';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -19,6 +20,9 @@ async function bootstrap() {
   app.use(helmet());
   app.use(compression());
 
+  // Request logging middleware
+  app.use(new RequestLoggerMiddleware().use);
+
   // CORS configuration
   app.enableCors({
     origin: configService.get<string>('CORS_ORIGIN') || '*',
@@ -29,8 +33,8 @@ async function bootstrap() {
   // Global exception filter
   app.useGlobalFilters(new GlobalExceptionFilter());
 
-  // Global logging interceptor
-  app.useGlobalInterceptors(new LoggingInterceptor());
+  // Global logging interceptor (removed in favor of structured request logger middleware)
+  // app.useGlobalInterceptors(new LoggingInterceptor());
 
   // Global validation pipe with custom error formatting
   app.useGlobalPipes(
@@ -64,7 +68,7 @@ async function bootstrap() {
       .setVersion('1.0')
       .addTag('api')
       .build();
-    
+
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('api/docs', app, document);
   }
