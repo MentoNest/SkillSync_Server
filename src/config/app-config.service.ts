@@ -30,6 +30,9 @@ export class AppConfigService {
       REDIS_HOST: z.string().default('localhost'),
       REDIS_PORT: z.string().transform(Number).default(() => 6379),
       REDIS_PASSWORD: z.string().optional(),
+      REDIS_DB: z.string().transform(Number).default(() => 0),
+      REDIS_KEY_PREFIX: z.string().default('skillsync'),
+      REDIS_CONNECT_TIMEOUT: z.string().transform(Number).default(() => 10000),
       
       // Feature flags
       FEATURE_ENABLE_SWAGGER: z.string().transform(Boolean).default(() => true),
@@ -98,6 +101,9 @@ export class AppConfigService {
       host: this.get<string>('REDIS_HOST'),
       port: this.get<number>('REDIS_PORT'),
       password: this.get<string>('REDIS_PASSWORD'),
+      db: this.get<number>('REDIS_DB'),
+      keyPrefix: this.get<string>('REDIS_KEY_PREFIX'),
+      connectTimeout: this.get<number>('REDIS_CONNECT_TIMEOUT'),
     };
   }
 

@@ -1,9 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { RedisService } from '../../redis/redis.service';
 
 @Injectable()
 export class HealthService {
-  constructor(private configService: ConfigService) {}
+  private readonly logger = new Logger(HealthService.name);
+
+  constructor(
+    private configService: ConfigService,
+    private redisService: RedisService,
+  ) {}
 
   check() {
     return {
@@ -14,7 +20,9 @@ export class HealthService {
     };
   }
 
-  checkDetailed() {
+  async checkDetailed() {
+    const redisHealth = await this.checkRedis();
+
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),
@@ -27,25 +35,22 @@ export class HealthService {
         nodeVersion: process.version,
       },
       services: {
-        database: this.checkDatabase(),
-        redis: this.checkRedis(),
+        redis: redisHealth,
       },
     };
   }
 
-  private checkDatabase() {
-    // In a real application, you would check database connectivity
-    return {
-      status: 'healthy',
-      responseTime: '1ms',
-    };
-  }
-
-  private checkRedis() {
-    // In a real application, you would check Redis connectivity
-    return {
-      status: 'healthy',
-      responseTime: '2ms',
-    };
+  private async checkRedis() {
+    try {
+      const health = await this.redisService.ping();
+      return health;
+    } catch (error) {
+      this.logger.error('Redis health check failed', error.stack);
+      return {
+        status: 'unhealthy',
+        responseTime: '0ms',
+        error: error.message,
+      };
+    }
   }
 }
