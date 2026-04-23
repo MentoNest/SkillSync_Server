@@ -1,26 +1,52 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  UnauthorizedException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { verifyMessage } from 'ethers';
 import { v4 as uuidv4 } from 'uuid';
+import * as crypto from 'crypto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
+import { User, UserRole } from './entities/user.entity';
+import { Role } from './entities/role.entity';
+import { RefreshToken } from './entities/refresh-token.entity';
+import { RedisService } from '../../redis/redis.service';
 
 export interface JwtPayload {
   sub: string;
   walletAddress: string;
-  role: string;
+  roles: string[];
+  permissions: string[];
+  jti: string;
+  tokenVersion: number;
+  type?: 'access' | 'refresh';
+  iat?: number;
+  exp?: number;
 }
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  // In-memory storage (replace with Redis in production)
   private nonceStore = new Map<string, { nonce: string; expiresAt: number }>();
+  private readonly TOKEN_BLACKLIST_PREFIX = 'blacklist:token';
+  private readonly USER_SESSIONS_PREFIX = 'user:sessions';
 
   constructor(
     private jwtService: JwtService,
     private configService: ConfigService,
+    private redisService: RedisService,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
+    @InjectRepository(Role)
+    private roleRepository: Repository<Role>,
+    @InjectRepository(RefreshToken)
+    private refreshTokenRepository: Repository<RefreshToken>,
   ) {}
 
   /**
@@ -65,7 +91,7 @@ export class AuthService {
   /**
    * Login with wallet authentication
    */
-  async login(loginDto: LoginDto) {
+  async login(loginDto: LoginDto, userAgent?: string, ipAddress?: string) {
     const { walletAddress, signature, nonce } = loginDto;
 
     // Verify nonce
@@ -95,98 +121,533 @@ export class AuthService {
     // Delete used nonce
     this.nonceStore.delete(walletAddress);
 
-    // Generate tokens (in production, fetch/create user from DB)
-    const payload: JwtPayload = {
-      sub: uuidv4(), // Replace with actual user ID from DB
+    // Find or create user
+    let user = await this.userRepository.findOne({
+      where: { walletAddress },
+      relations: ['roles'],
+    });
+
+    if (!user) {
+      user = this.userRepository.create({
+        walletAddress,
+        tokenVersion: 1,
+      });
+
+      // Assign default mentee role
+      let menteeRole = await this.roleRepository.findOne({
+        where: { name: UserRole.MENTEE },
+      });
+
+      if (!menteeRole) {
+        menteeRole = this.roleRepository.create({
+          name: UserRole.MENTEE,
+          description: 'Default mentee role',
+        });
+        await this.roleRepository.save(menteeRole);
+      }
+
+      user.roles = [menteeRole];
+      await this.userRepository.save(user);
+    }
+
+    // Get user roles and permissions
+    const roles = user.roles.map((role) => role.name);
+    const permissions = this.getPermissionsForRoles(roles);
+
+    // Generate JWT tokens
+    const tokens = await this.generateTokens(user, roles, permissions);
+
+    // Store refresh token in database
+    const deviceFingerprint = this.generateDeviceFingerprint(
       walletAddress,
-      role: 'user', // Replace with actual user role from DB
-    };
-
-    const accessToken = this.jwtService.sign(payload);
-
-    const refreshToken = this.jwtService.sign(
-      { ...payload, type: 'refresh' },
-      {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-      },
+      userAgent,
     );
+
+    await this.storeRefreshToken({
+      token: tokens.refreshToken,
+      userId: user.id,
+      deviceFingerprint,
+      userAgent,
+      ipAddress,
+      expiresAt: new Date(
+        Date.now() +
+          this.parseExpirationToMs(
+            this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d',
+          ),
+      ),
+    });
 
     // Audit log
     this.logger.log(`User logged in: ${walletAddress}`);
 
     return {
-      accessToken,
-      refreshToken,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
       user: {
-        id: payload.sub,
-        walletAddress,
-        role: payload.role,
+        id: user.id,
+        walletAddress: user.walletAddress,
+        roles: roles,
+        permissions: permissions,
       },
     };
   }
 
   /**
-   * Refresh access token
+   * Refresh access token with rotation
    */
-  async refreshTokens(refreshDto: RefreshDto) {
-    const { refreshToken } = refreshDto;
+  async refreshTokens(refreshDto: RefreshDto, userAgent?: string, ipAddress?: string) {
+    const { refreshToken, deviceFingerprint } = refreshDto;
 
     try {
       // Verify refresh token
       const payload = this.jwtService.verify(refreshToken, {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-      });
+      }) as JwtPayload;
 
       if (payload.type !== 'refresh') {
         throw new UnauthorizedException('Invalid token type');
       }
 
-      // Generate new access token
-      const newPayload: JwtPayload = {
-        sub: payload.sub,
-        walletAddress: payload.walletAddress,
-        role: payload.role,
-      };
+      // Check if token is blacklisted
+      const isBlacklisted = await this.redisService.exists(
+        `${this.TOKEN_BLACKLIST_PREFIX}:${refreshToken}`,
+      );
 
-      const newAccessToken = this.jwtService.sign(newPayload);
+      if (isBlacklisted) {
+        throw new UnauthorizedException('Token has been revoked');
+      }
+
+      // Find refresh token in database
+      const storedToken = await this.refreshTokenRepository.findOne({
+        where: { token: refreshToken },
+        relations: ['user', 'user.roles'],
+      });
+
+      if (!storedToken || storedToken.isRevoked) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+
+      // Check if token expired
+      if (new Date() > storedToken.expiresAt) {
+        throw new UnauthorizedException('Refresh token expired');
+      }
+
+      // Concurrent refresh detection - security alert
+      const timeDiff = Date.now() - storedToken.createdAt.getTime();
+      if (timeDiff < 1000) {
+        this.logger.warn(
+          `Concurrent refresh token use detected for user ${storedToken.userId}`,
+        );
+        // Revoke all tokens for security
+        await this.revokeAllUserTokens(storedToken.userId);
+        throw new UnauthorizedException(
+          'Security alert: Concurrent token use detected',
+        );
+      }
+
+      // Revoke old refresh token (rotation)
+      storedToken.isRevoked = true;
+      await this.refreshTokenRepository.save(storedToken);
+
+      // Blacklist old refresh token
+      await this.blacklistToken(
+        refreshToken,
+        this.parseExpirationToMs(
+          this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d',
+        ),
+      );
+
+      // Get user with roles
+      const user = storedToken.user;
+      const roles = user.roles.map((role) => role.name);
+      const permissions = this.getPermissionsForRoles(roles);
+
+      // Generate new tokens
+      const tokens = await this.generateTokens(user, roles, permissions);
+
+      // Store new refresh token
+      const fingerprint = deviceFingerprint || storedToken.deviceFingerprint;
+      await this.storeRefreshToken({
+        token: tokens.refreshToken,
+        userId: user.id,
+        deviceFingerprint: fingerprint,
+        userAgent: userAgent || storedToken.userAgent,
+        ipAddress: ipAddress || storedToken.ipAddress,
+        expiresAt: new Date(
+          Date.now() +
+            this.parseExpirationToMs(
+              this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d',
+            ),
+        ),
+      });
 
       return {
-        accessToken: newAccessToken,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
       };
     } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
       throw new UnauthorizedException('Invalid refresh token');
     }
   }
 
   /**
-   * Logout (TODO: implement token blacklisting with Redis)
+   * Logout and invalidate tokens
    */
   async logout(accessToken: string, userId: string): Promise<void> {
-    // TODO: Blacklist token in Redis
+    // Blacklist access token until expiration
+    const decoded = this.jwtService.decode(accessToken) as JwtPayload;
+    if (decoded && decoded.exp) {
+      const ttlMs = decoded.exp * 1000 - Date.now();
+      if (ttlMs > 0) {
+        await this.blacklistToken(accessToken, ttlMs);
+      }
+    }
+
+    // Delete refresh tokens from database
+    await this.refreshTokenRepository.update(
+      { userId, isRevoked: false },
+      { isRevoked: true },
+    );
+
+    // Remove user sessions from Redis
+    await this.redisService.del(`${this.USER_SESSIONS_PREFIX}:${userId}`);
+
+    // Audit log
     this.logger.log(`User logged out: ${userId}`);
+  }
+
+  /**
+   * Logout all sessions for a user
+   */
+  async logoutAll(userId: string): Promise<void> {
+    // Increment token version to invalidate all access tokens
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (user) {
+      user.tokenVersion += 1;
+      await this.userRepository.save(user);
+    }
+
+    // Revoke all refresh tokens
+    await this.revokeAllUserTokens(userId);
+
+    // Clear user sessions
+    await this.redisService.del(`${this.USER_SESSIONS_PREFIX}:${userId}`);
+
+    this.logger.log(`All sessions logged out for user: ${userId}`);
   }
 
   /**
    * Validate JWT token payload
    */
   async validateToken(payload: JwtPayload) {
-    // In production, verify user exists in database
+    // Check if token is blacklisted
+    const isBlacklisted = await this.redisService.exists(
+      `${this.TOKEN_BLACKLIST_PREFIX}:${payload.jti}`,
+    );
+
+    if (isBlacklisted) {
+      throw new UnauthorizedException('Token has been revoked');
+    }
+
+    // Verify user exists and token version matches
+    const user = await this.userRepository.findOne({
+      where: { id: payload.sub },
+      relations: ['roles'],
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Check token version
+    if (user.tokenVersion !== payload.tokenVersion) {
+      throw new UnauthorizedException('Token version mismatch');
+    }
+
+    const roles = user.roles.map((role) => role.name);
+    const permissions = this.getPermissionsForRoles(roles);
+
     return {
       userId: payload.sub,
       walletAddress: payload.walletAddress,
-      role: payload.role,
+      roles: roles,
+      permissions: permissions,
     };
   }
 
   /**
-   * Get user profile (TODO: fetch from database)
+   * Get user profile
    */
   async getProfile(userId: string) {
-    // TODO: Fetch from database
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['roles'],
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const roles = user.roles.map((role) => role.name);
+    const permissions = this.getPermissionsForRoles(roles);
+
     return {
-      id: userId,
-      walletAddress: '0x...',
-      role: 'user',
+      id: user.id,
+      walletAddress: user.walletAddress,
+      roles: roles,
+      permissions: permissions,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  }
+
+  /**
+   * Generate access and refresh tokens
+   */
+  private async generateTokens(
+    user: User,
+    roles: string[],
+    permissions: string[],
+  ) {
+    const jti = uuidv4();
+
+    const payload: JwtPayload = {
+      sub: user.id,
+      walletAddress: user.walletAddress,
+      roles,
+      permissions,
+      jti,
+      tokenVersion: user.tokenVersion,
+      type: 'access',
+    };
+
+    const accessToken = this.jwtService.sign(payload, {
+      expiresIn:
+        (this.configService.get<string>('JWT_ACCESS_EXPIRATION') ||
+        this.configService.get<string>('JWT_EXPIRES_IN') ||
+        '15m') as any,
+    });
+
+    const refreshPayload: JwtPayload = {
+      ...payload,
+      type: 'refresh',
+    };
+
+    const refreshToken = this.jwtService.sign(refreshPayload, {
+      secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+      expiresIn:
+        (this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d') as any,
+    });
+
+    return { accessToken, refreshToken };
+  }
+
+  /**
+   * Store refresh token in database
+   */
+  private async storeRefreshToken(tokenData: {
+    token: string;
+    userId: string;
+    deviceFingerprint?: string;
+    userAgent?: string;
+    ipAddress?: string;
+    expiresAt: Date;
+  }) {
+    const refreshToken = this.refreshTokenRepository.create(tokenData);
+    await this.refreshTokenRepository.save(refreshToken);
+  }
+
+  /**
+   * Blacklist a token in Redis
+   */
+  private async blacklistToken(token: string, ttlMs: number) {
+    const ttlSeconds = Math.ceil(ttlMs / 1000);
+    await this.redisService.set(
+      `${this.TOKEN_BLACKLIST_PREFIX}:${token}`,
+      'blacklisted',
+      ttlSeconds,
+    );
+  }
+
+  /**
+   * Revoke all refresh tokens for a user
+   */
+  private async revokeAllUserTokens(userId: string) {
+    await this.refreshTokenRepository.update(
+      { userId, isRevoked: false },
+      { isRevoked: true },
+    );
+  }
+
+  /**
+   * Get permissions for roles
+   */
+  private getPermissionsForRoles(roles: string[]): string[] {
+    const permissionMap: Record<string, string[]> = {
+      [UserRole.ADMIN]: [
+        'read:all',
+        'write:all',
+        'delete:all',
+        'manage:users',
+        'manage:roles',
+        'manage:sessions',
+      ],
+      [UserRole.MENTOR]: [
+        'read:profile',
+        'write:profile',
+        'read:sessions',
+        'write:sessions',
+        'read:mentees',
+      ],
+      [UserRole.MENTEE]: [
+        'read:profile',
+        'write:profile',
+        'read:sessions',
+        'read:mentors',
+      ],
+      [UserRole.MODERATOR]: [
+        'read:all',
+        'write:content',
+        'moderate:content',
+      ],
+    };
+
+    const permissions = new Set<string>();
+    for (const role of roles) {
+      const rolePermissions = permissionMap[role] || [];
+      rolePermissions.forEach((perm) => permissions.add(perm));
+    }
+
+    return Array.from(permissions);
+  }
+
+  /**
+   * Generate device fingerprint
+   */
+  private generateDeviceFingerprint(
+    walletAddress: string,
+    userAgent?: string,
+  ): string {
+    const data = `${walletAddress}:${userAgent || 'unknown'}`;
+    return crypto.createHash('sha256').update(data).digest('hex');
+  }
+
+  /**
+   * Parse expiration string to milliseconds
+   */
+  private parseExpirationToMs(expiration: string): number {
+    const match = expiration.match(/^(\d+)([smhd])$/);
+    if (!match) {
+      return 7 * 24 * 60 * 60 * 1000; // Default 7 days
+    }
+
+    const value = parseInt(match[1], 10);
+    const unit = match[2];
+
+    switch (unit) {
+      case 's':
+        return value * 1000;
+      case 'm':
+        return value * 60 * 1000;
+      case 'h':
+        return value * 60 * 60 * 1000;
+      case 'd':
+        return value * 24 * 60 * 60 * 1000;
+      default:
+        return 7 * 24 * 60 * 60 * 1000;
+    }
+  }
+
+  /**
+   * Admin: Assign role to user
+   */
+  async assignRole(adminUserId: string, userId: string, roleName: string) {
+    // Verify admin has permission
+    const admin = await this.userRepository.findOne({
+      where: { id: adminUserId },
+      relations: ['roles'],
+    });
+
+    const adminRoles = admin.roles.map((r) => r.name);
+    if (!adminRoles.includes(UserRole.ADMIN)) {
+      throw new ForbiddenException('Only admins can assign roles');
+    }
+
+    // Find user and role
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['roles'],
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    let role = await this.roleRepository.findOne({ where: { name: roleName } });
+
+    if (!role) {
+      role = this.roleRepository.create({
+        name: roleName,
+        description: `Dynamically created ${roleName} role`,
+      });
+      await this.roleRepository.save(role);
+    }
+
+    // Add role to user
+    if (!user.roles.find((r) => r.name === roleName)) {
+      user.roles.push(role);
+      await this.userRepository.save(user);
+
+      // Increment token version to invalidate existing tokens
+      user.tokenVersion += 1;
+      await this.userRepository.save(user);
+    }
+
+    return {
+      message: `Role ${roleName} assigned to user`,
+      userId: user.id,
+      roles: user.roles.map((r) => r.name),
+    };
+  }
+
+  /**
+   * Admin: Revoke role from user
+   */
+  async revokeRole(adminUserId: string, userId: string, roleName: string) {
+    // Verify admin has permission
+    const admin = await this.userRepository.findOne({
+      where: { id: adminUserId },
+      relations: ['roles'],
+    });
+
+    const adminRoles = admin.roles.map((r) => r.name);
+    if (!adminRoles.includes(UserRole.ADMIN)) {
+      throw new ForbiddenException('Only admins can revoke roles');
+    }
+
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['roles'],
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    user.roles = user.roles.filter((r) => r.name !== roleName);
+    await this.userRepository.save(user);
+
+    // Increment token version
+    user.tokenVersion += 1;
+    await this.userRepository.save(user);
+
+    return {
+      message: `Role ${roleName} revoked from user`,
+      userId: user.id,
+      roles: user.roles.map((r) => r.name),
     };
   }
 }

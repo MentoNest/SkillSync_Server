@@ -23,6 +23,7 @@ export class AppConfigService {
       // JWT configuration
       JWT_SECRET: z.string().min(32).default('your-super-secret-jwt-key-change-in-production'),
       JWT_EXPIRES_IN: z.string().default('24h'),
+      JWT_ACCESS_EXPIRATION: z.string().optional(),
       JWT_REFRESH_SECRET: z.string().min(32).default('your-super-secret-refresh-key'),
       JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
       
