@@ -5,6 +5,8 @@ import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import * as compression from 'compression';
+import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -24,7 +26,13 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Global validation pipe
+  // Global exception filter
+  app.useGlobalFilters(new GlobalExceptionFilter());
+
+  // Global logging interceptor
+  app.useGlobalInterceptors(new LoggingInterceptor());
+
+  // Global validation pipe with custom error formatting
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -32,6 +40,15 @@ async function bootstrap() {
       transform: true,
       transformOptions: {
         enableImplicitConversion: true,
+      },
+      exceptionFactory: (errors) => {
+        const messages = errors.map((error) => {
+          const constraints = error.constraints
+            ? Object.values(error.constraints)
+            : [];
+          return `${error.property} ${constraints.join(', ')}`;
+        });
+        return new Error(messages.join(', '));
       },
     }),
   );
