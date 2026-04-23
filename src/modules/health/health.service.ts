@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { RedisService } from '../../redis/redis.service';
 import { DataSource } from 'typeorm';
 
 @Injectable()
@@ -8,6 +9,7 @@ export class HealthService {
 
   constructor(
     private configService: ConfigService,
+    private redisService: RedisService,
     private dataSource: DataSource,
   ) {}
 
@@ -21,6 +23,7 @@ export class HealthService {
   }
 
   async checkDetailed() {
+    const redisHealth = await this.checkRedis();
     const databaseHealth = await this.checkDatabase();
     const redisHealth = this.checkRedis();
 
@@ -42,6 +45,18 @@ export class HealthService {
     };
   }
 
+  private async checkRedis() {
+    try {
+      const health = await this.redisService.ping();
+      return health;
+    } catch (error) {
+      this.logger.error('Redis health check failed', error.stack);
+      return {
+        status: 'unhealthy',
+        responseTime: '0ms',
+        error: error.message,
+      };
+    }
   private async checkDatabase() {
     const startTime = Date.now();
     

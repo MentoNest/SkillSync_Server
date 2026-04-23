@@ -53,6 +53,7 @@
     "compression": "^1.8.1",
     "ethers": "^6.16.0",
     "helmet": "^8.1.0",
+    "redis": "^5.12.1",
     "passport": "^0.7.0",
     "passport-custom": "^1.1.1",
     "passport-jwt": "^4.0.1",
