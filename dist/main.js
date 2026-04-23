@@ -7,6 +7,8 @@ const config_1 = require("@nestjs/config");
 const swagger_1 = require("@nestjs/swagger");
 const helmet_1 = require("helmet");
 const compression = require("compression");
+const global_exception_filter_1 = require("./common/filters/global-exception.filter");
+const logging_interceptor_1 = require("./common/interceptors/logging.interceptor");
 async function bootstrap() {
     const app = await core_1.NestFactory.create(app_module_1.AppModule, {
         logger: ['error', 'warn', 'log', 'debug'],
@@ -19,12 +21,23 @@ async function bootstrap() {
         methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
         credentials: true,
     });
+    app.useGlobalFilters(new global_exception_filter_1.GlobalExceptionFilter());
+    app.useGlobalInterceptors(new logging_interceptor_1.LoggingInterceptor());
     app.useGlobalPipes(new common_1.ValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
         transformOptions: {
             enableImplicitConversion: true,
+        },
+        exceptionFactory: (errors) => {
+            const messages = errors.map((error) => {
+                const constraints = error.constraints
+                    ? Object.values(error.constraints)
+                    : [];
+                return `${error.property} ${constraints.join(', ')}`;
+            });
+            return new Error(messages.join(', '));
         },
     }));
     app.setGlobalPrefix(configService.get('API_PREFIX') || 'api');
@@ -37,6 +50,16 @@ async function bootstrap() {
             .build();
         const document = swagger_1.SwaggerModule.createDocument(app, config);
         swagger_1.SwaggerModule.setup('api/docs', app, document);
+    }
+    try {
+        const dataSource = app.get(DataSource);
+        if (dataSource.isInitialized) {
+            console.log('Database connection verified successfully');
+        }
+    }
+    catch (error) {
+        console.error('Failed to verify database connection:', error.message);
+        process.exit(1);
     }
     const port = configService.get('PORT') || 3000;
     await app.listen(port);

@@ -33,6 +33,9 @@ let AppConfigService = class AppConfigService {
             REDIS_HOST: zod_1.z.string().default('localhost'),
             REDIS_PORT: zod_1.z.string().transform(Number).default(() => 6379),
             REDIS_PASSWORD: zod_1.z.string().optional(),
+            REDIS_DB: zod_1.z.string().transform(Number).default(() => 0),
+            REDIS_KEY_PREFIX: zod_1.z.string().default('skillsync'),
+            REDIS_CONNECT_TIMEOUT: zod_1.z.string().transform(Number).default(() => 10000),
             FEATURE_ENABLE_SWAGGER: zod_1.z.string().transform(Boolean).default(() => true),
             FEATURE_ENABLE_CACHE: zod_1.z.string().transform(Boolean).default(() => true),
             FEATURE_ENABLE_RATE_LIMITING: zod_1.z.string().transform(Boolean).default(() => true),
@@ -85,6 +88,9 @@ let AppConfigService = class AppConfigService {
             host: this.get('REDIS_HOST'),
             port: this.get('REDIS_PORT'),
             password: this.get('REDIS_PASSWORD'),
+            db: this.get('REDIS_DB'),
+            keyPrefix: this.get('REDIS_KEY_PREFIX'),
+            connectTimeout: this.get('REDIS_CONNECT_TIMEOUT'),
         };
     }
     isFeatureEnabled(feature) {
