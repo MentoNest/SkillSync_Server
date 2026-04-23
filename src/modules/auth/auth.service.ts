@@ -17,6 +17,7 @@ import { User, UserRole } from './entities/user.entity';
 import { Role } from './entities/role.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { RedisService } from '../../redis/redis.service';
+import { normalizeWalletAddress } from '../../common/utils/wallet.utils';
 
 export interface JwtPayload {
   sub: string;
@@ -53,15 +54,18 @@ export class AuthService {
    * Generate a nonce for wallet authentication
    */
   async generateNonce(walletAddress: string): Promise<string> {
+    // Normalize wallet address for consistent storage and comparison
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
+    
     const nonce = uuidv4();
     
-    // Store nonce with 5 minute expiration
-    this.nonceStore.set(walletAddress, {
+    // Store nonce with 5 minute expiration using normalized address
+    this.nonceStore.set(normalizedAddress, {
       nonce,
       expiresAt: Date.now() + 300000, // 5 minutes
     });
     
-    this.logger.log(`Generated nonce for wallet: ${walletAddress}`);
+    this.logger.log(`Generated nonce for wallet: ${normalizedAddress}`);
     return nonce;
   }
 
@@ -74,14 +78,17 @@ export class AuthService {
     nonce: string,
   ): Promise<boolean> {
     try {
+      // Normalize wallet address for comparison
+      const normalizedAddress = normalizeWalletAddress(walletAddress);
+      
       // Reconstruct the message that was signed
       const message = `Sign this message to authenticate with SkillSync. Nonce: ${nonce}`;
       
       // Recover the address from the signature
       const recoveredAddress = verifyMessage(message, signature);
       
-      // Check if recovered address matches the provided address
-      return recoveredAddress.toLowerCase() === walletAddress.toLowerCase();
+      // Check if recovered address matches the normalized address
+      return recoveredAddress.toLowerCase() === normalizedAddress.toLowerCase();
     } catch (error) {
       this.logger.error('Signature verification failed', error);
       return false;
@@ -94,8 +101,11 @@ export class AuthService {
   async login(loginDto: LoginDto, userAgent?: string, ipAddress?: string) {
     const { walletAddress, signature, nonce } = loginDto;
 
+    // Normalize wallet address for consistent storage and comparison
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
+
     // Verify nonce
-    const storedNonceData = this.nonceStore.get(walletAddress);
+    const storedNonceData = this.nonceStore.get(normalizedAddress);
 
     if (!storedNonceData || storedNonceData.nonce !== nonce) {
       throw new UnauthorizedException('Invalid or expired nonce');
@@ -103,13 +113,13 @@ export class AuthService {
 
     // Check if nonce is expired
     if (Date.now() > storedNonceData.expiresAt) {
-      this.nonceStore.delete(walletAddress);
+      this.nonceStore.delete(normalizedAddress);
       throw new UnauthorizedException('Nonce expired');
     }
 
     // Verify signature
     const isValidSignature = await this.verifySignature(
-      walletAddress,
+      normalizedAddress,
       signature,
       nonce,
     );
@@ -119,17 +129,17 @@ export class AuthService {
     }
 
     // Delete used nonce
-    this.nonceStore.delete(walletAddress);
+    this.nonceStore.delete(normalizedAddress);
 
     // Find or create user
     let user = await this.userRepository.findOne({
-      where: { walletAddress },
+      where: { walletAddress: normalizedAddress },
       relations: ['roles'],
     });
 
     if (!user) {
       user = this.userRepository.create({
-        walletAddress,
+        walletAddress: normalizedAddress,
         tokenVersion: 1,
       });
 
@@ -159,7 +169,7 @@ export class AuthService {
 
     // Store refresh token in database
     const deviceFingerprint = this.generateDeviceFingerprint(
-      walletAddress,
+      normalizedAddress,
       userAgent,
     );
 
@@ -178,7 +188,7 @@ export class AuthService {
     });
 
     // Audit log
-    this.logger.log(`User logged in: ${walletAddress}`);
+    this.logger.log(`User logged in: ${normalizedAddress}`);
 
     return {
       accessToken: tokens.accessToken,
