@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppConfigModule } from './config/app-config.module';
 import { HealthModule } from './modules/health/health.module';
-import { DatabaseModule } from './database/database.module';
+import { AuthModule } from './modules/auth/auth.module';
 
 @Module({
   imports: [
@@ -11,7 +11,7 @@ import { DatabaseModule } from './database/database.module';
       envFilePath: ['.env.local', '.env.development', '.env'],
     }),
     AppConfigModule,
-    DatabaseModule.forRoot(),
+    AuthModule,
     HealthModule,
   ],
 })
