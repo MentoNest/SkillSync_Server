@@ -8,13 +8,19 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var HealthService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.HealthService = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
-let HealthService = class HealthService {
-    constructor(configService) {
+const redis_service_1 = require("../../redis/redis.service");
+const typeorm_1 = require("typeorm");
+let HealthService = HealthService_1 = class HealthService {
+    constructor(configService, redisService, dataSource) {
         this.configService = configService;
+        this.redisService = redisService;
+        this.dataSource = dataSource;
+        this.logger = new common_1.Logger(HealthService_1.name);
     }
     check() {
         return {
@@ -24,7 +30,10 @@ let HealthService = class HealthService {
             environment: this.configService.get('NODE_ENV'),
         };
     }
-    checkDetailed() {
+    async checkDetailed() {
+        const redisHealth = await this.checkRedis();
+        const databaseHealth = await this.checkDatabase();
+        const redisHealth = this.checkRedis();
         return {
             status: 'ok',
             timestamp: new Date().toISOString(),
@@ -37,16 +46,46 @@ let HealthService = class HealthService {
                 nodeVersion: process.version,
             },
             services: {
-                database: this.checkDatabase(),
-                redis: this.checkRedis(),
+                database: databaseHealth,
+                redis: redisHealth,
             },
         };
     }
-    checkDatabase() {
-        return {
-            status: 'healthy',
-            responseTime: '1ms',
-        };
+    async checkRedis() {
+        try {
+            const health = await this.redisService.ping();
+            return health;
+        }
+        catch (error) {
+            this.logger.error('Redis health check failed', error.stack);
+            return {
+                status: 'unhealthy',
+                responseTime: '0ms',
+                error: error.message,
+            };
+        }
+    }
+    async checkDatabase() {
+        const startTime = Date.now();
+        try {
+            await this.dataSource.query('SELECT 1');
+            const responseTime = Date.now() - startTime;
+            return {
+                status: 'healthy',
+                responseTime: `${responseTime}ms`,
+                connections: {
+                    master: this.dataSource.isInitialized ? 'connected' : 'disconnected',
+                },
+            };
+        }
+        catch (error) {
+            this.logger.error('Database health check failed', error.stack);
+            return {
+                status: 'unhealthy',
+                responseTime: `${Date.now() - startTime}ms`,
+                error: error.message,
+            };
+        }
     }
     checkRedis() {
         return {
@@ -56,8 +95,10 @@ let HealthService = class HealthService {
     }
 };
 exports.HealthService = HealthService;
-exports.HealthService = HealthService = __decorate([
+exports.HealthService = HealthService = HealthService_1 = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [config_1.ConfigService])
+    __metadata("design:paramtypes", [config_1.ConfigService,
+        redis_service_1.RedisService,
+        typeorm_1.DataSource])
 ], HealthService);
 //# sourceMappingURL=health.service.js.map
