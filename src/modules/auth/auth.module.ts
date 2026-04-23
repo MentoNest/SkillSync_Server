@@ -12,11 +12,14 @@ import { RolesGuard } from './guards/roles.guard';
 import { User } from './entities/user.entity';
 import { Role } from './entities/role.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { AuditLog } from './entities/audit-log.entity';
 import { RedisModule } from '../../redis/redis.module';
+import { SuspiciousLoginDetectionService } from './services/suspicious-login-detection.service';
+import { SuspiciousActivityController } from './controllers/suspicious-activity.controller';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, Role, RefreshToken]),
+    TypeOrmModule.forFeature([User, Role, RefreshToken, AuditLog]),
     RedisModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
@@ -30,9 +33,10 @@ import { RedisModule } from '../../redis/redis.module';
       inject: [ConfigService],
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, SuspiciousActivityController],
   providers: [
     AuthService,
+    SuspiciousLoginDetectionService,
     JwtStrategy,
     WalletStrategy,
     JwtAuthGuard,
@@ -41,6 +45,7 @@ import { RedisModule } from '../../redis/redis.module';
   exports: [
     TypeOrmModule,
     AuthService,
+    SuspiciousLoginDetectionService,
     JwtAuthGuard,
     RolesGuard,
     PassportModule,
