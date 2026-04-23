@@ -31,16 +31,24 @@ export class AuthController {
   @ApiOperation({ summary: 'Login with wallet signature' })
   @ApiResponse({ status: 200, description: 'Login successful' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
-  async login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto);
+  async login(
+    @Body() loginDto: LoginDto,
+    @Headers('user-agent') userAgent?: string,
+    @Headers('x-forwarded-for') ipAddress?: string,
+  ) {
+    return this.authService.login(loginDto, userAgent, ipAddress);
   }
 
   @Post('refresh')
   @ApiOperation({ summary: 'Refresh access token' })
   @ApiResponse({ status: 200, description: 'Token refreshed successfully' })
   @ApiResponse({ status: 401, description: 'Invalid refresh token' })
-  async refresh(@Body() refreshDto: RefreshDto) {
-    return this.authService.refreshTokens(refreshDto);
+  async refresh(
+    @Body() refreshDto: RefreshDto,
+    @Headers('user-agent') userAgent?: string,
+    @Headers('x-forwarded-for') ipAddress?: string,
+  ) {
+    return this.authService.refreshTokens(refreshDto, userAgent, ipAddress);
   }
 
   @Post('logout')
@@ -57,6 +65,16 @@ export class AuthController {
     return { message: 'Logout successful' };
   }
 
+  @Post('logout-all')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Logout all sessions for current user' })
+  @ApiResponse({ status: 200, description: 'All sessions logged out' })
+  async logoutAll(@CurrentUser() user: any) {
+    await this.authService.logoutAll(user.userId);
+    return { message: 'All sessions logged out successfully' };
+  }
+
   @Get('profile')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -65,5 +83,31 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getProfile(@CurrentUser() user: any) {
     return this.authService.getProfile(user.userId);
+  }
+
+  @Post('admin/assign-role')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Assign role to user (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Role assigned successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  async assignRole(
+    @CurrentUser() user: any,
+    @Body() body: { userId: string; roleName: string },
+  ) {
+    return this.authService.assignRole(user.userId, body.userId, body.roleName);
+  }
+
+  @Post('admin/revoke-role')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Revoke role from user (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Role revoked successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  async revokeRole(
+    @CurrentUser() user: any,
+    @Body() body: { userId: string; roleName: string },
+  ) {
+    return this.authService.revokeRole(user.userId, body.userId, body.roleName);
   }
 }

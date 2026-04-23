@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -8,9 +9,15 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { WalletStrategy } from './strategies/wallet.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
+import { User } from './entities/user.entity';
+import { Role } from './entities/role.entity';
+import { RefreshToken } from './entities/refresh-token.entity';
+import { RedisModule } from '../../redis/redis.module';
 
 @Module({
   imports: [
+    TypeOrmModule.forFeature([User, Role, RefreshToken]),
+    RedisModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -32,6 +39,7 @@ import { RolesGuard } from './guards/roles.guard';
     RolesGuard,
   ],
   exports: [
+    TypeOrmModule,
     AuthService,
     JwtAuthGuard,
     RolesGuard,
