@@ -3,7 +3,8 @@ import {
   Logger,
   UnauthorizedException,
   ForbiddenException,
-  TooManyRequestsException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -362,9 +363,9 @@ export class AuthService {
     if (count === 1) {
       await this.redisService.expire(rateLimitKey, 3600);
     }
-    if (count > 3) {
-      throw new TooManyRequestsException('Rate limit exceeded: 3 requests per hour');
-    }
+     if (count > 3) {
+       throw new HttpException('Rate limit exceeded: 3 requests per hour', HttpStatus.TOO_MANY_REQUESTS);
+     }
 
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new UnauthorizedException('User not found');

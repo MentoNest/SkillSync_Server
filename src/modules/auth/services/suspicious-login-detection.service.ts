@@ -2,15 +2,15 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan, LessThan } from 'typeorm';
-import { RedisService } from '../../redis/redis.service';
-import { AuditLog, AuditEventType } from '../auth/entities/audit-log.entity';
-import { User } from '../auth/entities/user.entity';
+import { RedisService } from '../../../redis/redis.service';
+import { AuditLog, AuditEventType } from '../../auth/entities/audit-log.entity';
+import { User } from '../../auth/entities/user.entity';
 import {
   geolocateIP,
   isImpossibleTravel,
   GeoLocation,
   calculateGeographicDistance,
-} from '../../common/utils/geolocation.utils';
+} from '../../../common/utils/geolocation.utils';
 
 /**
  * Detection result for a login attempt

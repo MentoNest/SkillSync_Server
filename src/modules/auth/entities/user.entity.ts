@@ -8,8 +8,11 @@ import {
   ManyToMany,
   JoinTable,
   Index,
+  OneToOne,
 } from 'typeorm';
 import { Role } from './role.entity';
+import { MentorProfile } from '../../user/entities/mentor-profile.entity';
+import { MenteeProfile } from '../../user/entities/mentee-profile.entity';
 
 export enum UserRole {
   USER = 'user',
@@ -73,6 +76,12 @@ export class User {
     inverseJoinColumn: { name: 'roleId', referencedColumnName: 'id' },
   })
   roles: Role[];
+
+  @OneToOne(() => MentorProfile, (mentorProfile) => mentorProfile.user, { nullable: true, cascade: true })
+  mentorProfile: MentorProfile;
+
+  @OneToOne(() => MenteeProfile, (menteeProfile) => menteeProfile.user, { nullable: true, cascade: true })
+  menteeProfile: MenteeProfile;
 
   @CreateDateColumn()
   createdAt: Date;
