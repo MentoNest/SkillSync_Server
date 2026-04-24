@@ -15,6 +15,7 @@ const seed_module_1 = require("./database/seeds/seed.module");
 const health_module_1 = require("./modules/health/health.module");
 const redis_module_1 = require("./redis/redis.module");
 const auth_module_1 = require("./modules/auth/auth.module");
+const user_module_1 = require("./modules/user/user.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -30,6 +31,7 @@ exports.AppModule = AppModule = __decorate([
             seed_module_1.SeedModule,
             redis_module_1.RedisModule.forRoot(),
             auth_module_1.AuthModule,
+            user_module_1.UserModule,
             health_module_1.HealthModule,
         ],
     })

@@ -21,6 +21,7 @@ export enum AuditEventType {
   ACCOUNT_LOCKED = 'account_locked',
   ACCOUNT_UNLOCKED = 'account_unlocked',
   SESSIONS_REVOKED = 'sessions_revoked',
+  PROFILE_UPDATED = 'profile_updated',
 }
 
 /**

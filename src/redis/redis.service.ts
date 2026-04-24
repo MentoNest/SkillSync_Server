@@ -6,7 +6,7 @@ import { createRedisConfig } from './redis.config';
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
-  private client: RedisClientType;
+  private client: any;
   private keyPrefix: string;
 
   constructor(private configService: AppConfigService) {}
@@ -57,7 +57,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
    */
   async get(key: string): Promise<string | null> {
     const prefixedKey = this.getPrefixedKey(key);
-    return this.client.get(prefixedKey);
+    return await this.client.get(prefixedKey);
   }
 
   /**

@@ -33,7 +33,6 @@ let HealthService = HealthService_1 = class HealthService {
     async checkDetailed() {
         const redisHealth = await this.checkRedis();
         const databaseHealth = await this.checkDatabase();
-        const redisHealth = this.checkRedis();
         return {
             status: 'ok',
             timestamp: new Date().toISOString(),
@@ -86,12 +85,6 @@ let HealthService = HealthService_1 = class HealthService {
                 error: error.message,
             };
         }
-    }
-    checkRedis() {
-        return {
-            status: 'healthy',
-            responseTime: '2ms',
-        };
     }
 };
 exports.HealthService = HealthService;

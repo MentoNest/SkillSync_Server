@@ -25,7 +25,6 @@ export class HealthService {
   async checkDetailed() {
     const redisHealth = await this.checkRedis();
     const databaseHealth = await this.checkDatabase();
-    const redisHealth = this.checkRedis();
 
     return {
       status: 'ok',
@@ -57,6 +56,8 @@ export class HealthService {
         error: error.message,
       };
     }
+  }
+
   private async checkDatabase() {
     const startTime = Date.now();
     
@@ -80,13 +81,5 @@ export class HealthService {
         error: error.message,
       };
     }
-  }
-
-  private checkRedis() {
-    // In a real application, you would check Redis connectivity
-    return {
-      status: 'healthy',
-      responseTime: '2ms',
-    };
   }
 }
