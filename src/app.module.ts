@@ -6,6 +6,7 @@ import { SeedModule } from './database/seeds/seed.module';
 import { HealthModule } from './modules/health/health.module';
 import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { UserModule } from './modules/user/user.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { AuthModule } from './modules/auth/auth.module';
     SeedModule,
     RedisModule.forRoot(),
     AuthModule,
+    UserModule,
     HealthModule,
   ],
 })

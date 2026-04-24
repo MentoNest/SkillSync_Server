@@ -4,8 +4,10 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   ManyToMany,
   JoinTable,
+  Index,
 } from 'typeorm';
 import { Role } from './role.entity';
 
@@ -17,13 +19,43 @@ export enum UserRole {
   MENTEE = 'mentee',
 }
 
+export enum UserStatus {
+  ACTIVE = 'active',
+  PENDING = 'pending',
+  SUSPENDED = 'suspended',
+  DELETED = 'deleted',
+}
+
 @Entity('users')
+@Index(['status'])
+@Index(['createdAt'])
+@Index(['lastLoginAt'])
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @Index({ unique: true })
   @Column({ unique: true })
   walletAddress: string;
+
+  @Index({ unique: true })
+  @Column({ unique: true, nullable: true })
+  email: string;
+
+  @Column({ nullable: true })
+  displayName: string;
+
+  @Column({ type: 'enum', enum: UserStatus, default: UserStatus.PENDING })
+  status: UserStatus;
+
+  @Column({ nullable: true })
+  avatarUrl: string;
+
+  @Column({ nullable: true })
+  timezone: string;
+
+  @Column({ nullable: true })
+  locale: string;
 
   @Column({ nullable: true })
   nonce: string;
@@ -31,17 +63,14 @@ export class User {
   @Column({ default: 1 })
   tokenVersion: number;
 
+  @Column({ type: 'timestamp', nullable: true })
+  lastLoginAt: Date;
+
   @ManyToMany(() => Role, (role) => role.users, { cascade: true })
   @JoinTable({
     name: 'user_roles',
-    joinColumn: {
-      name: 'userId',
-      referencedColumnName: 'id',
-    },
-    inverseJoinColumn: {
-      name: 'roleId',
-      referencedColumnName: 'id',
-    },
+    joinColumn: { name: 'userId', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'roleId', referencedColumnName: 'id' },
   })
   roles: Role[];
 
@@ -50,4 +79,7 @@ export class User {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @DeleteDateColumn()
+  deletedAt: Date;
 }
