@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
@@ -8,6 +8,7 @@ import * as compression from 'compression';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
 import { DataSource } from 'typeorm';
+import { AdminSeedService } from './database/seeds/admin-seed.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -82,6 +83,17 @@ async function bootstrap() {
   } catch (error) {
     console.error('Failed to verify database connection:', error.message);
     process.exit(1);
+  }
+
+  // Run admin seed
+  try {
+    const adminSeedService = app.get(AdminSeedService);
+    const seedResult = await adminSeedService.seed();
+    console.log(`[Seed] ${seedResult.message}`);
+  } catch (error) {
+    const logger = new Logger('Seed');
+    logger.error(`Failed to run admin seed: ${error.message}`, error.stack);
+    // Don't exit on seed failure - application can still run
   }
 
   const port = configService.get<number>('PORT') || 3000;
