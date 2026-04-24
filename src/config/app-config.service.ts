@@ -41,6 +41,10 @@ export class AppConfigService {
       FEATURE_ENABLE_RATE_LIMITING: z.string().transform(Boolean).default(() => true),
       FEATURE_ENABLE_LOGGING: z.string().transform(Boolean).default(() => true),
       
+      // Seed configuration
+      DISABLE_SEED: z.string().optional(),
+      DEFAULT_ADMIN_WALLET: z.string().optional(),
+      
       // Logging
       LOG_LEVEL: z.enum(['error', 'warn', 'log', 'debug', 'verbose']).default('log'),
       LOG_FORMAT: z.enum(['json', 'simple']).default('simple'),

@@ -28,6 +28,7 @@ let AppConfigService = class AppConfigService {
             DATABASE_NAME: zod_1.z.string().default('skillsync'),
             JWT_SECRET: zod_1.z.string().min(32).default('your-super-secret-jwt-key-change-in-production'),
             JWT_EXPIRES_IN: zod_1.z.string().default('24h'),
+            JWT_ACCESS_EXPIRATION: zod_1.z.string().optional(),
             JWT_REFRESH_SECRET: zod_1.z.string().min(32).default('your-super-secret-refresh-key'),
             JWT_REFRESH_EXPIRES_IN: zod_1.z.string().default('7d'),
             REDIS_HOST: zod_1.z.string().default('localhost'),
@@ -40,6 +41,8 @@ let AppConfigService = class AppConfigService {
             FEATURE_ENABLE_CACHE: zod_1.z.string().transform(Boolean).default(() => true),
             FEATURE_ENABLE_RATE_LIMITING: zod_1.z.string().transform(Boolean).default(() => true),
             FEATURE_ENABLE_LOGGING: zod_1.z.string().transform(Boolean).default(() => true),
+            DISABLE_SEED: zod_1.z.string().optional(),
+            DEFAULT_ADMIN_WALLET: zod_1.z.string().optional(),
             LOG_LEVEL: zod_1.z.enum(['error', 'warn', 'log', 'debug', 'verbose']).default('log'),
             LOG_FORMAT: zod_1.z.enum(['json', 'simple']).default('simple'),
         });
