@@ -10,6 +10,8 @@ exports.AppModule = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const app_config_module_1 = require("./config/app-config.module");
+const database_module_1 = require("./database/database.module");
+const seed_module_1 = require("./database/seeds/seed.module");
 const health_module_1 = require("./modules/health/health.module");
 const redis_module_1 = require("./redis/redis.module");
 const auth_module_1 = require("./modules/auth/auth.module");
@@ -24,6 +26,8 @@ exports.AppModule = AppModule = __decorate([
                 envFilePath: ['.env.local', '.env.development', '.env'],
             }),
             app_config_module_1.AppConfigModule,
+            database_module_1.DatabaseModule.forRoot(),
+            seed_module_1.SeedModule,
             redis_module_1.RedisModule.forRoot(),
             auth_module_1.AuthModule,
             health_module_1.HealthModule,

@@ -8,7 +8,9 @@ const swagger_1 = require("@nestjs/swagger");
 const helmet_1 = require("helmet");
 const compression = require("compression");
 const global_exception_filter_1 = require("./common/filters/global-exception.filter");
-const logging_interceptor_1 = require("./common/interceptors/logging.interceptor");
+const request_logger_middleware_1 = require("./common/middleware/request-logger.middleware");
+const typeorm_1 = require("typeorm");
+const admin_seed_service_1 = require("./database/seeds/admin-seed.service");
 async function bootstrap() {
     const app = await core_1.NestFactory.create(app_module_1.AppModule, {
         logger: ['error', 'warn', 'log', 'debug'],
@@ -16,13 +18,13 @@ async function bootstrap() {
     const configService = app.get(config_1.ConfigService);
     app.use((0, helmet_1.default)());
     app.use(compression());
+    app.use(new request_logger_middleware_1.RequestLoggerMiddleware().use);
     app.enableCors({
         origin: configService.get('CORS_ORIGIN') || '*',
         methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
         credentials: true,
     });
     app.useGlobalFilters(new global_exception_filter_1.GlobalExceptionFilter());
-    app.useGlobalInterceptors(new logging_interceptor_1.LoggingInterceptor());
     app.useGlobalPipes(new common_1.ValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
@@ -52,7 +54,7 @@ async function bootstrap() {
         swagger_1.SwaggerModule.setup('api/docs', app, document);
     }
     try {
-        const dataSource = app.get(DataSource);
+        const dataSource = app.get(typeorm_1.DataSource);
         if (dataSource.isInitialized) {
             console.log('Database connection verified successfully');
         }
@@ -60,6 +62,15 @@ async function bootstrap() {
     catch (error) {
         console.error('Failed to verify database connection:', error.message);
         process.exit(1);
+    }
+    try {
+        const adminSeedService = app.get(admin_seed_service_1.AdminSeedService);
+        const seedResult = await adminSeedService.seed();
+        console.log(`[Seed] ${seedResult.message}`);
+    }
+    catch (error) {
+        const logger = new common_1.Logger('Seed');
+        logger.error(`Failed to run admin seed: ${error.message}`, error.stack);
     }
     const port = configService.get('PORT') || 3000;
     await app.listen(port);
