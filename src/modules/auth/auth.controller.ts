@@ -3,10 +3,20 @@ import {
   Post,
   Get,
   Body,
+  Param,
   UseGuards,
   Headers,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiBody,
+} from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { NonceDto } from './dto/nonce.dto';
 import { LoginDto } from './dto/login.dto';
@@ -14,23 +24,29 @@ import { RefreshDto } from './dto/refresh.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 
-@ApiTags('auth')
+@ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('nonce')
-  @ApiOperation({ summary: 'Generate nonce for wallet authentication' })
-  @ApiResponse({ status: 200, description: 'Nonce generated successfully' })
+  @ApiTags('Wallet')
+  @ApiOperation({ summary: 'Request a nonce for wallet signature', description: 'Returns a one-time nonce to be signed by the wallet. Expires in 5 minutes.' })
+  @ApiBody({ type: NonceDto })
+  @ApiResponse({ status: 201, description: 'Nonce generated', schema: { example: { nonce: 'uuid-nonce' } } })
+  @ApiResponse({ status: 400, description: 'Invalid wallet address' })
   async generateNonce(@Body() nonceDto: NonceDto) {
     const nonce = await this.authService.generateNonce(nonceDto.walletAddress);
     return { nonce };
   }
 
   @Post('login')
-  @ApiOperation({ summary: 'Login with wallet signature' })
-  @ApiResponse({ status: 200, description: 'Login successful' })
-  @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  @ApiTags('Wallet')
+  @ApiOperation({ summary: 'Authenticate with wallet signature', description: 'Verifies the signed nonce and returns JWT access + refresh tokens.' })
+  @ApiBody({ type: LoginDto })
+  @ApiResponse({ status: 201, description: 'Login successful', schema: { example: { accessToken: 'eyJ...', refreshToken: 'eyJ...', user: { id: 'uuid', walletAddress: 'G...', roles: ['mentee'] } } } })
+  @ApiResponse({ status: 400, description: 'Validation error' })
+  @ApiResponse({ status: 401, description: 'Invalid nonce or signature' })
   async login(
     @Body() loginDto: LoginDto,
     @Headers('user-agent') userAgent?: string,
@@ -40,9 +56,11 @@ export class AuthController {
   }
 
   @Post('refresh')
-  @ApiOperation({ summary: 'Refresh access token' })
-  @ApiResponse({ status: 200, description: 'Token refreshed successfully' })
-  @ApiResponse({ status: 401, description: 'Invalid refresh token' })
+  @ApiTags('Session Management')
+  @ApiOperation({ summary: 'Rotate refresh token', description: 'Exchanges a valid refresh token for a new access + refresh token pair (rotation).' })
+  @ApiBody({ type: RefreshDto })
+  @ApiResponse({ status: 201, description: 'Tokens refreshed', schema: { example: { accessToken: 'eyJ...', refreshToken: 'eyJ...' } } })
+  @ApiResponse({ status: 401, description: 'Invalid or expired refresh token' })
   async refresh(
     @Body() refreshDto: RefreshDto,
     @Headers('user-agent') userAgent?: string,
@@ -54,8 +72,10 @@ export class AuthController {
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Logout and invalidate token' })
-  @ApiResponse({ status: 200, description: 'Logout successful' })
+  @ApiTags('Session Management')
+  @ApiOperation({ summary: 'Logout current session', description: 'Blacklists the access token and revokes all refresh tokens for the current session.' })
+  @ApiResponse({ status: 201, description: 'Logout successful', schema: { example: { message: 'Logout successful' } } })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   async logout(
     @CurrentUser() user: any,
     @Headers('authorization') authorization: string,
@@ -65,21 +85,24 @@ export class AuthController {
     return { message: 'Logout successful' };
   }
 
-  @Post('logout-all')
+  @Post('revoke-all')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Logout all sessions for current user' })
-  @ApiResponse({ status: 200, description: 'All sessions logged out' })
-  async logoutAll(@CurrentUser() user: any) {
-    await this.authService.logoutAll(user.userId);
-    return { message: 'All sessions logged out successfully' };
+  @HttpCode(HttpStatus.OK)
+  @ApiTags('Session Management')
+  @ApiOperation({ summary: 'Revoke all sessions', description: 'Invalidates all refresh tokens and increments token version, forcing re-authentication on all devices. Rate limited to 3 requests/hour.' })
+  @ApiResponse({ status: 200, description: 'All sessions revoked', schema: { example: { message: 'All sessions revoked', revokedCount: 3 } } })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async revokeAll(@CurrentUser() user: any) {
+    return this.authService.revokeAll(user.userId);
   }
 
   @Get('profile')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get current user profile' })
-  @ApiResponse({ status: 200, description: 'User profile retrieved' })
+  @ApiResponse({ status: 200, description: 'Profile retrieved', schema: { example: { id: 'uuid', walletAddress: 'G...', roles: ['mentee'], permissions: ['read:profile'] } } })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getProfile(@CurrentUser() user: any) {
     return this.authService.getProfile(user.userId);
@@ -89,8 +112,10 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Assign role to user (Admin only)' })
-  @ApiResponse({ status: 200, description: 'Role assigned successfully' })
-  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @ApiBody({ schema: { example: { userId: 'uuid', roleName: 'mentor' } } })
+  @ApiResponse({ status: 201, description: 'Role assigned' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — admin only' })
   async assignRole(
     @CurrentUser() user: any,
     @Body() body: { userId: string; roleName: string },
@@ -102,8 +127,10 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Revoke role from user (Admin only)' })
-  @ApiResponse({ status: 200, description: 'Role revoked successfully' })
-  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @ApiBody({ schema: { example: { userId: 'uuid', roleName: 'mentor' } } })
+  @ApiResponse({ status: 201, description: 'Role revoked' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — admin only' })
   async revokeRole(
     @CurrentUser() user: any,
     @Body() body: { userId: string; roleName: string },

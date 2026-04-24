@@ -3,6 +3,7 @@ import {
   Logger,
   UnauthorizedException,
   ForbiddenException,
+  TooManyRequestsException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -16,6 +17,7 @@ import { RefreshDto } from './dto/refresh.dto';
 import { User, UserRole } from './entities/user.entity';
 import { Role } from './entities/role.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { AuditLog, AuditEventType } from './entities/audit-log.entity';
 import { RedisService } from '../../redis/redis.service';
 import { normalizeWalletAddress } from '../../common/utils/wallet.utils';
 
@@ -48,6 +50,8 @@ export class AuthService {
     private roleRepository: Repository<Role>,
     @InjectRepository(RefreshToken)
     private refreshTokenRepository: Repository<RefreshToken>,
+    @InjectRepository(AuditLog)
+    private auditLogRepository: Repository<AuditLog>,
   ) {}
 
   /**
@@ -347,6 +351,54 @@ export class AuthService {
     await this.redisService.del(`${this.USER_SESSIONS_PREFIX}:${userId}`);
 
     this.logger.log(`All sessions logged out for user: ${userId}`);
+  }
+
+  /**
+   * Revoke all sessions (rate-limited: 3/hour per user)
+   */
+  async revokeAll(userId: string): Promise<{ message: string; revokedCount: number }> {
+    const rateLimitKey = `revoke-all:${userId}`;
+    const count = await this.redisService.incr(rateLimitKey);
+    if (count === 1) {
+      await this.redisService.expire(rateLimitKey, 3600);
+    }
+    if (count > 3) {
+      throw new TooManyRequestsException('Rate limit exceeded: 3 requests per hour');
+    }
+
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('User not found');
+
+    // Increment token version — invalidates all existing JWTs
+    user.tokenVersion += 1;
+    await this.userRepository.save(user);
+
+    // Revoke all refresh tokens and count them
+    const result = await this.refreshTokenRepository
+      .createQueryBuilder()
+      .update()
+      .set({ isRevoked: true })
+      .where('userId = :userId AND isRevoked = false', { userId })
+      .returning('id')
+      .execute();
+    const revokedCount = result.affected ?? 0;
+
+    // Clear Redis sessions
+    await this.redisService.del(`${this.USER_SESSIONS_PREFIX}:${userId}`);
+
+    // Audit log
+    await this.auditLogRepository.save(
+      this.auditLogRepository.create({
+        userId,
+        walletAddress: user.walletAddress,
+        eventType: AuditEventType.SESSIONS_REVOKED,
+        ipAddress: 'system',
+        metadata: { revokedCount },
+      }),
+    );
+
+    this.logger.log(`All sessions revoked for user: ${userId} (${revokedCount} tokens)`);
+    return { message: 'All sessions revoked', revokedCount };
   }
 
   /**
