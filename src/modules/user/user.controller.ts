@@ -1,5 +1,5 @@
-import { Controller, Get, Patch, Delete, Body, UseGuards, HttpCode, HttpStatus, Param, ParseUUIDPipe, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags, ApiParam } from '@nestjs/swagger';
+import { Controller, Get, Patch, Delete, Post, Body, UseGuards, HttpCode, HttpStatus, Param, ParseUUIDPipe, NotFoundException, ForbiddenException, Query, ParseIntPipe, DefaultValuePipe } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { UserService } from './user.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserResponseDto } from './dto/user-response.dto';
@@ -58,6 +58,36 @@ export class UserController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   deleteMe(@CurrentUser() user: any): Promise<void> {
     return this.userService.remove(user.userId);
+  }
+
+  @Get('deleted')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'List soft-deleted users (Admin only)' })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'List of soft-deleted users' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — admin only' })
+  async getDeletedUsers(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+  ) {
+    return this.userService.findDeletedUsers(page, limit);
+  }
+
+  @Post(':id/restore')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Restore a soft-deleted user (Admin only)' })
+  @ApiParam({ name: 'id', type: String })
+  @ApiResponse({ status: 200, type: UserResponseDto })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — admin only' })
+  @ApiResponse({ status: 404, description: 'Soft-deleted user not found' })
+  async restoreUser(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() adminUser: any,
+  ): Promise<UserResponseDto> {
+    return this.userService.restoreUser(id, adminUser.userId);
   }
 
   @Patch('profile/:type')
