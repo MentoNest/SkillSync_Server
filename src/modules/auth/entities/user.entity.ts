@@ -69,6 +69,9 @@ export class User {
   @Column({ type: 'timestamp', nullable: true })
   lastLoginAt: Date;
 
+  @Column({ type: 'timestamp', nullable: true })
+  gracePeriodEndsAt: Date;
+
   @ManyToMany(() => Role, (role) => role.users, { cascade: true })
   @JoinTable({
     name: 'user_roles',

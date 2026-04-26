@@ -9,13 +9,13 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, LessThan } from 'typeorm';
 import { verifyMessage } from 'ethers';
 import { v4 as uuidv4 } from 'uuid';
 import * as crypto from 'crypto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
-import { User, UserRole } from './entities/user.entity';
+import { User, UserRole, UserStatus } from './entities/user.entity';
 import { Role } from './entities/role.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { AuditLog, AuditEventType } from './entities/audit-log.entity';
@@ -136,11 +136,25 @@ export class AuthService {
     // Delete used nonce
     this.nonceStore.delete(normalizedAddress);
 
-    // Find or create user
+    // Find or create user (include soft-deleted for reactivation check)
     let user = await this.userRepository.findOne({
       where: { walletAddress: normalizedAddress },
       relations: ['roles'],
+      withDeleted: true,
     });
+
+    if (user && user.deletedAt) {
+      // Soft-deleted user attempting to log in
+      if (user.gracePeriodEndsAt && user.gracePeriodEndsAt > new Date()) {
+        // Within grace period — reactivate account
+        await this.reactivateUser(user);
+      } else {
+        // Grace period expired — account permanently deleted
+        throw new UnauthorizedException(
+          'Account has been permanently deleted. Please contact support to create a new account.',
+        );
+      }
+    }
 
     if (!user) {
       user = this.userRepository.create({
@@ -465,6 +479,29 @@ export class AuthService {
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
+  }
+
+  /**
+   * Reactivate a soft-deleted user account
+   */
+  private async reactivateUser(user: User): Promise<void> {
+    user.deletedAt = null;
+    user.gracePeriodEndsAt = null;
+    user.status = UserStatus.ACTIVE;
+    user.tokenVersion += 1;
+    await this.userRepository.save(user);
+
+    await this.auditLogRepository.save(
+      this.auditLogRepository.create({
+        userId: user.id,
+        walletAddress: user.walletAddress,
+        eventType: AuditEventType.ACCOUNT_RESTORED,
+        ipAddress: 'system',
+        metadata: { reason: 'reactivated_by_login' },
+      }),
+    );
+
+    this.logger.log(`User account restored via login: ${user.walletAddress}`);
   }
 
   /**

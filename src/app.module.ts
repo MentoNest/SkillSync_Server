@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppConfigModule } from './config/app-config.module';
 import { DatabaseModule } from './database/database.module';
 import { SeedModule } from './database/seeds/seed.module';
@@ -14,6 +15,7 @@ import { UserModule } from './modules/user/user.module';
       isGlobal: true,
       envFilePath: ['.env.local', '.env.development', '.env'],
     }),
+    ScheduleModule.forRoot(),
     AppConfigModule,
     DatabaseModule.forRoot(),
     SeedModule,
