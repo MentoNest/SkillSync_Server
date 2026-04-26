@@ -18,7 +18,6 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { NonceDto } from './dto/nonce.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -29,15 +28,19 @@ import { CurrentUser } from './decorators/current-user.decorator';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @Post('nonce')
+  @Get('nonce/:walletAddress')
   @ApiTags('Wallet')
   @ApiOperation({ summary: 'Request a nonce for wallet signature', description: 'Returns a one-time nonce to be signed by the wallet. Expires in 5 minutes.' })
-  @ApiBody({ type: NonceDto })
-  @ApiResponse({ status: 201, description: 'Nonce generated', schema: { example: { nonce: 'uuid-nonce' } } })
+  @ApiParam({
+    name: 'walletAddress',
+    description: 'Stellar wallet address (Ed25519 public key)',
+    example: 'GBRPYHIL2CI3WHZDTOOQFC6EB4SJJSUM3ZULQ4XFJLROVYUCHARSE75',
+  })
+  @ApiResponse({ status: 200, description: 'Nonce generated', schema: { example: { nonce: 'hex-or-base64-nonce', expiresAt: '2026-04-26T12:34:56.789Z' } } })
   @ApiResponse({ status: 400, description: 'Invalid wallet address' })
-  async generateNonce(@Body() nonceDto: NonceDto) {
-    const nonce = await this.authService.generateNonce(nonceDto.walletAddress);
-    return { nonce };
+  async generateNonce(@Param('walletAddress') walletAddress: string) {
+    const result = await this.authService.generateNonce(walletAddress);
+    return result;
   }
 
   @Post('login')
