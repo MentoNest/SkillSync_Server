@@ -5,12 +5,13 @@ import {
   ForbiddenException,
   HttpException,
   HttpStatus,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
-import { verifyMessage } from 'ethers';
+import * as StellarSdk from 'stellar-sdk';
 import { v4 as uuidv4 } from 'uuid';
 import * as crypto from 'crypto';
 import { LoginDto } from './dto/login.dto';
@@ -37,9 +38,13 @@ export interface JwtPayload {
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private nonceStore = new Map<string, { nonce: string; expiresAt: number }>();
   private readonly TOKEN_BLACKLIST_PREFIX = 'blacklist:token';
   private readonly USER_SESSIONS_PREFIX = 'user:sessions';
+  private readonly NONCE_PREFIX = 'nonce';
+  private readonly NONCE_TTL_SECONDS = 300;
+  private readonly NONCE_RATE_LIMIT_PREFIX = 'nonce-generation';
+  private readonly LOGIN_RATE_LIMIT_PREFIX = 'login-attempts';
+
 
   constructor(
     private jwtService: JwtService,
@@ -58,20 +63,39 @@ export class AuthService {
   /**
    * Generate a nonce for wallet authentication
    */
-  async generateNonce(walletAddress: string): Promise<string> {
-    // Normalize wallet address for consistent storage and comparison
+  async generateNonce(walletAddress: string): Promise<{ nonce: string; expiresAt: string }> {
     const normalizedAddress = normalizeWalletAddress(walletAddress);
-    
-    const nonce = uuidv4();
-    
-    // Store nonce with 5 minute expiration using normalized address
-    this.nonceStore.set(normalizedAddress, {
-      nonce,
-      expiresAt: Date.now() + 300000, // 5 minutes
-    });
-    
-    this.logger.log(`Generated nonce for wallet: ${normalizedAddress}`);
-    return nonce;
+
+    const rateLimitKey = `${this.NONCE_RATE_LIMIT_PREFIX}:${normalizedAddress}`;
+    const count = await this.redisService.incr(rateLimitKey);
+    if (count === 1) {
+      await this.redisService.expire(rateLimitKey, 60);
+    }
+    if (count > 5) {
+      throw new HttpException(
+        'Rate limit exceeded: 5 requests per minute per wallet address',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const nonce = crypto.randomBytes(32).toString('hex');
+    const nonceKey = `${this.NONCE_PREFIX}:${normalizedAddress}`;
+    await this.redisService.set(nonceKey, nonce, this.NONCE_TTL_SECONDS);
+
+    const expiresAt = new Date(Date.now() + this.NONCE_TTL_SECONDS * 1000).toISOString();
+
+    await this.auditLogRepository.save(
+      this.auditLogRepository.create({
+        walletAddress: normalizedAddress,
+        eventType: AuditEventType.NONCE_GENERATED,
+        ipAddress: 'system',
+        userAgent: null,
+        metadata: { expiresAt },
+      }),
+    );
+
+    this.logger.log(`Generated wallet nonce for: ${normalizedAddress}`);
+    return { nonce, expiresAt };
   }
 
   /**
@@ -83,21 +107,74 @@ export class AuthService {
     nonce: string,
   ): Promise<boolean> {
     try {
-      // Normalize wallet address for comparison
       const normalizedAddress = normalizeWalletAddress(walletAddress);
-      
-      // Reconstruct the message that was signed
       const message = `Sign this message to authenticate with SkillSync. Nonce: ${nonce}`;
-      
-      // Recover the address from the signature
-      const recoveredAddress = verifyMessage(message, signature);
-      
-      // Check if recovered address matches the normalized address
-      return recoveredAddress.toLowerCase() === normalizedAddress.toLowerCase();
+      const messageBuffer = Buffer.from(message, 'utf8');
+
+      const signatureBuffer = this.parseSignature(signature);
+      if (!signatureBuffer) {
+        return false;
+      }
+
+      const publicKeyBytes = StellarSdk.StrKey.decodeEd25519PublicKey(walletAddress);
+      const publicKey = StellarSdk.StrKey.encodeEd25519PublicKey(publicKeyBytes);
+      const keypair = StellarSdk.Keypair.fromPublicKey(publicKey);
+
+      const verified = keypair.verify(messageBuffer, signatureBuffer);
+      return verified;
     } catch (error) {
       this.logger.error('Signature verification failed', error);
       return false;
     }
+  }
+
+  private parseSignature(signature: string): Buffer | null {
+    const trimmed = signature.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    const hex = trimmed.startsWith('0x') ? trimmed.slice(2) : trimmed;
+    if (/^[0-9a-fA-F]+$/.test(hex)) {
+      try {
+        return Buffer.from(hex, 'hex');
+      } catch {
+        return null;
+      }
+    }
+
+    try {
+      return Buffer.from(trimmed, 'base64');
+    } catch {
+      return null;
+    }
+  }
+
+  private async deleteNonce(normalizedAddress: string) {
+    await this.redisService.del(`${this.NONCE_PREFIX}:${normalizedAddress}`);
+  }
+
+  private async recordLoginAttempt(
+    walletAddress: string,
+    success: boolean,
+    userAgent?: string,
+    ipAddress?: string,
+    errorMessage?: string,
+    userId?: string,
+  ) {
+    await this.auditLogRepository.save(
+      this.auditLogRepository.create({
+        walletAddress,
+        userId,
+        eventType: success
+          ? AuditEventType.LOGIN_SUCCESS
+          : AuditEventType.LOGIN_FAILED,
+        ipAddress: ipAddress || 'unknown',
+        userAgent: userAgent || null,
+        errorMessage: errorMessage || null,
+        metadata: { success },
+      }),
+    );
   }
 
   /**
@@ -105,38 +182,60 @@ export class AuthService {
    */
   async login(loginDto: LoginDto, userAgent?: string, ipAddress?: string) {
     const { walletAddress, signature, nonce } = loginDto;
-
-    // Normalize wallet address for consistent storage and comparison
     const normalizedAddress = normalizeWalletAddress(walletAddress);
 
-    // Verify nonce
-    const storedNonceData = this.nonceStore.get(normalizedAddress);
+    const rateLimitKey = `${this.LOGIN_RATE_LIMIT_PREFIX}:${normalizedAddress}`;
+    const attempts = await this.redisService.incr(rateLimitKey);
+    if (attempts === 1) {
+      await this.redisService.expire(rateLimitKey, 900);
+    }
+    if (attempts > 10) {
+      await this.recordLoginAttempt(
+        normalizedAddress,
+        false,
+        userAgent,
+        ipAddress,
+        'Rate limit exceeded',
+      );
+      throw new HttpException(
+        'Rate limit exceeded: 10 attempts per 15 minutes per wallet',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
 
-    if (!storedNonceData || storedNonceData.nonce !== nonce) {
+    const nonceKey = `${this.NONCE_PREFIX}:${normalizedAddress}`;
+    const storedNonce = await this.redisService.get(nonceKey);
+    if (!storedNonce || storedNonce !== nonce) {
+      await this.deleteNonce(normalizedAddress);
+      await this.recordLoginAttempt(
+        normalizedAddress,
+        false,
+        userAgent,
+        ipAddress,
+        'Invalid or expired nonce',
+      );
       throw new UnauthorizedException('Invalid or expired nonce');
     }
 
-    // Check if nonce is expired
-    if (Date.now() > storedNonceData.expiresAt) {
-      this.nonceStore.delete(normalizedAddress);
-      throw new UnauthorizedException('Nonce expired');
-    }
-
-    // Verify signature
     const isValidSignature = await this.verifySignature(
-      normalizedAddress,
+      walletAddress,
       signature,
       nonce,
     );
 
+    await this.deleteNonce(normalizedAddress);
+
     if (!isValidSignature) {
+      await this.recordLoginAttempt(
+        normalizedAddress,
+        false,
+        userAgent,
+        ipAddress,
+        'Invalid signature',
+      );
       throw new UnauthorizedException('Invalid signature');
     }
 
-    // Delete used nonce
-    this.nonceStore.delete(normalizedAddress);
-
-    // Find or create user (include soft-deleted for reactivation check)
     let user = await this.userRepository.findOne({
       where: { walletAddress: normalizedAddress },
       relations: ['roles'],
@@ -144,12 +243,17 @@ export class AuthService {
     });
 
     if (user && user.deletedAt) {
-      // Soft-deleted user attempting to log in
       if (user.gracePeriodEndsAt && user.gracePeriodEndsAt > new Date()) {
-        // Within grace period — reactivate account
         await this.reactivateUser(user);
       } else {
-        // Grace period expired — account permanently deleted
+        await this.recordLoginAttempt(
+          normalizedAddress,
+          false,
+          userAgent,
+          ipAddress,
+          'Account permanently deleted',
+          user.id,
+        );
         throw new UnauthorizedException(
           'Account has been permanently deleted. Please contact support to create a new account.',
         );
@@ -162,7 +266,6 @@ export class AuthService {
         tokenVersion: 1,
       });
 
-      // Assign default mentee role
       let menteeRole = await this.roleRepository.findOne({
         where: { name: UserRole.MENTEE },
       });
@@ -179,14 +282,13 @@ export class AuthService {
       await this.userRepository.save(user);
     }
 
-    // Get user roles and permissions
+    user.lastLoginAt = new Date();
+    await this.userRepository.save(user);
+
     const roles = user.roles.map((role) => role.name);
     const permissions = this.getPermissionsForRoles(roles);
 
-    // Generate JWT tokens
     const tokens = await this.generateTokens(user, roles, permissions);
-
-    // Store refresh token in database
     const deviceFingerprint = this.generateDeviceFingerprint(
       normalizedAddress,
       userAgent,
@@ -206,7 +308,15 @@ export class AuthService {
       ),
     });
 
-    // Audit log
+    await this.recordLoginAttempt(
+      normalizedAddress,
+      true,
+      userAgent,
+      ipAddress,
+      null,
+      user.id,
+    );
+
     this.logger.log(`User logged in: ${normalizedAddress}`);
 
     return {
@@ -215,8 +325,8 @@ export class AuthService {
       user: {
         id: user.id,
         walletAddress: user.walletAddress,
-        roles: roles,
-        permissions: permissions,
+        roles,
+        permissions,
       },
     };
   }

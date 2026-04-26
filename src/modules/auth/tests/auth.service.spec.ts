@@ -1,10 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { UnauthorizedException } from '@nestjs/common';
+import { RedisService } from '../../../redis/redis.service';
 import { AuthService } from '../auth.service';
 import { LoginDto } from '../dto/login.dto';
 import { RefreshDto } from '../dto/refresh.dto';
+import { User } from '../entities/user.entity';
+import { Role } from '../entities/role.entity';
+import { RefreshToken } from '../entities/refresh-token.entity';
+import { AuditLog } from '../entities/audit-log.entity';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -14,6 +20,7 @@ describe('AuthService', () => {
   const mockJwtService = {
     sign: jest.fn().mockReturnValue('mock-jwt-token'),
     verify: jest.fn(),
+    decode: jest.fn().mockReturnValue({ exp: Math.floor(Date.now() / 1000) + 3600 }),
   };
 
   const mockConfigService = {
@@ -28,6 +35,34 @@ describe('AuthService', () => {
     }),
   };
 
+  const mockRedisService = {
+    incr: jest.fn().mockResolvedValue(1),
+    expire: jest.fn().mockResolvedValue(true),
+    set: jest.fn().mockResolvedValue(undefined),
+    get: jest.fn().mockResolvedValue(null),
+    del: jest.fn().mockResolvedValue(0),
+    exists: jest.fn().mockResolvedValue(false),
+  };
+
+  const createMockRepository = () => ({
+    findOne: jest.fn(),
+    create: jest.fn((dto) => dto),
+    save: jest.fn().mockResolvedValue({}),
+    update: jest.fn().mockResolvedValue({}),
+    createQueryBuilder: jest.fn().mockReturnValue({
+      update: jest.fn().mockReturnThis(),
+      set: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      returning: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({ affected: 0 }),
+    }),
+  });
+
+  const mockUserRepository = createMockRepository();
+  const mockRoleRepository = createMockRepository();
+  const mockRefreshTokenRepository = createMockRepository();
+  const mockAuditLogRepository = createMockRepository();
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -39,6 +74,26 @@ describe('AuthService', () => {
         {
           provide: ConfigService,
           useValue: mockConfigService,
+        },
+        {
+          provide: RedisService,
+          useValue: mockRedisService,
+        },
+        {
+          provide: getRepositoryToken(User),
+          useValue: mockUserRepository,
+        },
+        {
+          provide: getRepositoryToken(Role),
+          useValue: mockRoleRepository,
+        },
+        {
+          provide: getRepositoryToken(RefreshToken),
+          useValue: mockRefreshTokenRepository,
+        },
+        {
+          provide: getRepositoryToken(AuditLog),
+          useValue: mockAuditLogRepository,
         },
       ],
     }).compile();
@@ -89,17 +144,19 @@ describe('AuthService', () => {
     });
 
     it('should login successfully with valid credentials', async () => {
-      // First generate a nonce
-      const walletAddress = '0x1234567890123456789012345678901234567890';
-      const nonce = await service.generateNonce(walletAddress);
+      const walletAddress = 'GBRPYHIL2CI3WHZDTOOQFC6EB4SJJSUM3ZULQ4XFJLROVYUCHARSE75';
+      const nonceResult = await service.generateNonce(walletAddress);
 
-      // Mock signature verification to return true
+      mockRedisService.get.mockResolvedValueOnce(nonceResult.nonce);
       jest.spyOn(service, 'verifySignature').mockResolvedValue(true);
+      mockRoleRepository.findOne.mockResolvedValueOnce(null);
+      mockRoleRepository.create.mockImplementation((dto) => ({ ...dto, id: 'role-id' }));
+      mockRoleRepository.save.mockResolvedValueOnce({ id: 'role-id', name: 'mentee' });
 
       const loginDto: LoginDto = {
         walletAddress,
         signature: '0xsignature',
-        nonce,
+        nonce: nonceResult.nonce,
       };
 
       const result = await service.login(loginDto);
@@ -107,7 +164,7 @@ describe('AuthService', () => {
       expect(result).toHaveProperty('accessToken');
       expect(result).toHaveProperty('refreshToken');
       expect(result).toHaveProperty('user');
-      expect(result.user.walletAddress).toBe(walletAddress);
+      expect(result.user.walletAddress).toBe(walletAddress.toLowerCase());
     });
   });
 
@@ -133,9 +190,27 @@ describe('AuthService', () => {
 
       mockJwtService.verify.mockReturnValue({
         sub: 'user-id',
-        walletAddress: '0x1234567890123456789012345678901234567890',
-        role: 'user',
+        walletAddress: 'GBRPYHIL2CI3WHZDTOOQFC6EB4SJJSUM3ZULQ4XFJLROVYUCHARSE75',
+        roles: ['mentee'],
+        permissions: [],
         type: 'refresh',
+      });
+
+      mockRedisService.exists.mockResolvedValue(false);
+      mockRefreshTokenRepository.findOne.mockResolvedValueOnce({
+        token: 'valid-refresh-token',
+        isRevoked: false,
+        expiresAt: new Date(Date.now() + 100000),
+        createdAt: new Date(Date.now() - 2000),
+        userId: 'user-id',
+        user: {
+          id: 'user-id',
+          walletAddress: 'gbrpyhil2ci3whzdtooqfc6eb4sjjsum3zulq4xfj1abc',
+          roles: [{ name: 'mentee' }],
+        },
+        deviceFingerprint: 'fingerprint',
+        userAgent: 'test-agent',
+        ipAddress: '127.0.0.1',
       });
 
       const result = await service.refreshTokens(refreshDto);
@@ -158,16 +233,27 @@ describe('AuthService', () => {
     it('should validate token payload', async () => {
       const payload = {
         sub: 'user-id',
-        walletAddress: '0x1234567890123456789012345678901234567890',
-        role: 'user',
+        walletAddress: 'GBRPYHIL2CI3WHZDTOOQFC6EB4SJJSUM3ZULQ4XFJLROVYUCHARSE75',
+        roles: ['mentee'],
+        permissions: [],
+        jti: 'test-jti',
+        tokenVersion: 1,
       };
 
-      const result = await service.validateToken(payload);
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'user-id',
+        walletAddress: payload.walletAddress.toLowerCase(),
+        tokenVersion: 1,
+        roles: [{ name: 'mentee' }],
+      });
+
+      const result = await service.validateToken(payload as any);
 
       expect(result).toEqual({
         userId: payload.sub,
-        walletAddress: payload.walletAddress,
-        role: payload.role,
+        walletAddress: payload.walletAddress.toLowerCase(),
+        roles: ['mentee'],
+        permissions: [],
       });
     });
   });
@@ -176,11 +262,19 @@ describe('AuthService', () => {
     it('should return user profile', async () => {
       const userId = 'user-id';
 
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: userId,
+        walletAddress: 'gbrpyhil2ci3whzdtooqfc6eb4sjjsum3zulq4xfjlrovyucharse75',
+        roles: [{ name: 'mentee' }],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
       const result = await service.getProfile(userId);
 
       expect(result).toHaveProperty('id', userId);
       expect(result).toHaveProperty('walletAddress');
-      expect(result).toHaveProperty('role');
+      expect(result).toHaveProperty('roles');
     });
   });
 });
