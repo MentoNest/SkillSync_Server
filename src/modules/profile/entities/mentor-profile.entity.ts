@@ -84,6 +84,10 @@ export class MentorProfile {
   @Column({ default: false })
   isVerified: boolean;
 
+  @ApiPropertyOptional({ description: 'Average rating across all service listings', example: 4.5 })
+  @Column('decimal', { precision: 3, scale: 2, default: 0 })
+  averageRating: number;
+
   @ApiPropertyOptional({
     description: 'IANA timezone identifier for the mentor (e.g. "America/New_York")',
     example: 'America/New_York',
