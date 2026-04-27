@@ -53,8 +53,8 @@ export class AddForeignKeyIndexes2000000000003 implements MigrationInterface {
     await queryRunner.createIndex(
       'mentor_profiles',
       new TableIndex({
-        name: 'IDX_MENTOR_PROFILE_VERIFIED_RATING',
-        columnNames: ['isVerified', 'averageRating'],
+        name: 'IDX_MENTOR_PROFILE_VERIFIED_AVAILABLE',
+        columnNames: ['isVerified', 'isAvailable'],
         isUnique: false,
       })
     );
@@ -330,7 +330,7 @@ export class AddForeignKeyIndexes2000000000003 implements MigrationInterface {
       'IDX_MENTOR_AVAILABILITY_MENTOR_ID',
       'IDX_MENTOR_AVAILABILITY_MENTOR_DAY',
       'IDX_MENTOR_PROFILE_AVAILABLE',
-      'IDX_MENTOR_PROFILE_VERIFIED_RATING',
+      'IDX_MENTOR_PROFILE_VERIFIED_AVAILABLE',
       'IDX_MENTOR_PROFILE_USER_ID',
       'IDX_WALLET_USER_PRIMARY',
       'IDX_WALLET_USER_ID',

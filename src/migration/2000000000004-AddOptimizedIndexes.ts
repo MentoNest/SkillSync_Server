@@ -35,8 +35,8 @@ export class AddOptimizedIndexes2000000000004 implements MigrationInterface {
     await queryRunner.createIndex(
       'mentor_profiles',
       new TableIndex({
-        name: 'IDX_MENTOR_PROFILE_VERIFIED_RATING',
-        columnNames: ['isVerified', 'averageRating'],
+        name: 'IDX_MENTOR_PROFILE_VERIFIED_AVAILABLE',
+        columnNames: ['isVerified', 'isAvailable'],
         isUnique: false,
       })
     );
