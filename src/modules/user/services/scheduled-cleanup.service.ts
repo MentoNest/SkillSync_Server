@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { User } from '../../auth/entities/user.entity';
 import { AuditLog, AuditEventType } from '../../auth/entities/audit-log.entity';
+import { MentorAdminService } from './mentor-admin.service';
 
 @Injectable()
 export class ScheduledCleanupService {
@@ -14,6 +15,7 @@ export class ScheduledCleanupService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(AuditLog)
     private readonly auditLogRepository: Repository<AuditLog>,
+    private readonly mentorAdminService: MentorAdminService,
   ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_2AM)
@@ -64,5 +66,17 @@ export class ScheduledCleanupService {
     }
 
     this.logger.log('Cleanup of expired grace-period users completed.');
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async cleanupExpiredFeaturedMentors(): Promise<void> {
+    this.logger.log('Starting cleanup of expired featured mentors...');
+
+    try {
+      const cleanedCount = await this.mentorAdminService.cleanupExpiredFeaturedMentors();
+      this.logger.log(`Cleaned up ${cleanedCount} expired featured mentor(s).`);
+    } catch (error) {
+      this.logger.error(`Failed to cleanup expired featured mentors: ${error.message}`, error.stack);
+    }
   }
 }

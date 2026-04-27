@@ -6,10 +6,13 @@ import {
   UpdateDateColumn,
   OneToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { User } from '../../auth/entities/user.entity';
 
 @Entity('mentor_profiles')
+@Index(['isFeatured', 'featuredOrder'])
+@Index(['isFeatured', 'featuredAt'])
 export class MentorProfile {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -31,6 +34,18 @@ export class MentorProfile {
 
   @Column({ nullable: true })
   availabilityDetails: string;
+
+  @Column({ default: false })
+  isFeatured: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  featuredAt: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  featuredExpiresAt: Date;
+
+  @Column({ type: 'int', default: 0 })
+  featuredOrder: number;
 
   @OneToOne(() => User, (user) => user.mentorProfile)
   @JoinColumn()

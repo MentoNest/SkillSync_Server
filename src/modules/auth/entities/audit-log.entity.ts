@@ -25,6 +25,8 @@ export enum AuditEventType {
   ACCOUNT_DELETED = 'account_deleted',
   ACCOUNT_RESTORED = 'account_restored',
   ACCOUNT_ANONYMIZED = 'account_anonymized',
+  MENTOR_FEATURED = 'mentor_featured',
+  MENTOR_UNFEATURED = 'mentor_unfeatured',
 }
 
 /**

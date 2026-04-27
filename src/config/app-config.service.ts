@@ -48,6 +48,10 @@ export class AppConfigService {
       // Logging
       LOG_LEVEL: z.enum(['error', 'warn', 'log', 'debug', 'verbose']).default('log'),
       LOG_FORMAT: z.enum(['json', 'simple']).default('simple'),
+
+      // Featured Mentors Configuration
+      MAX_FEATURED_MENTORS: z.string().transform(Number).default(() => 10),
+      FEATURED_MENTOR_EXPIRY_DAYS: z.string().transform(Number).default(() => 30),
     });
 
     this.validateEnvironment();
@@ -116,5 +120,13 @@ export class AppConfigService {
   isFeatureEnabled(feature: string): boolean {
     const featureKey = `FEATURE_ENABLE_${feature.toUpperCase()}`;
     return this.get<boolean>(featureKey) || false;
+  }
+
+  // Featured Mentors configuration methods
+  getFeaturedMentorsConfig() {
+    return {
+      maxFeaturedMentors: this.get<number>('MAX_FEATURED_MENTORS'),
+      expiryDays: this.get<number>('FEATURED_MENTOR_EXPIRY_DAYS'),
+    };
   }
 }
