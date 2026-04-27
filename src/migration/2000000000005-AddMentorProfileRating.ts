@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddMentorProfileRating2000000000002 implements MigrationInterface {
+export class AddMentorProfileRating2000000000005 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Add averageRating column to mentor_profiles table
     await queryRunner.query(`

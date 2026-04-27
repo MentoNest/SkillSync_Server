@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner, TableIndex } from 'typeorm';
 
-export class AddOptimizedIndexes2000000000001 implements MigrationInterface {
+export class AddOptimizedIndexes2000000000004 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // User table indexes for auth and filtering
     await queryRunner.createIndex(

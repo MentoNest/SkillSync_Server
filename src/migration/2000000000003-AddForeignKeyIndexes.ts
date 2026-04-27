@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner, TableIndex } from 'typeorm';
 
-export class AddForeignKeyIndexes2000000000000 implements MigrationInterface {
+export class AddForeignKeyIndexes2000000000003 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // User table indexes
     await queryRunner.createIndex(
