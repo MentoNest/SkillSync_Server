@@ -53,6 +53,22 @@ describe('PaginationService', () => {
       expect(result.meta.limit).toBe(100);
     });
 
+    it('includes pagination links when a route is provided', async () => {
+      const qb = makeQb([{ id: 1 }], 5) as any;
+
+      const result = await service.paginate(qb, 2, 2, {
+        route: '/skills',
+        query: { q: 'nodejs' },
+      });
+
+      expect(result.links).toEqual({
+        first: '/skills?q=nodejs&page=1&limit=2',
+        prev: '/skills?q=nodejs&page=1&limit=2',
+        next: '/skills?q=nodejs&page=3&limit=2',
+        last: '/skills?q=nodejs&page=3&limit=2',
+      });
+    });
+
     it('hasNext is false on last page', async () => {
       const qb = makeQb([{ id: 1 }], 1) as any;
       const result = await service.paginate(qb, 1, 10);
@@ -89,7 +105,6 @@ describe('PaginationService', () => {
     });
 
     it('throws BadRequestException for invalid cursor', () => {
-      // non-base64 input that would fail to decode meaningfully
       expect(() => service.decodeCursor('!!invalid!!')).toThrow(BadRequestException);
     });
 
