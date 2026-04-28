@@ -6,6 +6,8 @@ import { ValidationExceptionFilter } from './common/filters/validation-exception
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import helmet from 'helmet';
 import { ConfigService } from './config/config.service';
+import * as cookieParser from 'cookie-parser';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -14,18 +16,40 @@ async function bootstrap() {
     const app = await NestFactory.create(AppModule);
     const configService = app.get(ConfigService);
 
+    // 🔐 Validate secrets in production
+    if (configService.isProduction) {
+      logger.log('🔒 Production mode detected - validating secrets...');
+      configService.validateSecrets();
+    }
+
     // 🔐 Disable x-powered-by
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     app.getHttpAdapter().getInstance().disable('x-powered-by');
 
-    // 🛡 Helmet
+    // 🔒 Trust Proxy - Enable when behind reverse proxy
+    if (configService.trustProxy) {
+      logger.log('🔒 Trust proxy enabled for reverse proxy (Nginx/CloudFlare)');
+      app.set('trust proxy', true);
+    }
+
+    // 🛡 Helmet - Enhanced security headers
     app.use(
       helmet({
-        contentSecurityPolicy: configService.nodeEnv === 'production' ? undefined : false,
+        contentSecurityPolicy: configService.isProduction ? undefined : false,
+        crossOriginEmbedderPolicy: configService.isProduction ? undefined : false,
+        hsts: {
+          maxAge: 31536000, // 1 year
+          includeSubDomains: true,
+          preload: true,
+        },
       }),
     );
+    logger.log('🛡 Helmet security headers enabled');
 
-    // 🌍 CORS via ConfigModule
+    // 🍪 Cookie Parser with secure settings
+    app.use(cookieParser());
+
+    // 🌍 CORS via ConfigModule - Strict whitelist
     app.enableCors({
       origin: (
         origin: string | undefined,
@@ -36,12 +60,19 @@ async function bootstrap() {
         if (configService.corsOrigins.includes(origin)) {
           callback(null, true);
         } else {
+          logger.warn(`🚫 CORS blocked origin: ${origin}`);
           callback(new Error('Not allowed by CORS'));
         }
       },
       methods: configService.corsMethods,
       credentials: configService.corsCredentials,
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
+      exposedHeaders: ['X-Total-Count', 'X-Page-Count'],
+      maxAge: 600, // Cache preflight for 10 minutes
     });
+    logger.log(
+      `🌍 CORS configured with origins: ${configService.corsOrigins.join(', ')}`,
+    );
 
     // 📋 Global Validation Pipe
     app.useGlobalPipes(
@@ -65,6 +96,43 @@ async function bootstrap() {
     app.useGlobalInterceptors(new TransformInterceptor());
 
 
+    // 📚 Swagger API Documentation
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('SkillSync API')
+      .setDescription('The SkillSync API documentation')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+
+    // Disable or protect Swagger in production
+    if (configService.isProduction) {
+      const swaggerEnabled = process.env.SWAGGER_ENABLED === 'true';
+      if (!swaggerEnabled) {
+        logger.log('📚 Swagger UI disabled in production');
+      } else {
+        SwaggerModule.setup('api-docs', app, document, {
+          swaggerOptions: {
+            persistAuthorization: true,
+          },
+          customSiteTitle: 'SkillSync API Docs (Production)',
+        });
+        logger.log(
+          '📚 Swagger UI enabled at /api-docs (PRODUCTION - ensure access is restricted)',
+        );
+      }
+    } else {
+      // Development - Swagger enabled
+      SwaggerModule.setup('api-docs', app, document, {
+        swaggerOptions: {
+          persistAuthorization: true,
+        },
+        customSiteTitle: 'SkillSync API Docs (Development)',
+      });
+      logger.log('📚 Swagger UI enabled at /api-docs (Development)');
+    }
+
     // 🚦 Global Rate Limiting will be applied via guards on individual routes
     if (configService.rateLimitEnabled) {
       logger.log('✅ Global rate limiting available via guards');
@@ -73,6 +141,21 @@ async function bootstrap() {
     }
 
     await app.listen(configService.port);
+
+    // Log production configuration summary
+    if (configService.isProduction) {
+      logger.log('═══════════════════════════════════════════');
+      logger.log('🔒 PRODUCTION SECURITY CONFIGURATION');
+      logger.log('═══════════════════════════════════════════');
+      logger.log(`✓ NODE_ENV: ${configService.nodeEnv}`);
+      logger.log(`✓ Trust Proxy: ${configService.trustProxy ? 'Enabled' : 'Disabled'}`);
+      logger.log(`✓ Helmet: Enabled with HSTS`);
+      logger.log(`✓ CORS Origins: ${configService.corsOrigins.length} whitelist(s)`);
+      logger.log(`✓ Cookie Security: Secure=${configService.cookieSecure}, HttpOnly=${configService.cookieHttpOnly}, SameSite=${configService.cookieSameSite}`);
+      logger.log(`✓ Rate Limiting: ${configService.rateLimitPerUserMax} req/min (authenticated), ${configService.rateLimitPerIpMax} req/min (unauthenticated)`);
+      logger.log(`✓ Swagger UI: ${process.env.SWAGGER_ENABLED === 'true' ? 'Enabled (RESTRICTED)' : 'Disabled'}`);
+      logger.log('═══════════════════════════════════════════');
+    }
 
     logger.log(`🚀 Server is running on http://localhost:${configService.port}`);
   } catch (error) {

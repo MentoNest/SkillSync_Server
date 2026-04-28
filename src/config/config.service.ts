@@ -1,13 +1,55 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
 @Injectable()
 export class ConfigService {
+  private readonly logger = new Logger(ConfigService.name);
+
   get port(): number {
     return parseInt(process.env.PORT ?? '3000', 10);
   }
 
   get nodeEnv(): string {
     return process.env.NODE_ENV ?? 'development';
+  }
+
+  get isProduction(): boolean {
+    return this.nodeEnv === 'production';
+  }
+
+  /**
+   * 🔒 Trust Proxy Configuration
+   * Enable when behind reverse proxy (Nginx, CloudFlare, AWS ALB)
+   */
+  get trustProxy(): boolean {
+    return process.env.TRUST_PROXY === 'true';
+  }
+
+  /**
+   * 🍪 Cookie Security Configuration
+   */
+  get cookieSecure(): boolean {
+    // Force secure cookies in production
+    return this.isProduction || process.env.COOKIE_SECURE === 'true';
+  }
+
+  get cookieHttpOnly(): boolean {
+    return process.env.COOKIE_HTTP_ONLY !== 'false'; // Default to true
+  }
+
+  get cookieSameSite(): 'strict' | 'lax' | 'none' {
+    const value = process.env.COOKIE_SAME_SITE ?? 'strict';
+    if (value === 'none' && this.isProduction) {
+      this.logger.warn('Cookie SameSite=none is not recommended for production');
+    }
+    return value as 'strict' | 'lax' | 'none';
+  }
+
+  get cookieDomain(): string | undefined {
+    return process.env.COOKIE_DOMAIN || undefined;
+  }
+
+  get cookieMaxAge(): number {
+    return parseInt(process.env.COOKIE_MAX_AGE ?? '3600000', 10); // 1 hour default
   }
 
   /**
@@ -96,6 +138,10 @@ export class ConfigService {
   }
 
   get rateLimitGlobalMax(): number {
+    // Stricter in production
+    if (this.isProduction) {
+      return parseInt(process.env.RATE_LIMIT_GLOBAL_MAX ?? '50', 10);
+    }
     return parseInt(process.env.RATE_LIMIT_GLOBAL_MAX ?? '100', 10);
   }
 
@@ -104,6 +150,10 @@ export class ConfigService {
   }
 
   get rateLimitPerIpMax(): number {
+    // Stricter for unauthenticated users in production
+    if (this.isProduction) {
+      return parseInt(process.env.RATE_LIMIT_PER_IP_MAX ?? '10', 10);
+    }
     return parseInt(process.env.RATE_LIMIT_PER_IP_MAX ?? '100', 10);
   }
 
@@ -120,6 +170,10 @@ export class ConfigService {
   }
 
   get rateLimitPerUserMax(): number {
+    // Stricter for authenticated users in production
+    if (this.isProduction) {
+      return parseInt(process.env.RATE_LIMIT_PER_USER_MAX ?? '50', 10);
+    }
     return parseInt(process.env.RATE_LIMIT_PER_USER_MAX ?? '200', 10);
   }
 
@@ -136,5 +190,39 @@ export class ConfigService {
       .split(',')
       .map((path) => path.trim())
       .filter(Boolean);
+  }
+
+  /**
+   * 🔐 Validate all critical secrets are present
+   * Call this at application startup in production
+   */
+  validateSecrets(): void {
+    const requiredSecrets = [
+      { key: 'JWT_SECRET', value: this.jwtSecret },
+      { key: 'DB_PASSWORD', value: process.env.DB_PASSWORD },
+      { key: 'CORS_ORIGINS', value: process.env.CORS_ORIGINS },
+    ];
+
+    const missingSecrets = requiredSecrets.filter(
+      (secret) => !secret.value || secret.value.trim() === '',
+    );
+
+    if (missingSecrets.length > 0) {
+      const missingKeys = missingSecrets.map((s) => s.key).join(', ');
+      throw new Error(
+        `Missing required environment variables: ${missingKeys}`,
+      );
+    }
+
+    // Warn about weak secrets in production
+    if (this.isProduction) {
+      if (this.jwtSecret.includes('default') || this.jwtSecret.length < 32) {
+        this.logger.error(
+          '⚠️  JWT_SECRET is weak or uses default value. Use a strong, random secret (min 32 chars)',
+        );
+      }
+    }
+
+    this.logger.log('✅ All required secrets validated');
   }
 }
