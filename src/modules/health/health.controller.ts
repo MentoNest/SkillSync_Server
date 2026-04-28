@@ -1,17 +1,23 @@
 import { Controller, Get } from '@nestjs/common';
-import { SkipRateLimit } from '../../common/decorators/rate-limit.decorator';
+import { HealthService } from './health.service';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
+@ApiTags('health')
 @Controller('health')
 export class HealthController {
+  constructor(private readonly healthService: HealthService) {}
+
   @Get()
-  @SkipRateLimit() // Exempt from rate limiting
-  check() {
-    return { status: 'ok', timestamp: new Date().toISOString() };
+  @ApiOperation({ summary: 'Get application health status' })
+  @ApiResponse({ status: 200, description: 'Application is healthy' })
+  getHealth() {
+    return this.healthService.check();
   }
 
-  @Get('redis')
-  @SkipRateLimit() // Exempt from rate limiting
-  redis() {
-    return { status: 'redis ok', timestamp: new Date().toISOString() };
+  @Get('detailed')
+  @ApiOperation({ summary: 'Get detailed health status' })
+  @ApiResponse({ status: 200, description: 'Detailed health information' })
+  getDetailedHealth() {
+    return this.healthService.checkDetailed();
   }
 }

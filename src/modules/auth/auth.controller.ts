@@ -1,306 +1,143 @@
 import {
   Controller,
+  Post,
   Get,
   Body,
-  HttpStatus,
-  UseGuards,
-  Query,
-  HttpException,
-  Post,
-  Req,
-  Res,
-  Delete,
-  Patch,
   Param,
-  Ip,
+  UseGuards,
   Headers,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
-import { AuthService } from './providers/auth.service';
-import { NonceResponseDto } from './dto/nonce-response.dto';
-import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
-import { RateLimit, RateLimits } from '../../common/decorators/rate-limit.decorator';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { STELLAR_STRATEGY } from './strategies/stellar.strategy';
-import { AuthGuard } from '@nestjs/passport';
-import { CreateStellarAuthDto } from './dto/create-stellar-auth.dto';
-import type { Request, Response } from 'express';
-import { NonceRequestDto } from './dto/nonce-request.dto';
-import { StellarNonceService } from './providers/nonce.service';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiBody,
+} from '@nestjs/swagger';
+import { AuthService } from './auth.service';
+import { LoginDto } from './dto/login.dto';
+import { RefreshDto } from './dto/refresh.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { ForbiddenException } from '@nestjs/common';
-import { UserRole } from '../../common/enums/user-role.enum';
-import { LinkWalletDto } from './dto/link-wallet.dto';
-import { User } from '../user/entities/user.entity';
-import { LoginDto, RegisterDto } from './dto/create-auth.dto';
-import { CsrfService } from '../../common/services/csrf.service';
-import { CsrfGuard } from '../../common/guards/csrf.guard';
-import { ForgotPasswordDto } from './dto/forgot-password.dto';
-import { VerifyOtpDto } from './dto/verify-otp.dto';
-import { ResetPasswordDto } from './dto/reset-password.dto';
+import { CurrentUser } from './decorators/current-user.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
-@UseGuards(RateLimitGuard)
 export class AuthController {
-  constructor(
-    private readonly authService: AuthService,
-    private readonly nonceService: StellarNonceService,
-    private readonly csrfService: CsrfService
-  ) { }
+  constructor(private readonly authService: AuthService) {}
 
-  @Get('nonce')
-  @ApiOperation({ summary: 'Generate a nonce for authentication' })
-  @ApiResponse({
-    status: 200,
-    description: 'Returns a cryptographically secure nonce',
-    type: NonceResponseDto,
+  @Get('nonce/:walletAddress')
+  @ApiTags('Wallet')
+  @ApiOperation({ summary: 'Request a nonce for wallet signature', description: 'Returns a one-time nonce to be signed by the wallet. Expires in 5 minutes.' })
+  @ApiParam({
+    name: 'walletAddress',
+    description: 'Stellar wallet address (Ed25519 public key)',
+    example: 'GBRPYHIL2CI3WHZDTOOQFC6EB4SJJSUM3ZULQ4XFJLROVYUCHARSE75',
   })
-  @RateLimit(RateLimits.STRICT) // Strict rate limiting for nonce generation
-  async generateNonce(): Promise<NonceResponseDto> {
-    return this.authService.generateNonce();
-  }
-
-  @Get('nonce/validate')
-  @RateLimit(RateLimits.NORMAL) // Normal rate limiting for validation
-  async validateNonce(@Query('nonce') nonce: string) {
-    if (!nonce) {
-      throw new HttpException('Nonce parameter is required', HttpStatus.BAD_REQUEST);
-    }
-
-    const isValid = await this.authService.validateNonce(nonce);
-    return {
-      nonce: nonce.substring(0, 8) + '...',
-      valid: isValid,
-      timestamp: Math.floor(Date.now() / 1000),
-    };
-  }
-
-  @Post('refresh')
-  @UseGuards(CsrfGuard)
-  @RateLimit(RateLimits.NORMAL)
-  @ApiOperation({ summary: 'Rotate refresh token and issue a new token pair' })
-  @ApiResponse({ status: 200, description: 'Returns a new access/refresh token pair' })
-  @ApiResponse({ status: 401, description: 'Invalid, reused, or revoked refresh token' })
-  @ApiResponse({ status: 403, description: 'CSRF token validation failed' })
-  async refresh(
-    @Body() body: RefreshTokenDto,
-    @Ip() ip: string,
-    @Headers('user-agent') userAgent: string,
-  ) {
-    return this.authService.refresh(body?.refreshToken, { ipAddress: ip, userAgent });
-  }
-
-  @Post('logout')
-  @UseGuards(CsrfGuard)
-  @RateLimit(RateLimits.NORMAL)
-  @ApiOperation({ summary: 'Logout user and revoke session' })
-  @ApiResponse({ status: 200, description: 'Logout successful' })
-  @ApiResponse({ status: 401, description: 'Invalid refresh token' })
-  @ApiResponse({ status: 403, description: 'CSRF token validation failed' })
-  async logout(
-    @Body() body: RefreshTokenDto,
-    @Ip() ip: string,
-    @Headers('user-agent') userAgent: string,
-  ) {
-    return this.authService.logout(body?.refreshToken, { ipAddress: ip, userAgent });
+  @ApiResponse({ status: 200, description: 'Nonce generated', schema: { example: { nonce: 'hex-or-base64-nonce', expiresAt: '2026-04-26T12:34:56.789Z' } } })
+  @ApiResponse({ status: 400, description: 'Invalid wallet address' })
+  async generateNonce(@Param('walletAddress') walletAddress: string) {
+    const result = await this.authService.generateNonce(walletAddress);
+    return result;
   }
 
   @Post('login')
-  @UseGuards(CsrfGuard)
-  @RateLimit(RateLimits.STRICT)
-  @ApiOperation({ summary: 'Login with email and password' })
-  @ApiResponse({ status: 200, description: 'Login successful' })
-  @ApiResponse({ status: 401, description: 'Invalid credentials' })
-  @ApiResponse({ status: 403, description: 'CSRF token validation failed' })
+  @ApiTags('Wallet')
+  @ApiOperation({ summary: 'Authenticate with wallet signature', description: 'Verifies the signed nonce and returns JWT access + refresh tokens.' })
+  @ApiBody({ type: LoginDto })
+  @ApiResponse({ status: 201, description: 'Login successful', schema: { example: { accessToken: 'eyJ...', refreshToken: 'eyJ...', user: { id: 'uuid', walletAddress: 'G...', roles: ['mentee'] } } } })
+  @ApiResponse({ status: 400, description: 'Validation error' })
+  @ApiResponse({ status: 401, description: 'Invalid nonce or signature' })
   async login(
     @Body() loginDto: LoginDto,
-    @Ip() ip: string,
-    @Headers('user-agent') userAgent: string,
+    @Headers('user-agent') userAgent?: string,
+    @Headers('x-forwarded-for') ipAddress?: string,
   ) {
-    return this.authService.login(loginDto, { ipAddress: ip, userAgent });
+    return this.authService.login(loginDto, userAgent, ipAddress);
   }
 
-  @Post('register')
-  @UseGuards(CsrfGuard)
-  @RateLimit(RateLimits.STRICT)
-  @ApiOperation({ summary: 'Register a new user' })
-  @ApiResponse({ status: 201, description: 'Registration successful' })
-  @ApiResponse({ status: 409, description: 'User already exists' })
-  @ApiResponse({ status: 403, description: 'CSRF token validation failed' })
-  async register(
-    @Body() registerDto: RegisterDto,
-    @Ip() ip: string,
-    @Headers('user-agent') userAgent: string,
+  @Post('refresh')
+  @ApiTags('Session Management')
+  @ApiOperation({ summary: 'Rotate refresh token', description: 'Exchanges a valid refresh token for a new access + refresh token pair (rotation).' })
+  @ApiBody({ type: RefreshDto })
+  @ApiResponse({ status: 201, description: 'Tokens refreshed', schema: { example: { accessToken: 'eyJ...', refreshToken: 'eyJ...' } } })
+  @ApiResponse({ status: 401, description: 'Invalid or expired refresh token' })
+  async refresh(
+    @Body() refreshDto: RefreshDto,
+    @Headers('user-agent') userAgent?: string,
+    @Headers('x-forwarded-for') ipAddress?: string,
   ) {
-    return this.authService.register(registerDto, { ipAddress: ip, userAgent });
+    return this.authService.refreshTokens(refreshDto, userAgent, ipAddress);
   }
 
-  @Post('nonce')
-  @ApiOperation({ summary: 'Request a nonce to sign for Stellar wallet authentication' })
-  @ApiBody({ type: NonceRequestDto })
-  @ApiResponse({ status: 201, type: NonceResponseDto })
-  nonce(@Body() dto: NonceRequestDto): NonceResponseDto {
-    return this.nonceService.issue(dto.publicKey);
-  }
-
-  @Post('login/stellar')
-  @UseGuards(AuthGuard(STELLAR_STRATEGY))
-  @ApiOperation({ summary: 'Authenticate using a signed Stellar nonce' })
-  @ApiBody({ type: CreateStellarAuthDto })
-  @ApiResponse({ status: 200, description: 'Authenticated user context' })
-  @ApiResponse({ status: 401, description: 'Invalid signature or nonce' })
-  async stellarLogin(
-    @Req() req: Request,
-    @Ip() ip: string,
-    @Headers('user-agent') userAgent: string,
-  ) {
-    const user = req.user as User;
-    return this.authService.issueTokenPairForUser(user, { ipAddress: ip, userAgent });
-  }
-
-  @Post('wallets/link')
-  @UseGuards(JwtAuthGuard, CsrfGuard)
-  @ApiOperation({ summary: 'Link a new Stellar wallet to the account' })
-  @ApiBody({ type: LinkWalletDto })
-  @ApiResponse({ status: 201, description: 'Wallet linked successfully' })
-  @ApiResponse({ status: 403, description: 'CSRF token validation failed' })
-  async linkWallet(@Req() req: Request, @Body() dto: LinkWalletDto) {
-    const user = req.user as User;
-    return this.authService.linkWallet(user.id, dto);
-  }
-
-  @Delete('wallets/:address')
+  @Post('logout')
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Remove a linked Stellar wallet' })
-  @ApiBody({ type: LinkWalletDto, description: 'Requires signature verification for removal' })
-  @ApiResponse({ status: 200, description: 'Wallet removed successfully' })
-  async removeWallet(
-    @Req() req: Request,
-    @Param('address') address: string,
-    @Body() dto: LinkWalletDto,
+  @ApiBearerAuth()
+  @ApiTags('Session Management')
+  @ApiOperation({ summary: 'Logout current session', description: 'Blacklists the access token and revokes all refresh tokens for the current session.' })
+  @ApiResponse({ status: 201, description: 'Logout successful', schema: { example: { message: 'Logout successful' } } })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async logout(
+    @CurrentUser() user: any,
+    @Headers('authorization') authorization: string,
   ) {
-    const user = req.user as User;
-    return this.authService.removeWallet(user.id, address, dto);
+    const accessToken = authorization.replace('Bearer ', '');
+    await this.authService.logout(accessToken, user.userId);
+    return { message: 'Logout successful' };
   }
 
-  @Patch('wallets/:address/primary')
+  @Post('revoke-all')
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Set a wallet as the primary wallet' })
-  @ApiResponse({ status: 200, description: 'Primary wallet updated successfully' })
-  async setPrimaryWallet(@Req() req: Request, @Param('address') address: string) {
-    const user = req.user as User;
-    return this.authService.setPrimaryWallet(user.id, address);
-  }
-
-  @Get('sessions')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'List active sessions for the current user (admins may specify userId)' })
-  async listSessions(
-    @Req() req: Request,
-    @Query('userId') userId?: string,
-    @Query('page') page = '1',
-    @Query('perPage') perPage = '20',
-  ) {
-    const requester = req.user as any;
-    const targetUserId = userId && requester.role === UserRole.ADMIN ? userId : requester.sub;
-
-    if (userId && requester.role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Insufficient permissions');
-    }
-
-    return this.authService.listSessionsForUser(targetUserId, parseInt(page as string, 10), parseInt(perPage as string, 10));
-  }
-
-  @Post('sessions/:id/revoke')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Revoke a specific session (owner or admin)' })
-  async revokeSession(
-    @Req() req: Request,
-    @Param('id') id: string,
-    @Query('userId') userId?: string,
-  ) {
-    const requester = req.user as any;
-
-    let targetUserId = requester.sub;
-
-    if (userId) {
-      // admin may specify userId
-      if (requester.role !== UserRole.ADMIN) throw new ForbiddenException('Insufficient permissions');
-      targetUserId = userId;
-    } else {
-      // ensure owner
-      const sessions = await this.authService.listSessionsForUser(requester.sub);
-      const owns = sessions.items.some((s: any) => s.id === id);
-      if (!owns && requester.role !== UserRole.ADMIN) throw new ForbiddenException('Cannot revoke sessions of other users');
-    }
-
-    await this.authService.revokeSessionById(targetUserId, id);
-    return { message: 'Session revoked' };
-  }
-
-  @Post('sessions/revoke-all')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Revoke all sessions for the current user except current' })
-  async revokeAll(@Req() req: Request) {
-    const requester = req.user as any;
-    const except = (requester as any).sid as string | undefined;
-    await this.authService.revokeAllSessionsExcept(requester.sub, except);
-    return { message: 'All other sessions revoked' };
-  }
-
-  @Get('csrf')
-  @ApiOperation({ summary: 'Get CSRF token for state-changing requests' })
-  @ApiResponse({ 
-    status: 200, 
-    description: 'Returns CSRF token',
-    type: Object
-  })
-  getCsrfToken(@Res() res: Response) {
-    const csrfToken = this.csrfService.generateToken();
-    
-    // Set CSRF token in httpOnly cookie
-    res.cookie('csrf-token', csrfToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 3600000 // 1 hour
-    });
-    
-    return res.json({ csrfToken });
-  }
-
-  @Post('forgot-password')
-  @RateLimit(RateLimits.NORMAL)
-  @ApiOperation({ summary: 'Request password reset OTP' })
-  @ApiBody({ type: ForgotPasswordDto })
-  @ApiResponse({ status: 200, description: 'OTP sent successfully (or email not found to prevent enumeration)' })
-  @ApiResponse({ status: 429, description: 'Too many requests' })
-  async forgotPassword(@Body() dto: ForgotPasswordDto) {
-    return this.authService.forgotPassword(dto);
-  }
-
-  @Post('verify-otp')
-  @RateLimit(RateLimits.NORMAL)
-  @ApiOperation({ summary: 'Verify password reset OTP' })
-  @ApiBody({ type: VerifyOtpDto })
-  @ApiResponse({ status: 200, description: 'OTP verification result' })
-  @ApiResponse({ status: 400, description: 'Invalid or expired OTP' })
-  @ApiResponse({ status: 429, description: 'Too many requests' })
-  async verifyOtp(@Body() dto: VerifyOtpDto) {
-    return this.authService.verifyOtp(dto);
-  }
-
-  @Post('reset-password')
-  @RateLimit(RateLimits.NORMAL)
-  @ApiOperation({ summary: 'Reset password with OTP' })
-  @ApiBody({ type: ResetPasswordDto })
-  @ApiResponse({ status: 200, description: 'Password reset successful' })
-  @ApiResponse({ status: 400, description: 'Invalid or expired OTP' })
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiTags('Session Management')
+  @ApiOperation({ summary: 'Revoke all sessions', description: 'Invalidates all refresh tokens and increments token version, forcing re-authentication on all devices. Rate limited to 3 requests/hour.' })
+  @ApiResponse({ status: 200, description: 'All sessions revoked', schema: { example: { message: 'All sessions revoked', revokedCount: 3 } } })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 429, description: 'Too many requests' })
-  async resetPassword(@Body() dto: ResetPasswordDto) {
-    return this.authService.resetPassword(dto);
+  async revokeAll(@CurrentUser() user: any) {
+    return this.authService.revokeAll(user.userId);
+  }
+
+  @Get('profile')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get current user profile' })
+  @ApiResponse({ status: 200, description: 'Profile retrieved', schema: { example: { id: 'uuid', walletAddress: 'G...', roles: ['mentee'], permissions: ['read:profile'] } } })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getProfile(@CurrentUser() user: any) {
+    return this.authService.getProfile(user.userId);
+  }
+
+  @Post('admin/assign-role')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Assign role to user (Admin only)' })
+  @ApiBody({ schema: { example: { userId: 'uuid', roleName: 'mentor' } } })
+  @ApiResponse({ status: 201, description: 'Role assigned' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — admin only' })
+  async assignRole(
+    @CurrentUser() user: any,
+    @Body() body: { userId: string; roleName: string },
+  ) {
+    return this.authService.assignRole(user.userId, body.userId, body.roleName);
+  }
+
+  @Post('admin/revoke-role')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Revoke role from user (Admin only)' })
+  @ApiBody({ schema: { example: { userId: 'uuid', roleName: 'mentor' } } })
+  @ApiResponse({ status: 201, description: 'Role revoked' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — admin only' })
+  async revokeRole(
+    @CurrentUser() user: any,
+    @Body() body: { userId: string; roleName: string },
+  ) {
+    return this.authService.revokeRole(user.userId, body.userId, body.roleName);
   }
 }
-

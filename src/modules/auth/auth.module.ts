@@ -1,51 +1,54 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { AuthService } from './providers/auth.service';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
-import { NonceService } from '../../common/cache/nonce.service';
-import { CacheService } from '../../common/cache/cache.service';
-import { RedisModule } from '../redis/redis.module';
-import { UserModule } from '../user/user.module';
-import { MailModule } from '../mail/mail.module';
-import { ConfigService } from '@nestjs/config';
-import { RateLimitService } from '../../common/cache/rate-limit.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { WalletStrategy } from './strategies/wallet.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { AuditModule } from '../audit/audit.module';
-import { StellarNonceService } from './providers/nonce.service';
-import { StellarStrategy } from './strategies/stellar.strategy';
-import { CommonModule } from '../../common/common.module';
+import { RolesGuard } from './guards/roles.guard';
+import { User } from './entities/user.entity';
+import { Role } from './entities/role.entity';
+import { RefreshToken } from './entities/refresh-token.entity';
+import { AuditLog } from './entities/audit-log.entity';
+import { RedisModule } from '../../redis/redis.module';
+import { SuspiciousLoginDetectionService } from './services/suspicious-login-detection.service';
+import { SuspiciousActivityController } from './controllers/suspicious-activity.controller';
 
 @Module({
   imports: [
+    TypeOrmModule.forFeature([User, Role, RefreshToken, AuditLog]),
     RedisModule,
-    forwardRef(() => AuditModule),
-    UserModule,
-    MailModule,
-    CommonModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET', 'dev-secret-key-for-skill-sync-server'),
+      imports: [ConfigModule],
+      useFactory: async (configService: ConfigService) => ({
+        secret: configService.get<string>('JWT_SECRET'),
         signOptions: {
-          expiresIn: 3600, // 1 hour in seconds
+          expiresIn: (configService.get<string>('JWT_EXPIRES_IN') || '24h') as any,
         },
       }),
       inject: [ConfigService],
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, SuspiciousActivityController],
   providers: [
     AuthService,
-    NonceService,
-    StellarNonceService,
-    CacheService,
-    RateLimitService,
+    SuspiciousLoginDetectionService,
     JwtStrategy,
-    StellarStrategy,
-    JwtAuthGuard
+    WalletStrategy,
+    JwtAuthGuard,
+    RolesGuard,
   ],
-  exports: [NonceService, StellarNonceService, AuthService, JwtStrategy, PassportModule, JwtAuthGuard],
+  exports: [
+    TypeOrmModule,
+    AuthService,
+    SuspiciousLoginDetectionService,
+    JwtAuthGuard,
+    RolesGuard,
+    PassportModule,
+  ],
 })
-export class AuthModule { }
+export class AuthModule {}
