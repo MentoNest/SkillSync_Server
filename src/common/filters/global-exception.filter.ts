@@ -9,17 +9,11 @@ import {
 import { Request, Response } from 'express';
 import { BusinessException } from '../exceptions/business.exception';
 import { ErrorCodes } from '../exceptions/error-codes.enum';
-
-export interface ErrorResponse {
-  statusCode: number;
-  message: string | string[];
-  error: string;
-  errorCode?: ErrorCodes;
-  timestamp: string;
-  path: string;
-  requestId?: string;
-  stack?: string;
-}
+import {
+  buildErrorResponse,
+  ErrorResponse,
+  ValidationFieldMessage,
+} from '../utils/api-response.util';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
@@ -67,15 +61,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const status = exception.getStatus();
     const exceptionResponse = exception.getResponse() as any;
 
-    return {
+    return buildErrorResponse(request, {
       statusCode: status,
       message: exceptionResponse.message || exception.message,
       error: exception.name,
       errorCode: exception.getErrorCode(),
-      timestamp: new Date().toISOString(),
-      path: request.url,
-      requestId: this.getRequestId(request),
-    };
+    });
   }
 
   private handleHttpException(
@@ -92,15 +83,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       message = this.formatValidationErrors(exceptionResponse.message);
     }
 
-    return {
+    return buildErrorResponse(request, {
       statusCode: status,
       message,
       error: exceptionResponse.error || this.getErrorName(status),
       errorCode: this.mapStatusCodeToErrorCode(status),
-      timestamp: new Date().toISOString(),
-      path: request.url,
-      requestId: this.getRequestId(request),
-    };
+    });
   }
 
   private handleUnknownException(
@@ -109,21 +97,15 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   ): ErrorResponse {
     this.logger.error('Unhandled exception caught', exception);
 
-    return {
+    return buildErrorResponse(request, {
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
       message: 'Internal server error',
       error: 'Internal Server Error',
       errorCode: ErrorCodes.INTERNAL_ERROR,
-      timestamp: new Date().toISOString(),
-      path: request.url,
-      requestId: this.getRequestId(request),
-    };
+    });
   }
 
-  private formatValidationErrors(errors: string[]): Array<{
-    field: string;
-    errors: string[];
-  }> {
+  private formatValidationErrors(errors: string[]): ValidationFieldMessage[] {
     return errors.map((error) => {
       // Expected format: "property should not be null" or "property must be an email"
       const match = error.match(/^(\w+)\s+(.+)$/);
@@ -166,10 +148,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     };
 
     return errorNames[status] || 'Error';
-  }
-
-  private getRequestId(request: Request): string | undefined {
-    return request.headers['x-request-id'] as string;
   }
 
   private logError(

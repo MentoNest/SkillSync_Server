@@ -44,6 +44,7 @@ describe('GlobalExceptionFilter', () => {
       expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.BAD_REQUEST);
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
+          success: false,
           statusCode: HttpStatus.BAD_REQUEST,
           message: 'Bad request',
           error: 'Bad Request',
@@ -61,6 +62,7 @@ describe('GlobalExceptionFilter', () => {
       expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.NOT_FOUND);
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
+          success: false,
           statusCode: HttpStatus.NOT_FOUND,
           message: 'Not found',
           error: 'Not Found',
@@ -77,6 +79,7 @@ describe('GlobalExceptionFilter', () => {
       expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.UNAUTHORIZED);
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
+          success: false,
           statusCode: HttpStatus.UNAUTHORIZED,
           message: 'Unauthorized',
           error: 'Unauthorized',
@@ -93,6 +96,7 @@ describe('GlobalExceptionFilter', () => {
       expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.FORBIDDEN);
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
+          success: false,
           statusCode: HttpStatus.FORBIDDEN,
           message: 'Forbidden',
           error: 'Forbidden',
@@ -115,6 +119,7 @@ describe('GlobalExceptionFilter', () => {
       expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.CONFLICT);
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
+          success: false,
           statusCode: HttpStatus.CONFLICT,
           message: 'Custom business error',
           errorCode: ErrorCodes.CONFLICT,
@@ -134,6 +139,7 @@ describe('GlobalExceptionFilter', () => {
       );
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
+          success: false,
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Internal server error',
           error: 'Internal Server Error',
@@ -229,6 +235,7 @@ describe('GlobalExceptionFilter', () => {
       const response = mockResponse.json.mock.calls[0][0];
 
       expect(response).toHaveProperty('statusCode');
+      expect(response).toHaveProperty('success', false);
       expect(response).toHaveProperty('message');
       expect(response).toHaveProperty('error');
       expect(response).toHaveProperty('errorCode');

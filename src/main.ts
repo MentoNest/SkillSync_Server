@@ -1,12 +1,13 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { ValidationPipe, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import * as compression from 'compression';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
+import { ApiResponseInterceptor } from './common/interceptors/api-response.interceptor';
 import { DataSource } from 'typeorm';
 import { AdminSeedService } from './database/seeds/admin-seed.service';
 
@@ -34,8 +35,8 @@ async function bootstrap() {
   // Global exception filter
   app.useGlobalFilters(new GlobalExceptionFilter());
 
-  // Global logging interceptor (removed in favor of structured request logger middleware)
-  // app.useGlobalInterceptors(new LoggingInterceptor());
+  // Global response envelope
+  app.useGlobalInterceptors(new ApiResponseInterceptor());
 
   // Global validation pipe with custom error formatting
   app.useGlobalPipes(
@@ -47,13 +48,17 @@ async function bootstrap() {
         enableImplicitConversion: true,
       },
       exceptionFactory: (errors) => {
-        const messages = errors.map((error) => {
+        const messages = errors.flatMap((error) => {
           const constraints = error.constraints
             ? Object.values(error.constraints)
             : [];
-          return `${error.property} ${constraints.join(', ')}`;
+          return constraints.map((message) => `${error.property} ${message}`);
         });
-        return new Error(messages.join(', '));
+
+        return new BadRequestException({
+          message: messages,
+          error: 'Bad Request',
+        });
       },
     }),
   );
