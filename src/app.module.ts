@@ -8,6 +8,7 @@ import { HealthModule } from './modules/health/health.module';
 import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
+import { RequestContextModule } from './common/request-context.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { UserModule } from './modules/user/user.module';
     }),
     ScheduleModule.forRoot(),
     AppConfigModule,
+    RequestContextModule,
     DatabaseModule.forRoot(),
     SeedModule,
     RedisModule.forRoot(),

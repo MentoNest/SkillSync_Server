@@ -1,5 +1,6 @@
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { AppConfigService } from '../config/app-config.service';
+import { DatabaseRequestSubscriber } from './subscribers/database-request.subscriber';
 
 export const createTypeOrmConfig = async (
   configService: AppConfigService,
@@ -22,6 +23,9 @@ export const createTypeOrmConfig = async (
     // Migration configuration
     migrations: [__dirname + '/migrations/*{.ts,.js}'],
     migrationsTableName: 'migrations',
+    
+    // Subscribers for request ID propagation
+    subscribers: [DatabaseRequestSubscriber],
     
     // Synchronization (only in development)
     synchronize: configService.get<boolean>('DATABASE_SYNCHRONIZE') || false,

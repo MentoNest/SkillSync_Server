@@ -1,6 +1,6 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
-import { v4 as uuidv4 } from 'uuid';
+import { RequestContextService } from '../services/request-context.service';
 import pino from 'pino';
 
 /**
@@ -38,57 +38,70 @@ const logger = pino({
 
 @Injectable()
 export class RequestLoggerMiddleware implements NestMiddleware {
+    private readonly requestContextService = new RequestContextService();
+
     use(req: Request, res: Response, next: NextFunction) {
         const { method, path, ip } = req;
         const userAgent = req.get('user-agent') || '';
-        const requestId = (req.headers['x-request-id'] as string) || uuidv4();
+        
+        // Get or create request ID (supports distributed tracing via X-Request-Id header)
+        const requestId = RequestContextService.getOrCreateRequestId(
+            req.headers['x-request-id'] as string
+        );
         const startTime = process.hrtime();
 
-        // Attach request ID for traceability
+        // Attach request ID to request and response headers
         req.headers['x-request-id'] = requestId;
         res.setHeader('X-Request-Id', requestId);
 
-        res.on('finish', () => {
-            const { statusCode } = res;
-            const hrendTime = process.hrtime(startTime);
-            const durationMs = (hrendTime[0] * 1000 + hrendTime[1] / 1000000).toFixed(3);
+        // Create request context and run middleware within it
+        const context = {
+            requestId,
+            timestamp: new Date(),
+        };
 
-            const logData: any = {
-                requestId,
-                method,
-                path,
-                statusCode,
-                duration: `${durationMs}ms`,
-                ip,
-                userAgent,
-                headers: req.headers,
-                body: req.body,
-            };
+        // Execute the request within the async local storage context
+        this.requestContextService.run(context, () => {
+            res.on('finish', () => {
+                const { statusCode } = res;
+                const hrendTime = process.hrtime(startTime);
+                const durationMs = (hrendTime[0] * 1000 + hrendTime[1] / 1000000).toFixed(3);
 
-            // Determine log level based on status code
-            let level: pino.Level = 'info';
-            if (statusCode >= 500) {
-                level = 'error';
-            } else if (statusCode >= 400) {
-                level = 'warn';
-            }
+                const logData: any = {
+                    requestId,
+                    method,
+                    path,
+                    statusCode,
+                    duration: `${durationMs}ms`,
+                    ip,
+                    userAgent,
+                };
 
-            const message = `${method} ${path} ${statusCode} - ${durationMs}ms`;
-
-            // Log errors with stack traces in development only
-            if (level === 'error') {
-                const error = (req as any).rawError; // We can attach the raw error object in the exception filter
-                if (process.env.NODE_ENV !== 'production' && error instanceof Error) {
-                    logData.stack = error.stack;
+                // Determine log level based on status code
+                let level: pino.Level = 'info';
+                if (statusCode >= 500) {
+                    level = 'error';
+                } else if (statusCode >= 400) {
+                    level = 'warn';
                 }
-                logger.error(logData, message);
-            } else if (level === 'warn') {
-                logger.warn(logData, message);
-            } else {
-                logger.info(logData, message);
-            }
-        });
 
-        next();
+                const message = `${method} ${path} ${statusCode} - ${durationMs}ms`;
+
+                // Log errors with stack traces in development only
+                if (level === 'error') {
+                    const error = (req as any).rawError;
+                    if (process.env.NODE_ENV !== 'production' && error instanceof Error) {
+                        logData.stack = error.stack;
+                    }
+                    logger.error(logData, message);
+                } else if (level === 'warn') {
+                    logger.warn(logData, message);
+                } else {
+                    logger.info(logData, message);
+                }
+            });
+
+            next();
+        });
     }
 }

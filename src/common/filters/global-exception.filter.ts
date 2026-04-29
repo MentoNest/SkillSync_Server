@@ -14,10 +14,12 @@ import {
   ErrorResponse,
   ValidationFieldMessage,
 } from '../utils/api-response.util';
+import { RequestContextService } from '../services/request-context.service';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(GlobalExceptionFilter.name);
+  private readonly requestContextService = new RequestContextService();
 
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -25,6 +27,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
 
     const isProduction = process.env.NODE_ENV === 'production';
+    const requestId = this.requestContextService.getRequestId();
 
     let errorResponse: ErrorResponse;
 
@@ -156,16 +159,18 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     request: Request,
   ): void {
     const { statusCode, message, path } = errorResponse;
+    const requestId = this.requestContextService.getRequestId();
+    const context = requestId ? `[${requestId}]` : '';
 
     if (statusCode >= 500) {
       this.logger.error(
-        `Internal Server Error: ${message}`,
+        `Internal Server Error: ${message} ${context}`,
         exception instanceof Error ? exception.stack : '',
         `${request.method} ${path}`,
       );
     } else if (statusCode >= 400) {
       this.logger.warn(
-        `Client Error: ${message}`,
+        `Client Error: ${message} ${context}`,
         `${request.method} ${path}`,
       );
     }
