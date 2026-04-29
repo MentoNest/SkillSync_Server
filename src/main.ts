@@ -12,6 +12,7 @@ import { ApiResponseInterceptor } from './common/interceptors/api-response.inter
 import { DataSource } from 'typeorm';
 import { AdminSeedService } from './database/seeds/admin-seed.service';
 import { CorsConfig } from './config/cors.config';
+import { ShutdownService } from './common/services/shutdown.service';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -178,7 +179,39 @@ async function bootstrap() {
     // Don't exit on seed failure - application can still run
   }
 
+  // Add shutdown service to app context
+  const shutdownService = app.get(ShutdownService);
+  const httpServer = app.getHttpServer();
+  shutdownService.setHttpServer(httpServer);
+
   await app.listen(configService.port);
+
+  // Setup graceful shutdown handlers
+  const signals: NodeJS.Signals[] = ['SIGTERM', 'SIGINT'];
+  
+  // Handler function to be registered for both signals
+  const shutdownHandler = async (signal: NodeJS.Signals) => {
+    logger.log(`Received ${signal} signal`);
+    // Remove all signal listeners to prevent duplicate shutdowns
+    signals.forEach(s => process.removeAllListeners(s));
+    await shutdownService.gracefulShutdown(signal);
+  };
+  
+  for (const signal of signals) {
+    process.on(signal, shutdownHandler);
+  }
+
+  // Handle uncaught exceptions
+  process.on('uncaughtException', (error) => {
+    logger.error('Uncaught Exception:', error instanceof Error ? error.stack : String(error));
+    // Don't shutdown on uncaught exceptions - let the app continue
+  });
+
+  // Handle unhandled promise rejections
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    // Don't shutdown on unhandled rejections - let the app continue
+  });
 
   // Log production configuration summary
   if (configService.isProduction) {
