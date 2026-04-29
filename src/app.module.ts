@@ -8,6 +8,7 @@ import { HealthModule } from './modules/health/health.module';
 import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
+import { SessionsModule } from './modules/sessions/sessions.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { UserModule } from './modules/user/user.module';
     RedisModule.forRoot(),
     AuthModule,
     UserModule,
+    SessionsModule,
     HealthModule,
   ],
 })
