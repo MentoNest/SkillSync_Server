@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '../../config/config.service';
 import { RedisService } from '../../redis/redis.service';
 import { DataSource } from 'typeorm';
+import { ShutdownService } from '../../common/services/shutdown.service';
 
 @Injectable()
 export class HealthService {
@@ -11,18 +12,41 @@ export class HealthService {
     private configService: ConfigService,
     private redisService: RedisService,
     private dataSource: DataSource,
+    private shutdownService: ShutdownService,
   ) {}
 
   check() {
+    // Return 503 if shutting down
+    if (this.shutdownService.isShuttingDownState()) {
+      throw new ServiceUnavailableException({
+        status: 'shutting_down',
+        message: 'Service is shutting down. Please try again later.',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
-      environment: this.configService.get('NODE_ENV'),
+      environment: this.configService.nodeEnv,
     };
   }
 
   async checkDetailed() {
+    // Return 503 if shutting down
+    if (this.shutdownService.isShuttingDownState()) {
+      throw new ServiceUnavailableException({
+        status: 'shutting_down',
+        message: 'Service is shutting down. Please try again later.',
+        timestamp: new Date().toISOString(),
+        services: {
+          database: { status: 'shutting_down' },
+          redis: { status: 'shutting_down' },
+        },
+      });
+    }
+
     const redisHealth = await this.checkRedis();
     const databaseHealth = await this.checkDatabase();
 
@@ -30,7 +54,7 @@ export class HealthService {
       status: 'ok',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
-      environment: this.configService.get('NODE_ENV'),
+      environment: this.configService.nodeEnv,
       version: process.env.npm_package_version || '1.0.0',
       memory: process.memoryUsage(),
       system: {

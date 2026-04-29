@@ -259,6 +259,13 @@ export class ConfigService {
   }
 
   /**
+   * 🛑 Graceful Shutdown Configuration
+   */
+  get shutdownTimeout(): number {
+    return parseInt(process.env.SHUTDOWN_TIMEOUT ?? '30000', 10); // Default 30 seconds
+  }
+
+  /**
    * 🔐 Validate all critical secrets are present
    * Call this at application startup in production
    */
