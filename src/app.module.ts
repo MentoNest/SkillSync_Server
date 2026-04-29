@@ -9,6 +9,7 @@ import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
 import { SessionsModule } from './modules/sessions/sessions.module';
+import { EncryptionModule } from './common/modules/encryption.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { SessionsModule } from './modules/sessions/sessions.module';
     }),
     ScheduleModule.forRoot(),
     AppConfigModule,
+    EncryptionModule,
     DatabaseModule.forRoot(),
     SeedModule,
     RedisModule.forRoot(),
