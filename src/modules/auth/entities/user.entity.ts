@@ -15,6 +15,7 @@ import { Role } from './role.entity';
 import { MentorProfile } from '../../user/entities/mentor-profile.entity';
 import { MenteeProfile } from '../../user/entities/mentee-profile.entity';
 import { Session } from '../../sessions/entities/session.entity';
+import { EncryptAndHash, Encrypt } from '../../../common/decorators/encrypt.decorator';
 
 export enum UserRole {
   USER = 'user',
@@ -35,6 +36,7 @@ export enum UserStatus {
 @Index(['status'])
 @Index(['createdAt'])
 @Index(['lastLoginAt'])
+@Index(['emailHash'])
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -44,8 +46,12 @@ export class User {
   walletAddress: string;
 
   @Index({ unique: true })
+  @EncryptAndHash()
   @Column({ unique: true, nullable: true })
   email: string;
+
+  @Column({ nullable: true })
+  emailHash: string;
 
   @Column({ nullable: true })
   displayName: string;
@@ -56,9 +62,11 @@ export class User {
   @Column({ nullable: true })
   avatarUrl: string;
 
+  @Encrypt()
   @Column({ nullable: true })
   timezone: string;
 
+  @Encrypt()
   @Column({ nullable: true })
   locale: string;
 
