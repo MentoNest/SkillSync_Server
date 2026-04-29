@@ -9,10 +9,12 @@ import {
   JoinTable,
   Index,
   OneToOne,
+  OneToMany,
 } from 'typeorm';
 import { Role } from './role.entity';
 import { MentorProfile } from '../../user/entities/mentor-profile.entity';
 import { MenteeProfile } from '../../user/entities/mentee-profile.entity';
+import { Session } from '../../sessions/entities/session.entity';
 
 export enum UserRole {
   USER = 'user',
@@ -85,6 +87,12 @@ export class User {
 
   @OneToOne(() => MenteeProfile, (menteeProfile) => menteeProfile.user, { nullable: true, cascade: true })
   menteeProfile: MenteeProfile;
+
+  @OneToMany(() => Session, (session) => session.mentor)
+  mentorSessions: Session[];
+
+  @OneToMany(() => Session, (session) => session.mentee)
+  menteeSessions: Session[];
 
   @CreateDateColumn()
   createdAt: Date;

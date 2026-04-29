@@ -9,6 +9,7 @@ import { HealthModule } from './modules/health/health.module';
 import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
+import { SessionsModule } from './modules/sessions/sessions.module';
 import { ShutdownModule } from './common/services/shutdown.module';
 
 @Module({
@@ -25,6 +26,7 @@ import { ShutdownModule } from './common/services/shutdown.module';
     RedisModule.forRoot(),
     AuthModule,
     UserModule,
+    SessionsModule,
     HealthModule,
     ShutdownModule,
   ],
