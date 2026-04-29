@@ -1,5 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '../../config/config.service';
 import { RedisService } from '../../redis/redis.service';
 import { DataSource } from 'typeorm';
 import { execFile } from 'child_process';
@@ -15,6 +15,7 @@ export class HealthService {
     private configService: ConfigService,
     private redisService: RedisService,
     private dataSource: DataSource,
+    private shutdownService: ShutdownService,
   ) {}
 
   async check() {
@@ -22,6 +23,19 @@ export class HealthService {
   }
 
   async checkDetailed() {
+    // Return 503 if shutting down
+    if (this.shutdownService.isShuttingDownState()) {
+      throw new ServiceUnavailableException({
+        status: 'shutting_down',
+        message: 'Service is shutting down. Please try again later.',
+        timestamp: new Date().toISOString(),
+        services: {
+          database: { status: 'shutting_down' },
+          redis: { status: 'shutting_down' },
+        },
+      });
+    }
+
     const redisHealth = await this.checkRedis();
     const databaseHealth = await this.checkDatabase();
     const diskHealth = await this.checkDisk();
@@ -31,7 +45,7 @@ export class HealthService {
       status: overallStatus,
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
-      environment: this.configService.get('NODE_ENV'),
+      environment: this.configService.nodeEnv,
       version: process.env.npm_package_version || '1.0.0',
       memory: process.memoryUsage(),
       system: {

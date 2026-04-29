@@ -11,6 +11,8 @@ import { RequestLoggerMiddleware } from './common/middleware/request-logger.midd
 import { ApiResponseInterceptor } from './common/interceptors/api-response.interceptor';
 import { DataSource } from 'typeorm';
 import { AdminSeedService } from './database/seeds/admin-seed.service';
+import { CorsConfig } from './config/cors.config';
+import { ShutdownService } from './common/services/shutdown.service';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -58,30 +60,25 @@ async function bootstrap() {
   // 🍪 Cookie Parser with secure settings
   app.use(cookieParser());
 
-  // 🌍 CORS via ConfigModule - Strict whitelist
-  app.enableCors({
-    origin: (
-      origin: string | undefined,
-      callback: (err: Error | null, allow?: boolean) => void,
-    ) => {
-      if (!origin) return callback(null, true);
-
-      if (configService.corsOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        logger.warn(`🚫 CORS blocked origin: ${origin}`);
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
-    methods: configService.corsMethods,
-    credentials: configService.corsCredentials,
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
-    exposedHeaders: ['X-Total-Count', 'X-Page-Count'],
-    maxAge: 600, // Cache preflight for 10 minutes
-  });
-  logger.log(
-    `🌍 CORS configured with origins: ${configService.corsOrigins.join(', ')}`,
+  // 🌍 CORS Configuration via ConfigModule - Strict whitelist with preflight handling
+  const corsOptions = CorsConfig.getCorsOptions(
+    configService.corsOrigins,
+    configService.corsMethods,
+    configService.corsCredentials,
+    !configService.isProduction,
   );
+
+  app.enableCors(corsOptions);
+
+  const allowedOriginsList = configService.corsOrigins.join(', ');
+  logger.log(
+    `🌍 CORS enabled with origins: ${allowedOriginsList || '(none configured)'}`,
+  );
+  logger.log(`🌍 CORS methods: ${configService.corsMethods.join(', ')}`);
+  logger.log(
+    `🌍 CORS credentials: ${configService.corsCredentials ? 'enabled' : 'disabled'}`,
+  );
+  logger.log(`🌍 CORS preflight cache: ${configService.corsPrefflightMaxAge}s`);
 
   // Global exception filter
   app.useGlobalFilters(new GlobalExceptionFilter());
@@ -182,7 +179,39 @@ async function bootstrap() {
     // Don't exit on seed failure - application can still run
   }
 
+  // Add shutdown service to app context
+  const shutdownService = app.get(ShutdownService);
+  const httpServer = app.getHttpServer();
+  shutdownService.setHttpServer(httpServer);
+
   await app.listen(configService.port);
+
+  // Setup graceful shutdown handlers
+  const signals: NodeJS.Signals[] = ['SIGTERM', 'SIGINT'];
+  
+  // Handler function to be registered for both signals
+  const shutdownHandler = async (signal: NodeJS.Signals) => {
+    logger.log(`Received ${signal} signal`);
+    // Remove all signal listeners to prevent duplicate shutdowns
+    signals.forEach(s => process.removeAllListeners(s));
+    await shutdownService.gracefulShutdown(signal);
+  };
+  
+  for (const signal of signals) {
+    process.on(signal, shutdownHandler);
+  }
+
+  // Handle uncaught exceptions
+  process.on('uncaughtException', (error) => {
+    logger.error('Uncaught Exception:', error instanceof Error ? error.stack : String(error));
+    // Don't shutdown on uncaught exceptions - let the app continue
+  });
+
+  // Handle unhandled promise rejections
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    // Don't shutdown on unhandled rejections - let the app continue
+  });
 
   // Log production configuration summary
   if (configService.isProduction) {

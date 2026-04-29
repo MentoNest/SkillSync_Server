@@ -54,22 +54,88 @@ export class ConfigService {
 
   /**
    * 🌍 CORS Configuration
+   * CORS_ORIGINS: Comma-separated list of allowed origins (e.g., https://example.com,https://app.example.com)
+   * In development, localhost:3000-5173 are automatically allowed
    */
   get corsOrigins(): string[] {
-    return (process.env.CORS_ORIGINS ?? '')
+    const configuredOrigins = (process.env.CORS_ORIGINS ?? '')
       .split(',')
       .map((origin) => origin.trim())
       .filter(Boolean);
+
+    // In development, automatically add localhost origins
+    if (!this.isProduction) {
+      const devOrigins = [
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:4200',
+        'http://localhost:5173', // Vite
+        'http://localhost:8080', // Vue
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3001',
+      ];
+
+      for (const devOrigin of devOrigins) {
+        if (!configuredOrigins.includes(devOrigin)) {
+          configuredOrigins.push(devOrigin);
+        }
+      }
+    }
+
+    return configuredOrigins;
   }
 
+  /**
+   * 🔄 CORS Methods Configuration
+   * Comma-separated list of allowed HTTP methods
+   */
   get corsMethods(): string[] {
     return (process.env.CORS_METHODS ?? 'GET,POST,PUT,PATCH,DELETE')
       .split(',')
-      .map((method) => method.trim());
+      .map((method) => method.trim().toUpperCase());
   }
 
+  /**
+   * 🍪 CORS Credentials Configuration
+   * Set to true to allow cookies and authorization headers
+   */
   get corsCredentials(): boolean {
-    return process.env.CORS_CREDENTIALS === 'true';
+    return process.env.CORS_CREDENTIALS !== 'false'; // Default to true
+  }
+
+  /**
+   * 📋 CORS Allowed Headers Configuration
+   * Headers that clients are allowed to send
+   */
+  get corsAllowedHeaders(): string[] {
+    return (
+      process.env.CORS_ALLOWED_HEADERS ??
+      'Content-Type,Authorization,Accept,X-CSRF-Token,X-Requested-With,User-Agent'
+    )
+      .split(',')
+      .map((header) => header.trim());
+  }
+
+  /**
+   * 📤 CORS Exposed Headers Configuration
+   * Headers that will be exposed to the client
+   */
+  get corsExposedHeaders(): string[] {
+    return (
+      process.env.CORS_EXPOSED_HEADERS ??
+      'X-Total-Count,X-Page-Count,X-Request-Id,Content-Length'
+    )
+      .split(',')
+      .map((header) => header.trim());
+  }
+
+  /**
+   * ⏱️ CORS Preflight Cache Duration
+   * How long (in seconds) to cache preflight requests
+   * Default: 600 seconds (10 minutes)
+   */
+  get corsPrefflightMaxAge(): number {
+    return parseInt(process.env.CORS_PREFLIGHT_MAX_AGE ?? '600', 10);
   }
 
   /**
@@ -190,6 +256,13 @@ export class ConfigService {
       .split(',')
       .map((path) => path.trim())
       .filter(Boolean);
+  }
+
+  /**
+   * 🛑 Graceful Shutdown Configuration
+   */
+  get shutdownTimeout(): number {
+    return parseInt(process.env.SHUTDOWN_TIMEOUT ?? '30000', 10); // Default 30 seconds
   }
 
   /**
