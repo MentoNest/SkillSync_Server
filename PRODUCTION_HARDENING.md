@@ -184,6 +184,33 @@ RATE_LIMIT_EXEMPT_PATHS=/health,/health/redis
 - [ ] Redis password protected
 - [ ] Regular backups configured
 
+### Kubernetes Probes
+
+Use the public health endpoint at `/health` for liveness and readiness checks.
+
+Example probe configuration:
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 2
+  failureThreshold: 3
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 2
+  failureThreshold: 3
+```
+
+The endpoint returns `200 OK` when all critical dependencies are healthy and `503 Service Unavailable` when database, Redis, or disk checks fail.
+
 ### Monitoring
 
 - [ ] Application logs monitored

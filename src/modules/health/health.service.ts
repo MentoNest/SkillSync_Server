@@ -2,7 +2,10 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { ConfigService } from '../../config/config.service';
 import { RedisService } from '../../redis/redis.service';
 import { DataSource } from 'typeorm';
-import { ShutdownService } from '../../common/services/shutdown.service';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
 
 @Injectable()
 export class HealthService {
@@ -15,22 +18,8 @@ export class HealthService {
     private shutdownService: ShutdownService,
   ) {}
 
-  check() {
-    // Return 503 if shutting down
-    if (this.shutdownService.isShuttingDownState()) {
-      throw new ServiceUnavailableException({
-        status: 'shutting_down',
-        message: 'Service is shutting down. Please try again later.',
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    return {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      environment: this.configService.nodeEnv,
-    };
+  async check() {
+    return this.checkDetailed();
   }
 
   async checkDetailed() {
@@ -49,9 +38,11 @@ export class HealthService {
 
     const redisHealth = await this.checkRedis();
     const databaseHealth = await this.checkDatabase();
+    const diskHealth = await this.checkDisk();
+    const overallStatus = this.evaluateStatus([databaseHealth, redisHealth, diskHealth]);
 
     return {
-      status: 'ok',
+      status: overallStatus,
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       environment: this.configService.nodeEnv,
@@ -65,13 +56,17 @@ export class HealthService {
         database: databaseHealth,
         redis: redisHealth,
       },
+      disk: diskHealth,
     };
+  }
+
+  private evaluateStatus(components: Array<{ status: string }>) {
+    return components.some((component) => component.status === 'unhealthy') ? 'unhealthy' : 'healthy';
   }
 
   private async checkRedis() {
     try {
-      const health = await this.redisService.ping();
-      return health;
+      return await this.redisService.ping();
     } catch (error) {
       this.logger.error('Redis health check failed', error.stack);
       return {
@@ -84,9 +79,8 @@ export class HealthService {
 
   private async checkDatabase() {
     const startTime = Date.now();
-    
+
     try {
-      // Test database connection with a simple query
       await this.dataSource.query('SELECT 1');
       const responseTime = Date.now() - startTime;
 
@@ -103,6 +97,54 @@ export class HealthService {
         status: 'unhealthy',
         responseTime: `${Date.now() - startTime}ms`,
         error: error.message,
+      };
+    }
+  }
+
+  private async checkDisk() {
+    const startTime = Date.now();
+
+    if (!['linux', 'darwin', 'freebsd'].includes(process.platform)) {
+      return {
+        status: 'unknown',
+        responseTime: `${Date.now() - startTime}ms`,
+        message: `Disk health check not supported on ${process.platform}`,
+      };
+    }
+
+    try {
+      const { stdout } = await execFileAsync('df', ['-k', '/']);
+      const responseTime = Date.now() - startTime;
+      const lines = stdout.trim().split('\n').filter(Boolean);
+      if (lines.length < 2) {
+        throw new Error('Unexpected disk usage output');
+      }
+
+      const parts = lines[1].split(/\s+/);
+      const [filesystem, total, used, available, usePercent, mountpoint] = parts;
+      const usageValue = parseInt(usePercent?.replace('%', '') ?? '0', 10);
+      const status = Number.isNaN(usageValue)
+        ? 'unknown'
+        : usageValue < 90
+        ? 'healthy'
+        : 'unhealthy';
+
+      return {
+        status,
+        responseTime: `${responseTime}ms`,
+        filesystem,
+        total: `${total}K`,
+        used: `${used}K`,
+        available: `${available}K`,
+        usagePercent: usePercent,
+        mountpoint,
+      };
+    } catch (error) {
+      this.logger.warn('Disk health check failed', error?.message ?? error);
+      return {
+        status: 'unknown',
+        responseTime: `${Date.now() - startTime}ms`,
+        error: error?.message ?? 'Disk check unavailable',
       };
     }
   }
