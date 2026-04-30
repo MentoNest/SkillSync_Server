@@ -10,6 +10,7 @@ import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
 import { SessionsModule } from './modules/sessions/sessions.module';
+import { EncryptionModule } from './common/modules/encryption.module';
 import { ShutdownModule } from './common/services/shutdown.module';
 
 @Module({
@@ -20,6 +21,7 @@ import { ShutdownModule } from './common/services/shutdown.module';
     }),
     ScheduleModule.forRoot(),
     AppConfigModule,
+    EncryptionModule,
     DatabaseModule.forRoot(),
     DatabaseBackupModule,
     SeedModule,

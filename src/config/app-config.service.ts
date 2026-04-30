@@ -52,6 +52,12 @@ export class AppConfigService {
       // Featured Mentors Configuration
       MAX_FEATURED_MENTORS: z.string().transform(Number).default(() => 10),
       FEATURED_MENTOR_EXPIRY_DAYS: z.string().transform(Number).default(() => 30),
+      
+      // Encryption Configuration
+      ENCRYPTION_KEY: z.string().min(32).optional(),
+      ENCRYPTION_HASH_KEY: z.string().min(32).optional(),
+      ENCRYPTION_SALT: z.string().optional(),
+      ENCRYPTION_HASH_SALT: z.string().optional(),
     });
 
     this.validateEnvironment();
@@ -127,6 +133,16 @@ export class AppConfigService {
     return {
       maxFeaturedMentors: this.get<number>('MAX_FEATURED_MENTORS'),
       expiryDays: this.get<number>('FEATURED_MENTOR_EXPIRY_DAYS'),
+    };
+  }
+
+  // Encryption configuration methods
+  getEncryptionConfig() {
+    return {
+      encryptionKey: this.get<string>('ENCRYPTION_KEY'),
+      hashKey: this.get<string>('ENCRYPTION_HASH_KEY'),
+      salt: this.get<string>('ENCRYPTION_SALT'),
+      hashSalt: this.get<string>('ENCRYPTION_HASH_SALT'),
     };
   }
 }
