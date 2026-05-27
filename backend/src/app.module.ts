@@ -5,8 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
 import { AppDataSource } from './database/data-source';
 import { HttpLoggerMiddleware } from './common/middleware/http-logger.middleware';
-import { ConfigModule } from '@nestjs/config';
-import { AppController } from './app.controller';
+import { AuthModule } from './auth/auth.module';
 import { RedisModule } from './redis/redis.module';
 import { HealthModule } from './health/health.module';
 
@@ -17,6 +16,7 @@ import { HealthModule } from './health/health.module';
       ...AppDataSource.options,
       retryAttempts: 5,
     }),
+    AuthModule,
     RedisModule,
     HealthModule,
   ],
