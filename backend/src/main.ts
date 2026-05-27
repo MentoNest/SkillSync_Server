@@ -1,7 +1,15 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { DataSource } from 'typeorm';
 
 async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  
+  // Verify database connection before starting server
+  const dataSource = app.get(DataSource);
+  if (!dataSource.isInitialized) {
+    throw new Error('Database connection failed to initialize');
+  }
   const app = await NestFactory.create(AppModule, {
     // Disable NestJS built-in logger noise; our middleware handles request logs
     logger: process.env.NODE_ENV === 'production' ? ['error', 'warn'] : ['log', 'error', 'warn', 'debug', 'verbose'],
