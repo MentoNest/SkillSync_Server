@@ -1,5 +1,11 @@
 #![no_std]
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, token, Address, Env};
+
+#[contracttype] pub enum DataKey { Session(u64) }
+#[contracttype] #[derive(Clone, PartialEq)] pub enum SessionState { Locked, Completed, Approved, Refunded }
+#[contracttype] #[derive(Clone)]
+pub struct Session { pub buyer: Address, pub seller: Address, pub amount: i128, pub state: SessionState }
+
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, vec, Env, String, Symbol, Vec};
 
 /// Basis-point denominator. 10_000 bps == 100%.
@@ -28,6 +34,10 @@ pub struct Session { pub buyer: Address, pub seller: Address, pub amount: i128, 
 impl EscrowContract {
     pub fn lock_funds(env: Env, session_id: u64, buyer: Address, seller: Address, amount: i128, token_id: Address) {
         buyer.require_auth();
+        assert!(amount > 0, "amount must be positive");
+        assert!(!env.storage().persistent().has(&DataKey::Session(session_id)), "duplicate session");
+        token::Client::new(&env, &token_id).transfer(&buyer, &env.current_contract_address(), &amount);
+        env.storage().persistent().set(&DataKey::Session(session_id), &Session { buyer, seller, amount, state: SessionState::Locked });
         assert!(amount > 0);
         assert!(!env.storage().persistent().has(&DataKey::Session(session_id)));
         token::Client::new(&env, &token_id).transfer(&buyer, &env.current_contract_address(), &amount);
@@ -62,6 +72,9 @@ impl EscrowContract {
         s.state = SessionState::Refunded;
         env.storage().persistent().set(&DataKey::Session(session_id), &s);
         env.events().publish((symbol_short!("REFUNDED"), session_id), s.amount);
+    }
+    pub fn get_session(env: Env, session_id: u64) -> Session {
+        env.storage().persistent().get(&DataKey::Session(session_id)).unwrap()
     }
     pub fn auto_refund(env: Env, session_id: u64, token_id: Address) {
         let mut s: Session = env.storage().persistent().get(&DataKey::Session(session_id)).unwrap();
