@@ -8,6 +8,7 @@ import { HttpLoggerMiddleware } from './common/middleware/http-logger.middleware
 import { AuthModule } from './auth/auth.module';
 import { RedisModule } from './redis/redis.module';
 import { HealthModule } from './health/health.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { HealthModule } from './health/health.module';
       retryAttempts: 5,
     }),
     AuthModule,
+    UsersModule,
     RedisModule,
     HealthModule,
   ],
