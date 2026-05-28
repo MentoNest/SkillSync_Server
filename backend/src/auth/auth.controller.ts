@@ -9,22 +9,33 @@ import {
 import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { LoginDto } from './dto/login.dto';
 import { Get, Param } from '@nestjs/common';
-import { NonceProvider } from '../providers/nonce.provider';
+import { NonceProvider } from './providers/nonce.provider';
 
 @Controller('auth')
 export class AuthController {
   constructor(
-  private readonly authService: AuthService,
-  private readonly nonceProvider: NonceProvider,
-) {}
+    private readonly authService: AuthService,
+    private readonly nonceProvider: NonceProvider,
+  ) {}
 
-@Get('nonce/:walletAddress')
-async generateNonce(
-  @Param('walletAddress') walletAddress: string,
-) {
-  return this.nonceProvider.generate(walletAddress);
-}
+  @Get('nonce/:walletAddress')
+  async generateNonce(@Param('walletAddress') walletAddress: string) {
+    return this.nonceProvider.generate(walletAddress);
+  }
+
+  @Post('login')
+  @HttpCode(200)
+  async login(@Body() body: LoginDto, @Req() request: Request) {
+    // TODO: Implement Stellar signature verification
+    // For now, we'll trust the wallet address from the request
+    return this.authService.login(body.walletAddress, {
+      ipAddress: this.getIpAddress(request),
+      userAgent: request.headers['user-agent'] ?? null,
+      deviceFingerprint: this.getDeviceFingerprint(request),
+    });
+  }
 
   @Post('refresh')
   @HttpCode(200)
@@ -53,6 +64,4 @@ async generateNonce(
     const header = request.headers['x-device-fingerprint'];
     return typeof header === 'string' && header.length > 0 ? header : null;
   }
-
-  
 }
