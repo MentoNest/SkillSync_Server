@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import { AuditLogService, RequestAudit } from './audit-log.service';
 import { RefreshToken } from './entities/refresh-token.entity';
 
 type JwtClaims = Record<string, unknown> & {
@@ -11,12 +12,6 @@ type JwtClaims = Record<string, unknown> & {
   typ?: 'access' | 'refresh';
   iat?: number;
   exp?: number;
-};
-
-type RequestAudit = {
-  ipAddress: string | null;
-  userAgent: string | string[] | null;
-  deviceFingerprint: string | null;
 };
 
 type TokenPair = {
@@ -39,63 +34,84 @@ export class AuthService {
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   async refresh(refreshToken: string, audit: RequestAudit): Promise<TokenPair> {
-    const payload = this.verifyRefreshToken(refreshToken);
-    const tokenHash = this.hashToken(refreshToken);
-    const now = new Date();
+    let userId: string | null = null;
+    try {
+      const payload = this.verifyRefreshToken(refreshToken);
+      userId = payload.sub;
+      const tokenHash = this.hashToken(refreshToken);
+      const now = new Date();
 
-    return this.dataSource.transaction(async (manager) => {
-      const token = await manager.findOne(RefreshToken, {
-        where: { tokenHash },
-        lock: { mode: 'pessimistic_write' },
+      const pair = await this.dataSource.transaction(async (manager: EntityManager) => {
+        const token = await manager.findOne(RefreshToken, {
+          where: { tokenHash },
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        if (!token) {
+          throw new UnauthorizedException('Invalid refresh token');
+        }
+
+        if (token.expiresAt.getTime() <= now.getTime()) {
+          throw new UnauthorizedException('Refresh token has expired');
+        }
+
+        if (token.revokedAt) {
+          await this.handleRefreshTokenReuse(manager, token, audit);
+          throw new UnauthorizedException('Refresh token has been revoked');
+        }
+
+        if (token.userId !== payload.sub) {
+          throw new UnauthorizedException(
+            'Refresh token does not match the authenticated user',
+          );
+        }
+
+        const coreClaims = this.getCoreClaims(payload);
+        const nextPair = this.createSignedTokenPair(coreClaims);
+        const replacement = this.refreshTokenRepository.create({
+          tokenHash: this.hashToken(nextPair.refreshToken),
+          userId: token.userId,
+          walletAddress: token.walletAddress,
+          familyId: token.familyId,
+          expiresAt: new Date(Date.now() + nextPair.refreshExpiresIn * 1000),
+          revokedAt: null,
+          replacedByTokenId: null,
+          userAgent: this.normalizeHeader(audit.userAgent),
+          ipAddress: audit.ipAddress,
+          deviceFingerprint: audit.deviceFingerprint,
+          lastUsedAt: null,
+          concurrentReuseDetectedAt: null,
+        });
+
+        const savedReplacement = await manager.save(RefreshToken, replacement);
+        token.revokedAt = now;
+        token.replacedByTokenId = savedReplacement.id;
+        token.lastUsedAt = now;
+        await manager.save(RefreshToken, token);
+
+        return nextPair;
       });
 
-      if (!token) {
-        throw new UnauthorizedException('Invalid refresh token');
-      }
-
-      if (token.expiresAt.getTime() <= now.getTime()) {
-        throw new UnauthorizedException('Refresh token has expired');
-      }
-
-      if (token.revokedAt) {
-        await this.handleRefreshTokenReuse(manager, token, audit);
-        throw new UnauthorizedException('Refresh token has been revoked');
-      }
-
-      if (token.userId !== payload.sub) {
-        throw new UnauthorizedException(
-          'Refresh token does not match the authenticated user',
-        );
-      }
-
-      const coreClaims = this.getCoreClaims(payload);
-      const pair = this.createSignedTokenPair(coreClaims);
-      const replacement = this.refreshTokenRepository.create({
-        tokenHash: this.hashToken(pair.refreshToken),
-        userId: token.userId,
-        walletAddress: token.walletAddress,
-        familyId: token.familyId,
-        expiresAt: new Date(Date.now() + pair.refreshExpiresIn * 1000),
-        revokedAt: null,
-        replacedByTokenId: null,
-        userAgent: this.normalizeHeader(audit.userAgent),
-        ipAddress: audit.ipAddress,
-        deviceFingerprint: audit.deviceFingerprint,
-        lastUsedAt: null,
-        concurrentReuseDetectedAt: null,
+      await this.auditLogService.logRefreshTokenUsage({
+        userId,
+        success: true,
+        audit,
       });
-
-      const savedReplacement = await manager.save(RefreshToken, replacement);
-      token.revokedAt = now;
-      token.replacedByTokenId = savedReplacement.id;
-      token.lastUsedAt = now;
-      await manager.save(RefreshToken, token);
 
       return pair;
-    });
+    } catch (error) {
+      await this.auditLogService.logRefreshTokenUsage({
+        userId,
+        success: false,
+        reason: error instanceof Error ? error.message : 'Unknown refresh failure',
+        audit,
+      });
+      throw error;
+    }
   }
 
   async issueTokenPair(claims: JwtClaims, audit: RequestAudit): Promise<TokenPair> {
@@ -119,6 +135,52 @@ export class AuthService {
     );
 
     return pair;
+  }
+
+  async logLoginSuccess(userId: string, walletAddress: string | null, audit: RequestAudit): Promise<void> {
+    await this.auditLogService.logLoginSuccess({
+      userId,
+      walletAddress,
+      audit,
+    });
+  }
+
+  async logLoginFailure(
+    attemptedWalletAddress: string,
+    audit: RequestAudit,
+    reason?: string,
+  ): Promise<void> {
+    await this.auditLogService.logLoginFailure({
+      attemptedWalletAddress,
+      reason,
+      audit,
+    });
+  }
+
+  async logLogout(userId: string, audit: RequestAudit): Promise<void> {
+    await this.auditLogService.logLogout({ userId, audit });
+  }
+
+  async logPasswordEquivalentChange(
+    userId: string,
+    audit: RequestAudit,
+    details?: Record<string, unknown>,
+  ): Promise<void> {
+    await this.auditLogService.logPasswordEquivalentChange({ userId, audit, details });
+  }
+
+  async logRoleAssignment(
+    userId: string,
+    assignedRole: string,
+    audit: RequestAudit,
+    assignedByUserId?: string,
+  ): Promise<void> {
+    await this.auditLogService.logRoleAssignment({
+      userId,
+      assignedRole,
+      assignedByUserId,
+      audit,
+    });
   }
 
   private async handleRefreshTokenReuse(
