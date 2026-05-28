@@ -9,10 +9,22 @@ import {
 import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { Get, Param } from '@nestjs/common';
+import { NonceProvider } from '../providers/nonce.provider';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+  private readonly authService: AuthService,
+  private readonly nonceProvider: NonceProvider,
+) {}
+
+@Get('nonce/:walletAddress')
+async generateNonce(
+  @Param('walletAddress') walletAddress: string,
+) {
+  return this.nonceProvider.generate(walletAddress);
+}
 
   @Post('refresh')
   @HttpCode(200)
@@ -41,4 +53,6 @@ export class AuthController {
     const header = request.headers['x-device-fingerprint'];
     return typeof header === 'string' && header.length > 0 ? header : null;
   }
+
+  
 }
