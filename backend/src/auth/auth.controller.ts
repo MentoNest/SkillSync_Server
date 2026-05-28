@@ -1,0 +1,44 @@
+import {
+  Body,
+  Controller,
+  HttpCode,
+  Post,
+  Req,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { Request } from 'express';
+import { AuthService } from './auth.service';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
+
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  @Post('refresh')
+  @HttpCode(200)
+  refresh(@Body() body: RefreshTokenDto, @Req() request: Request) {
+    if (!body?.refreshToken || typeof body.refreshToken !== 'string') {
+      throw new UnauthorizedException('Refresh token is required');
+    }
+
+    return this.authService.refresh(body.refreshToken, {
+      ipAddress: this.getIpAddress(request),
+      userAgent: request.headers['user-agent'] ?? null,
+      deviceFingerprint: this.getDeviceFingerprint(request),
+    });
+  }
+
+  private getIpAddress(request: Request): string | null {
+    const forwardedFor = request.headers['x-forwarded-for'];
+    if (typeof forwardedFor === 'string' && forwardedFor.length > 0) {
+      return forwardedFor.split(',')[0].trim();
+    }
+
+    return request.socket.remoteAddress ?? null;
+  }
+
+  private getDeviceFingerprint(request: Request): string | null {
+    const header = request.headers['x-device-fingerprint'];
+    return typeof header === 'string' && header.length > 0 ? header : null;
+  }
+}
