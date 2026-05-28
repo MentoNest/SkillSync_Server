@@ -3,12 +3,21 @@
 use super::{Contract, ContractClient};
 use soroban_sdk::{vec, Env, String};
 
-#[test]
-fn test() {
+/// Spin up a fresh env + freshly-registered contract instance for each test.
+fn setup<'a>() -> (Env, ContractClient<'a>) {
     let env = Env::default();
     let contract_id = env.register(Contract, ());
     let client = ContractClient::new(&env, &contract_id);
+    (env, client)
+}
 
+// ---------------------------------------------------------------------------
+// Existing smoke test (kept to guarantee the contract still wires up).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn hello_returns_greeting() {
+    let (env, client) = setup();
     let words = client.hello(&String::from_str(&env, "Dev"));
     assert_eq!(
         words,
@@ -17,5 +26,192 @@ fn test() {
             String::from_str(&env, "Hello"),
             String::from_str(&env, "Dev"),
         ]
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Fee calculation tests
+// Acceptance criteria from the task description.
+// ---------------------------------------------------------------------------
+
+/// AC: Fee = 0 bps -> seller receives the full amount, treasury gets nothing.
+#[test]
+fn fee_zero_bps_seller_receives_full_amount() {
+    let (_env, client) = setup();
+
+    let split = client.calculate_fee(&1_000, &0);
+
+    assert_eq!(split.seller_amount, 1_000);
+    assert_eq!(split.treasury_amount, 0);
+    assert_eq!(split.seller_amount + split.treasury_amount, 1_000);
+}
+
+/// AC: Fee = 1000 bps (10%) -> seller receives 90%, treasury receives 10%.
+#[test]
+fn fee_1000_bps_seller_receives_ninety_percent() {
+    let (_env, client) = setup();
+
+    let split = client.calculate_fee(&1_000, &1_000);
+
+    assert_eq!(split.seller_amount, 900);
+    assert_eq!(split.treasury_amount, 100);
+    assert_eq!(split.seller_amount + split.treasury_amount, 1_000);
+}
+
+/// AC: Odd amounts (e.g. 1234 amount, 123 bps) round DOWN to the smallest unit.
+/// 1234 * 123 / 10_000 = 151_782 / 10_000 = 15 (truncated from 15.1782).
+#[test]
+fn fee_with_odd_amount_rounds_down_to_smallest_unit() {
+    let (_env, client) = setup();
+
+    let split = client.calculate_fee(&1234, &123);
+
+    assert_eq!(split.treasury_amount, 15, "treasury must round down");
+    assert_eq!(split.seller_amount, 1234 - 15);
+    // No value is ever lost: seller + treasury == amount.
+    assert_eq!(split.seller_amount + split.treasury_amount, 1234);
+}
+
+/// Additional rounding spot-checks across a few odd combinations.
+#[test]
+fn fee_rounding_behaviour_is_consistent() {
+    let (_env, client) = setup();
+
+    // 1 * 9999 / 10_000 = 0  (sub-unit fee rounds down to 0)
+    let s = client.calculate_fee(&1, &9_999);
+    assert_eq!(s.treasury_amount, 0);
+    assert_eq!(s.seller_amount, 1);
+
+    // 9_999 * 1 / 10_000 = 0  (rounds down to 0)
+    let s = client.calculate_fee(&9_999, &1);
+    assert_eq!(s.treasury_amount, 0);
+    assert_eq!(s.seller_amount, 9_999);
+
+    // 12_345 * 333 / 10_000 = 4_110_885 / 10_000 = 411 (truncated from 411.08...)
+    let s = client.calculate_fee(&12_345, &333);
+    assert_eq!(s.treasury_amount, 411);
+    assert_eq!(s.seller_amount, 12_345 - 411);
+}
+
+/// AC: Fee never exceeds amount.
+/// Verified by:
+///   - explicit 100% boundary case (max_bps -> treasury == amount, seller == 0)
+///   - sweep across many bps values to confirm the invariant holds
+///   - explicit rejection of out-of-range fee_bps (> 10_000)
+#[test]
+fn fee_never_exceeds_amount() {
+    let (_env, client) = setup();
+
+    // 100% fee: treasury takes everything, seller takes nothing.
+    let max_fee = client.calculate_fee(&1_000, &10_000);
+    assert_eq!(max_fee.treasury_amount, 1_000);
+    assert_eq!(max_fee.seller_amount, 0);
+
+    // Invariant sweep across the valid bps range and a few sample amounts.
+    let bps_samples: [u32; 11] = [
+        0, 1, 50, 250, 999, 1_000, 4_999, 5_000, 7_500, 9_999, 10_000,
+    ];
+    let amount_samples: [i128; 5] = [1, 7, 1_234, 9_999, 1_000_000_000];
+
+    for amount in amount_samples {
+        for bps in bps_samples {
+            let split = client.calculate_fee(&amount, &bps);
+            assert!(
+                split.treasury_amount <= amount,
+                "treasury {} exceeded amount {} at bps {}",
+                split.treasury_amount,
+                amount,
+                bps,
+            );
+            assert!(
+                split.seller_amount >= 0,
+                "seller went negative at amount {} bps {}",
+                amount,
+                bps,
+            );
+            assert_eq!(
+                split.seller_amount + split.treasury_amount,
+                amount,
+                "split must conserve amount (amount {}, bps {})",
+                amount,
+                bps,
+            );
+        }
+    }
+}
+
+/// Out-of-range fee_bps must be rejected so a fee can never exceed `amount`.
+#[test]
+#[should_panic(expected = "fee_bps must not exceed 10000")]
+fn fee_bps_above_max_is_rejected() {
+    let (_env, client) = setup();
+    client.calculate_fee(&1_000, &10_001);
+}
+
+/// Negative amounts are rejected.
+#[test]
+#[should_panic(expected = "amount must be non-negative")]
+fn negative_amount_is_rejected() {
+    let (_env, client) = setup();
+    client.calculate_fee(&-1, &100);
+}
+
+/// AC: Treasury balance accumulates correctly over multiple sessions.
+#[test]
+fn treasury_balance_accumulates_across_multiple_sessions() {
+    let (_env, client) = setup();
+
+    // Fresh contract starts with an empty treasury.
+    assert_eq!(client.treasury_balance(), 0);
+
+    // Session 1: 1000 @ 250 bps (2.5%) -> treasury 25, seller 975.
+    let s1 = client.settle_session(&1_000, &250);
+    assert_eq!(s1.treasury_amount, 25);
+    assert_eq!(s1.seller_amount, 975);
+    assert_eq!(client.treasury_balance(), 25);
+
+    // Session 2: 1234 @ 123 bps -> treasury 15 (rounded down), seller 1219.
+    let s2 = client.settle_session(&1_234, &123);
+    assert_eq!(s2.treasury_amount, 15);
+    assert_eq!(s2.seller_amount, 1_219);
+    assert_eq!(client.treasury_balance(), 25 + 15);
+
+    // Session 3: 500 @ 1000 bps (10%) -> treasury 50, seller 450.
+    let s3 = client.settle_session(&500, &1_000);
+    assert_eq!(s3.treasury_amount, 50);
+    assert_eq!(s3.seller_amount, 450);
+    assert_eq!(client.treasury_balance(), 25 + 15 + 50);
+
+    // Session 4: 999 @ 0 bps -> treasury unchanged, seller gets everything.
+    let s4 = client.settle_session(&999, &0);
+    assert_eq!(s4.treasury_amount, 0);
+    assert_eq!(s4.seller_amount, 999);
+    assert_eq!(client.treasury_balance(), 25 + 15 + 50);
+
+    // Session 5: 200 @ 10_000 bps (100%) -> entire amount goes to treasury.
+    let s5 = client.settle_session(&200, &10_000);
+    assert_eq!(s5.treasury_amount, 200);
+    assert_eq!(s5.seller_amount, 0);
+    assert_eq!(client.treasury_balance(), 25 + 15 + 50 + 200);
+}
+
+/// Treasury balances are isolated per contract instance.
+#[test]
+fn treasury_balance_is_isolated_per_contract_instance() {
+    let env = Env::default();
+
+    let id_a = env.register(Contract, ());
+    let id_b = env.register(Contract, ());
+    let client_a = ContractClient::new(&env, &id_a);
+    let client_b = ContractClient::new(&env, &id_b);
+
+    client_a.settle_session(&1_000, &500); // treasury_a += 50
+    client_a.settle_session(&2_000, &250); // treasury_a += 50
+
+    assert_eq!(client_a.treasury_balance(), 100);
+    assert_eq!(
+        client_b.treasury_balance(),
+        0,
+        "instance B must not see instance A's treasury"
     );
 }
