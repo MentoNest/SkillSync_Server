@@ -11,6 +11,7 @@ import { AuditLogsController } from './audit-logs.controller';
 import { AuditLogService } from './audit-log.service';
 import { AdminAccessGuard } from './admin-access.guard';
 import { AuditLog } from './entities/audit-log.entity';
+
 import { RefreshToken } from './entities/refresh-token.entity';
 
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -48,9 +49,11 @@ import { WalletStrategy } from './strategies/wallet.strategy';
     JwtStrategy,
     WalletStrategy,
   ],
+
   imports: [ConfigModule, TypeOrmModule.forFeature([RefreshToken, AuditLog])],
   controllers: [AuthController, AuditLogsController],
   providers: [AuthService, AuditLogService, AdminAccessGuard],
   exports: [AuthService],
+
 })
 export class AuthModule {}
