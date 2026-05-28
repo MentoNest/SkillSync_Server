@@ -10,6 +10,16 @@ pub enum SessionState {
     Disputed,
     Refunded,
 }
+
+#[contracttype]
+#[derive(Clone)]
+pub enum SessionState {
+    Pending,
+    Locked,
+    Completed,
+    Disputed,
+    Refunded,
+}
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, token, Address, Env};
 
 #[contracttype] pub enum DataKey { Session(u64) }
@@ -77,6 +87,17 @@ impl Contract {
     pub fn resolve(env: Env, admin: Address, _buyer_pct: u32) {
         admin.require_auth();
         env.storage().instance().set(&symbol_short!("state"), &SessionState::Refunded);
+    }
+
+    pub fn refund(env: Env) {
+        env.storage().instance().set(&symbol_short!("state"), &SessionState::Refunded);
+    }
+
+    pub fn get_state(env: Env) -> SessionState {
+        env.storage()
+            .instance()
+            .get(&symbol_short!("state"))
+            .unwrap_or(SessionState::Pending)
     }
 
     pub fn refund(env: Env) {
