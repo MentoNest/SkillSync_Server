@@ -77,6 +77,7 @@ impl EscrowContract {
         env.storage().persistent().get(&DataKey::Session(session_id)).unwrap()
     }
     }
+    }
     pub fn auto_refund(env: Env, session_id: u64, token_id: Address) {
         let mut s: Session = env.storage().persistent().get(&DataKey::Session(session_id)).unwrap();
         assert_eq!(s.state, SessionState::Completed);
