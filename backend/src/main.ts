@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { DataSource } from 'typeorm';
 
@@ -22,6 +23,24 @@ async function bootstrap() {
     res.locals.error = _err;
     next(_err);
   });
+
+
+  if (process.env.NODE_ENV !== 'production') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('SkillSync API')
+      .setDescription('SkillSync authentication and user management API')
+      .setVersion('1.0')
+      .addBearerAuth(
+        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+        'Bearer Auth',
+      )
+      .addTag('Authentication')
+      .addTag('Wallet')
+      .addTag('Session Management')
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   await app.listen(process.env.PORT ?? 3000);
 }
