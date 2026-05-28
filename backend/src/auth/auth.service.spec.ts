@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, IsNull } from 'typeorm';
+import { AuditLogService } from './audit-log.service';
 import { AuthService } from './auth.service';
 import { RefreshToken } from './entities/refresh-token.entity';
 
@@ -56,6 +57,14 @@ class InMemoryEntityManager {
 describe('AuthService', () => {
   let service: AuthService;
   let repository: InMemoryRefreshTokenRepository;
+  let auditLogService: {
+    logRefreshTokenUsage: jest.Mock;
+    logLoginSuccess: jest.Mock;
+    logLoginFailure: jest.Mock;
+    logLogout: jest.Mock;
+    logPasswordEquivalentChange: jest.Mock;
+    logRoleAssignment: jest.Mock;
+  };
   const config: Record<string, string> = {
     JWT_SECRET: 'test-secret',
     REFRESH_TOKEN_HASH_SECRET: 'hash-secret',
@@ -67,6 +76,14 @@ describe('AuthService', () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
     repository = new InMemoryRefreshTokenRepository();
     const manager = new InMemoryEntityManager(repository);
+    auditLogService = {
+      logRefreshTokenUsage: jest.fn().mockResolvedValue(undefined),
+      logLoginSuccess: jest.fn().mockResolvedValue(undefined),
+      logLoginFailure: jest.fn().mockResolvedValue(undefined),
+      logLogout: jest.fn().mockResolvedValue(undefined),
+      logPasswordEquivalentChange: jest.fn().mockResolvedValue(undefined),
+      logRoleAssignment: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -88,6 +105,10 @@ describe('AuthService', () => {
           useValue: {
             get: (key: string) => config[key],
           },
+        },
+        {
+          provide: AuditLogService,
+          useValue: auditLogService,
         },
       ],
     }).compile();
@@ -116,6 +137,9 @@ describe('AuthService', () => {
     expect(repository.tokens[0].replacedByTokenId).toBe(repository.tokens[1].id);
     expect(repository.tokens[1].revokedAt).toBeNull();
     expect(repository.tokens[1].ipAddress).toBe('10.0.0.2');
+    expect(auditLogService.logRefreshTokenUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ success: true, userId: 'user-1' }),
+    );
   });
 
   it('returns 401 when the refresh token is expired', async () => {
@@ -124,6 +148,9 @@ describe('AuthService', () => {
 
     await expect(service.refresh(issued.refreshToken, audit())).rejects.toBeInstanceOf(
       UnauthorizedException,
+    );
+    expect(auditLogService.logRefreshTokenUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ success: false, userId: 'user-1' }),
     );
   });
 

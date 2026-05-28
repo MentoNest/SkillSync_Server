@@ -20,6 +20,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { WalletStrategy } from './strategies/wallet.strategy';
 
 @Module({
+
   imports: [
     ConfigModule,
     TypeOrmModule.forFeature([RefreshToken]),
