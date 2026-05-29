@@ -1,0 +1,53 @@
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { User } from '../users/entities/user.entity';
+import { ProfileHistory } from '../users/entities/profile-history.entity';
+
+@Injectable()
+export class AdminService {
+  constructor(
+    @InjectRepository(User) private readonly userRepo: Repository<User>,
+    @InjectRepository(ProfileHistory) private readonly historyRepo: Repository<ProfileHistory>,
+  ) {}
+
+  async verifyMentor(
+    mentorId: string,
+    adminId: string,
+    notes?: string,
+  ): Promise<User> {
+    const user = await this.userRepo.findOne({ where: { id: mentorId } });
+    if (!user) throw new NotFoundException('Mentor not found');
+
+    user.isVerified = true;
+    user.verifiedAt = new Date();
+    user.verifiedBy = adminId;
+    user.verificationNotes = notes ?? null;
+    return this.userRepo.save(user);
+  }
+
+  async revokeVerification(mentorId: string, adminId: string): Promise<User> {
+    const user = await this.userRepo.findOne({ where: { id: mentorId } });
+    if (!user) throw new NotFoundException('Mentor not found');
+
+    user.isVerified = false;
+    user.verifiedAt = null;
+    user.verifiedBy = adminId;
+    user.verificationNotes = null;
+    return this.userRepo.save(user);
+  }
+
+  async getProfileHistory(
+    userId: string,
+    limit = 50,
+    offset = 0,
+  ): Promise<{ items: ProfileHistory[]; total: number }> {
+    const [items, total] = await this.historyRepo.findAndCount({
+      where: { userId },
+      order: { changedAt: 'DESC' },
+      take: limit,
+      skip: offset,
+    });
+    return { items, total };
+  }
+}
