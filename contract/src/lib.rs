@@ -273,5 +273,251 @@ impl EscrowContract {
     }
 }
 
+// ============================================================================
+// SkillSync Escrow Contract — issues #521 #522 #523 #525 #526 #527
+// ============================================================================
+
+pub type Bytes32 = BytesN<32>;
+
+/// Session status enum (#525)
+#[contracttype]
+#[derive(Clone, PartialEq, Debug)]
+pub enum Status {
+    Locked,
+    Completed,
+    Approved,
+    Refunded,
+    Disputed,
+    Resolved,
+}
+
+/// Session struct (#525)
+#[contracttype]
+#[derive(Clone)]
+pub struct SessionData {
+    pub buyer: Address,
+    pub seller: Address,
+    pub amount: i128,
+    pub status: Status,
+    pub created_at: u64,
+    pub completed_at: u64,
+    pub dispute_resolved_at: u64,
+}
+
+#[contracttype]
+pub enum SkillSyncKey {
+    Session(Bytes32),
+    Admin,
+    DisputeWindow,
+}
+
+/// Error codes for SkillSyncEscrow (#526)
+#[contracttype]
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[repr(u32)]
+pub enum EscrowError {
+    DuplicateSessionId = 1,
+    SessionNotFound = 2,
+    InvalidState = 3,
+    Unauthorized = 4,
+}
+
+const DEFAULT_DISPUTE_WINDOW: u32 = 1000;
+
+#[contract]
+pub struct SkillSyncEscrow;
+
+impl SkillSyncEscrow {
+    fn get_session_internal(env: &Env, id: &Bytes32) -> SessionData {
+        env.storage()
+            .persistent()
+            .get(&SkillSyncKey::Session(id.clone()))
+            .expect("session not found")
+    }
+
+    fn save_session_internal(env: &Env, id: &Bytes32, session: &SessionData) {
+        env.storage()
+            .persistent()
+            .set(&SkillSyncKey::Session(id.clone()), session);
+    }
+}
+
+#[contractimpl]
+impl SkillSyncEscrow {
+    pub fn initialize(env: Env, admin: Address) {
+        if env.storage().persistent().has(&SkillSyncKey::Admin) {
+            panic!("already initialized");
+        }
+        env.storage().persistent().set(&SkillSyncKey::Admin, &admin);
+    }
+
+    // ── #525: session storage helpers ────────────────────────────────────────
+
+    pub fn get_session(env: Env, id: Bytes32) -> SessionData {
+        Self::get_session_internal(&env, &id)
+    }
+
+    pub fn save_session(env: Env, id: Bytes32, session: SessionData) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&SkillSyncKey::Admin)
+            .expect("not initialized");
+        admin.require_auth();
+        Self::save_session_internal(&env, &id, &session);
+    }
+
+    // ── #523 + #526: lock_funds ───────────────────────────────────────────────
+
+    /// Lock funds into a new escrow session.
+    /// Returns EscrowError::DuplicateSessionId if session_id already exists (#526).
+    pub fn lock_funds(
+        env: Env,
+        session_id: Bytes32,
+        buyer: Address,
+        seller: Address,
+        amount: i128,
+        token_id: Address,
+    ) {
+        buyer.require_auth();
+        assert!(amount > 0, "amount must be positive");
+        if env
+            .storage()
+            .persistent()
+            .has(&SkillSyncKey::Session(session_id.clone()))
+        {
+            panic!("DuplicateSessionId");
+        }
+
+        token::Client::new(&env, &token_id).transfer(
+            &buyer,
+            &env.current_contract_address(),
+            &amount,
+        );
+
+        let session = SessionData {
+            buyer,
+            seller,
+            amount,
+            status: Status::Locked,
+            created_at: env.ledger().sequence() as u64,
+            completed_at: 0,
+            dispute_resolved_at: 0,
+        };
+        Self::save_session_internal(&env, &session_id, &session);
+
+        env.events()
+            .publish((Symbol::new(&env, "FundsLocked"), session_id), amount);
+    }
+
+    // ── #527: complete_session ────────────────────────────────────────────────
+
+    /// Seller marks session as completed.
+    /// - Only seller can call.
+    /// - Session must be in Locked state.
+    /// - Sets completed_at to current ledger timestamp.
+    /// - Emits SessionCompleted event.
+    /// Returns EscrowError::DuplicateSessionId if session is already Completed (#526).
+    pub fn complete_session(env: Env, session_id: Bytes32) {
+        let mut session = Self::get_session_internal(&env, &session_id);
+        session.seller.require_auth();
+        if session.status == Status::Completed {
+            panic!("DuplicateSessionId");
+        }
+        assert!(session.status == Status::Locked, "InvalidState: session must be Locked");
+        session.status = Status::Completed;
+        session.completed_at = env.ledger().timestamp();
+        Self::save_session_internal(&env, &session_id, &session);
+        env.events()
+            .publish((Symbol::new(&env, "SessionCompleted"), session_id), ());
+    }
+
+    // ── #526: approve_session ─────────────────────────────────────────────────
+
+    /// Buyer approves completed session, releasing funds to seller.
+    /// Checks session exists and is in Completed state (#526).
+    pub fn approve_session(env: Env, session_id: Bytes32, token_id: Address) {
+        let mut session = Self::get_session_internal(&env, &session_id);
+        session.buyer.require_auth();
+        assert!(
+            session.status == Status::Completed,
+            "InvalidState: session must be Completed"
+        );
+        token::Client::new(&env, &token_id).transfer(
+            &env.current_contract_address(),
+            &session.seller,
+            &session.amount,
+        );
+        session.status = Status::Approved;
+        Self::save_session_internal(&env, &session_id, &session);
+        env.events()
+            .publish((Symbol::new(&env, "SessionApproved"), session_id), session.amount);
+    }
+
+    // ── #526: refund_session ──────────────────────────────────────────────────
+
+    /// Buyer requests refund. Session must be Locked (not already refunded) (#526).
+    pub fn refund_session(env: Env, session_id: Bytes32, token_id: Address) {
+        let mut session = Self::get_session_internal(&env, &session_id);
+        session.buyer.require_auth();
+        if session.status == Status::Refunded {
+            panic!("DuplicateSessionId");
+        }
+        assert!(
+            session.status == Status::Locked,
+            "InvalidState: session must be Locked"
+        );
+        token::Client::new(&env, &token_id).transfer(
+            &env.current_contract_address(),
+            &session.buyer,
+            &session.amount,
+        );
+        session.status = Status::Refunded;
+        Self::save_session_internal(&env, &session_id, &session);
+        env.events()
+            .publish((Symbol::new(&env, "SessionRefunded"), session_id), session.amount);
+    }
+
+    // ── #521: dispute window ──────────────────────────────────────────────────
+
+    pub fn set_dispute_window(env: Env, window_ledgers: u32) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&SkillSyncKey::Admin)
+            .expect("not initialized");
+        admin.require_auth();
+        env.storage()
+            .persistent()
+            .set(&SkillSyncKey::DisputeWindow, &window_ledgers);
+        env.events().publish(
+            (Symbol::new(&env, "DisputeWindowUpdated"),),
+            window_ledgers,
+        );
+    }
+
+    pub fn get_dispute_window(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&SkillSyncKey::DisputeWindow)
+            .unwrap_or(DEFAULT_DISPUTE_WINDOW)
+    }
+
+    // ── #522: upgrade ─────────────────────────────────────────────────────────
+
+    pub fn upgrade(env: Env, new_wasm_hash: Bytes32) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&SkillSyncKey::Admin)
+            .expect("not initialized");
+        admin.require_auth();
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
+        env.events()
+            .publish((Symbol::new(&env, "ContractUpgraded"),), new_wasm_hash);
+    }
+}
+
 #[cfg(test)]
 mod test;
