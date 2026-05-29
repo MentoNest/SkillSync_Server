@@ -84,6 +84,7 @@ pub enum DataKey {
     Session(u64),
     Admin,
     PlatformFee,
+    Treasury,
 }
 
 #[contracttype]
@@ -119,12 +120,24 @@ pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
-    pub fn initialize(env: Env, admin: Address) {
+    pub fn initialize(env: Env, admin: Address, treasury: Address) {
         if env.storage().persistent().has(&DataKey::Admin) {
             panic!("already initialized");
         }
         env.storage().persistent().set(&DataKey::Admin, &admin);
+        env.storage().persistent().set(&DataKey::Treasury, &treasury);
         env.storage().persistent().set(&DataKey::PlatformFee, &0_u32);
+    }
+
+    pub fn set_treasury(env: Env, new_treasury: Address) {
+        let admin: Address = env.storage().persistent().get(&DataKey::Admin).expect("not initialized");
+        admin.require_auth();
+        env.storage().persistent().set(&DataKey::Treasury, &new_treasury);
+        env.events().publish((Symbol::new(&env, "TreasuryUpdated"),), new_treasury);
+    }
+
+    pub fn get_treasury(env: Env) -> Address {
+        env.storage().persistent().get(&DataKey::Treasury).expect("treasury not set")
     }
 
     pub fn set_platform_fee(env: Env, new_fee_bps: u32) {
@@ -168,7 +181,7 @@ impl EscrowContract {
         env.storage().persistent().set(&DataKey::Session(session_id), &s);
     }
 
-    pub fn approve(env: Env, session_id: u64, token_id: Address, treasury: Address) {
+    pub fn approve(env: Env, session_id: u64, token_id: Address) {
         let mut s: Session = env.storage().persistent().get(&DataKey::Session(session_id)).unwrap();
         s.buyer.require_auth();
         assert_eq!(s.state, SessionState::Completed);
@@ -180,6 +193,7 @@ impl EscrowContract {
         let t = token::Client::new(&env, &token_id);
         t.transfer(&env.current_contract_address(), &s.seller, &payout);
         if fee > 0 {
+            let treasury = Self::get_treasury(env.clone());
             t.transfer(&env.current_contract_address(), &treasury, &fee);
         }
         s.state = SessionState::Approved;
