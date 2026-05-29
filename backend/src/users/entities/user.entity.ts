@@ -24,6 +24,15 @@ export class User {
   @Column({ name: 'token_version', type: 'int', default: 0 })
   tokenVersion!: number;
 
+  @Column({ name: 'timezone', type: 'varchar', length: 64, default: 'UTC' })
+  timezone!: string;
+
+  @Column({ name: 'avatar_url', type: 'varchar', length: 512, nullable: true })
+  avatarUrl!: string | null;
+
+  @Column({ name: 'avatar_thumbnail_url', type: 'varchar', length: 512, nullable: true })
+  avatarThumbnailUrl!: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

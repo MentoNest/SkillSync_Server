@@ -9,6 +9,9 @@ import { AuthModule } from './auth/auth.module';
 import { RedisModule } from './redis/redis.module';
 import { HealthModule } from './health/health.module';
 import { UsersModule } from './users/users.module';
+import { PortfolioModule } from './portfolio/portfolio.module';
+import { AvailabilityModule } from './availability/availability.module';
+import { AvatarModule } from './avatar/avatar.module';
 
 @Module({
   imports: [
@@ -21,6 +24,9 @@ import { UsersModule } from './users/users.module';
     UsersModule,
     RedisModule,
     HealthModule,
+    PortfolioModule,
+    AvailabilityModule,
+    AvatarModule,
   ],
   controllers: [AppController],
   providers: [AppService],
