@@ -103,7 +103,107 @@ export class UserController {
     @Param('type') type: 'mentor' | 'mentee',
     @Body() dto: UpdateMentorProfileDto | UpdateMenteeProfileDto,
   ): Promise<any> {
+    this.ensureProfileRole(currentUser, type);
+
     // Find the user
+    const user = await this.userRepository.findOne({
+      where: { id: currentUser.userId },
+      relations: ['roles', 'mentorProfile', 'menteeProfile'],
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const isOwner = user.id === currentUser.userId;
+    const isAdmin = currentUser.roles?.includes(UserRole.ADMIN) ?? false;
+
+    if (!isOwner && !isAdmin) {
+      throw new ForbiddenException('You do not have permission to update this profile');
+    }
+
+    let profile: MentorProfile | MenteeProfile | null = null;
+    let oldValues: any = {};
+
+    if (type === 'mentor') {
+      if (!user.mentorProfile) {
+        throw new NotFoundException('Mentor profile not found');
+      }
+
+      oldValues = {
+        bio: user.mentorProfile.bio,
+        yearsOfExperience: user.mentorProfile.yearsOfExperience,
+        expertise: user.mentorProfile.expertise,
+        preferredMentoringStyle: user.mentorProfile.preferredMentoringStyle,
+        availabilityHoursPerWeek: user.mentorProfile.availabilityHoursPerWeek,
+        availabilityDetails: user.mentorProfile.availabilityDetails,
+      };
+
+      profile = user.mentorProfile;
+      Object.assign(profile, dto);
+      await this.mentorProfileRepository.save(profile);
+    } else if (type === 'mentee') {
+      if (!user.menteeProfile) {
+        profile = this.menteeProfileRepository.create({
+          ...(dto as UpdateMenteeProfileDto),
+          user,
+        });
+      } else {
+        oldValues = {
+          learningGoals: user.menteeProfile.learningGoals,
+          areasOfInterest: user.menteeProfile.areasOfInterest,
+          currentSkillLevel: user.menteeProfile.currentSkillLevel,
+          preferredMentoringStyle: user.menteeProfile.preferredMentoringStyle,
+          timeCommitmentHoursPerWeek: user.menteeProfile.timeCommitmentHoursPerWeek,
+          professionalBackground: user.menteeProfile.professionalBackground,
+          jobTitle: user.menteeProfile.jobTitle,
+          industry: user.menteeProfile.industry,
+          portfolioLinks: user.menteeProfile.portfolioLinks,
+        };
+
+        profile = user.menteeProfile;
+        Object.assign(profile, dto);
+      }
+
+      await this.menteeProfileRepository.save(profile);
+    }
+
+    const auditLog = this.auditLogRepository.create({
+      userId: user.id,
+      walletAddress: user.walletAddress,
+      eventType: AuditEventType.PROFILE_UPDATED,
+      ipAddress: '0.0.0.0',
+      metadata: {
+        profileType: type,
+        oldValues,
+        newValues: dto,
+        updatedBy: isAdmin && !isOwner ? currentUser.userId : null,
+      },
+    });
+
+    await this.auditLogRepository.save(auditLog);
+
+    return {
+      id: profile.id,
+      ...(profile as any),
+      userId: user.id,
+      profileCompletion: type === 'mentee' ? this.calculateMenteeProfileCompletion(profile as MenteeProfile) : undefined,
+    };
+  }
+
+  @Get('profile/:type')
+  @ApiOperation({ summary: 'Get own mentor or mentee profile' })
+  @ApiParam({ name: 'type', enum: ['mentor', 'mentee'] })
+  @ApiResponse({ status: 200, description: 'Profile retrieved successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
+  @ApiResponse({ status: 404, description: 'Profile not found' })
+  async getProfile(
+    @CurrentUser() currentUser: any,
+    @Param('type') type: 'mentor' | 'mentee',
+  ): Promise<any> {
+    this.ensureProfileRole(currentUser, type);
+
     const user = await this.userRepository.findOne({
       where: { id: currentUser.userId },
       relations: ['mentorProfile', 'menteeProfile'],
@@ -113,82 +213,65 @@ export class UserController {
       throw new NotFoundException('User not found');
     }
 
-    // Check permissions: user can update own profile, or admin can update any profile
-    const isOwner = user.id === currentUser.userId;
-    const isAdmin = user.roles.some(role => role.name === UserRole.ADMIN);
-    
-    if (!isOwner && !isAdmin) {
-      throw new ForbiddenException('You do not have permission to update this profile');
-    }
-
-    let profile: MentorProfile | MenteeProfile | null = null;
-    let oldValues: any = {};
-
-    // Handle mentor profile updates
     if (type === 'mentor') {
       if (!user.mentorProfile) {
         throw new NotFoundException('Mentor profile not found');
       }
-      
-      // Store old values for audit
-      oldValues = {
-        bio: user.mentorProfile.bio,
-        yearsOfExperience: user.mentorProfile.yearsOfExperience,
-        expertise: user.mentorProfile.expertise,
-        preferredMentoringStyle: user.mentorProfile.preferredMentoringStyle,
-        availabilityHoursPerWeek: user.mentorProfile.availabilityHoursPerWeek,
-        availabilityDetails: user.mentorProfile.availabilityDetails,
+      return {
+        id: user.mentorProfile.id,
+        ...user.mentorProfile,
+        userId: user.id,
       };
-      
-      profile = user.mentorProfile;
-      Object.assign(profile, dto);
-      await this.mentorProfileRepository.save(profile);
-    } 
-    // Handle mentee profile updates
-    else if (type === 'mentee') {
-      if (!user.menteeProfile) {
-        throw new NotFoundException('Mentee profile not found');
-      }
-      
-      // Store old values for audit
-      oldValues = {
-        learningGoals: user.menteeProfile.learningGoals,
-        areasOfInterest: user.menteeProfile.areasOfInterest,
-        currentSkillLevel: user.menteeProfile.currentSkillLevel,
-        preferredMentoringStyle: user.menteeProfile.preferredMentoringStyle,
-        timeCommitmentHoursPerWeek: user.menteeProfile.timeCommitmentHoursPerWeek,
-        professionalBackground: user.menteeProfile.professionalBackground,
-        jobTitle: user.menteeProfile.jobTitle,
-        industry: user.menteeProfile.industry,
-        portfolioLinks: user.menteeProfile.portfolioLinks,
-      };
-      
-      profile = user.menteeProfile;
-      Object.assign(profile, dto);
-      await this.menteeProfileRepository.save(profile);
     }
 
-    // Create audit log entry
-    const auditLog = this.auditLogRepository.create({
-      userId: user.id,
-      walletAddress: user.walletAddress,
-      eventType: AuditEventType.PROFILE_UPDATED,
-      ipAddress: '0.0.0.0', // In a real app, extract from request
-      metadata: {
-        profileType: type,
-        oldValues,
-        newValues: dto,
-        updatedBy: isAdmin && !isOwner ? currentUser.userId : null,
-      },
-    });
-    
-    await this.auditLogRepository.save(auditLog);
+    if (!user.menteeProfile) {
+      throw new NotFoundException('Mentee profile not found');
+    }
 
-    // Return updated profile
     return {
-      id: profile.id,
-      ...(profile as any),
+      id: user.menteeProfile.id,
+      ...user.menteeProfile,
       userId: user.id,
+      profileCompletion: this.calculateMenteeProfileCompletion(user.menteeProfile),
     };
   }
+
+  private ensureProfileRole(currentUser: any, type: 'mentor' | 'mentee') {
+    const roles: string[] = currentUser.roles || [];
+
+    if (type === 'mentee' && !roles.includes(UserRole.MENTEE) && !roles.includes(UserRole.ADMIN)) {
+      throw new ForbiddenException('Only mentee or admin users may manage mentee profiles');
+    }
+
+    if (type === 'mentor' && !roles.includes(UserRole.MENTOR) && !roles.includes(UserRole.ADMIN)) {
+      throw new ForbiddenException('Only mentor or admin users may manage mentor profiles');
+    }
+  }
+
+  private calculateMenteeProfileCompletion(profile: MenteeProfile): number {
+    const fields = [
+      profile.learningGoals,
+      profile.areasOfInterest,
+      profile.currentSkillLevel,
+      profile.preferredMentoringStyle,
+      profile.timeCommitmentHoursPerWeek,
+      profile.professionalBackground,
+      profile.jobTitle,
+      profile.industry,
+      profile.portfolioLinks,
+    ];
+
+    const filled = fields.reduce<number>((count, value) => {
+      if (Array.isArray(value)) {
+        return count + (value.length > 0 ? 1 : 0);
+      }
+      if (value === null || value === undefined) {
+        return count;
+      }
+      return count + 1;
+    }, 0);
+
+    return Math.round((filled / fields.length) * 100);
+  }
 }
+
