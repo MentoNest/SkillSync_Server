@@ -132,10 +132,10 @@ mod test_multi_session {
 
     #[test]
     fn test_lock_funds_success() {
-        let (env, buyer, seller, _, token_id, admin) = setup();
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
         let contract_id = env.register(EscrowContract, ());
         let client = EscrowContractClient::new(&env, &contract_id);
-        client.initialize(&admin);
+        client.initialize(&admin, &treasury);
         client.lock_funds(&1, &buyer, &seller, &500, &token_id);
         let s = client.get_session(&1);
         assert!(matches!(s.state, SessionState::Locked));
@@ -145,18 +145,18 @@ mod test_multi_session {
     #[test]
     #[should_panic]
     fn test_lock_funds_zero_amount_reverts() {
-        let (env, buyer, seller, _, token_id, admin) = setup();
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
         let client = EscrowContractClient::new(&env, &env.register(EscrowContract, ()));
-        client.initialize(&admin);
+        client.initialize(&admin, &treasury);
         client.lock_funds(&1, &buyer, &seller, &0, &token_id);
     }
 
     #[test]
     #[should_panic]
     fn test_lock_funds_duplicate_session_reverts() {
-        let (env, buyer, seller, _, token_id, admin) = setup();
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
         let client = EscrowContractClient::new(&env, &env.register(EscrowContract, ()));
-        client.initialize(&admin);
+        client.initialize(&admin, &treasury);
         client.lock_funds(&1, &buyer, &seller, &100, &token_id);
         client.lock_funds(&1, &buyer, &seller, &100, &token_id);
     }
@@ -166,7 +166,7 @@ mod test_multi_session {
         let (env, buyer, seller, treasury, token_id, admin) = setup();
         let cid = env.register(EscrowContract, ());
         let client = EscrowContractClient::new(&env, &cid);
-        client.initialize(&admin);
+        client.initialize(&admin, &treasury);
         
         // Admin sets platform fee to 500 bps (5%)
         client.set_platform_fee(&500);
@@ -176,7 +176,7 @@ mod test_multi_session {
         client.complete(&1);
         assert!(matches!(client.get_session(&1).state, SessionState::Completed));
         
-        client.approve(&1, &token_id, &treasury);
+        client.approve(&1, &token_id);
         let s = client.get_session(&1);
         assert!(matches!(s.state, SessionState::Approved));
         assert_eq!(TokenClient::new(&env, &token_id).balance(&seller), 950);
@@ -186,9 +186,9 @@ mod test_multi_session {
     #[test]
     #[should_panic]
     fn test_seller_cannot_complete_before_lock() {
-        let (env, buyer, seller, _, token_id, admin) = setup();
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
         let client = EscrowContractClient::new(&env, &env.register(EscrowContract, ()));
-        client.initialize(&admin);
+        client.initialize(&admin, &treasury);
         client.complete(&99);
     }
 
@@ -197,17 +197,17 @@ mod test_multi_session {
     fn test_buyer_cannot_approve_before_complete() {
         let (env, buyer, seller, treasury, token_id, admin) = setup();
         let client = EscrowContractClient::new(&env, &env.register(EscrowContract, ()));
-        client.initialize(&admin);
+        client.initialize(&admin, &treasury);
         client.lock_funds(&1, &buyer, &seller, &500, &token_id);
-        client.approve(&1, &token_id, &treasury); // not completed yet
+        client.approve(&1, &token_id); // not completed yet
     }
 
     #[test]
     fn test_buyer_can_refund_before_complete() {
-        let (env, buyer, seller, _, token_id, admin) = setup();
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
         let cid = env.register(EscrowContract, ());
         let client = EscrowContractClient::new(&env, &cid);
-        client.initialize(&admin);
+        client.initialize(&admin, &treasury);
         client.lock_funds(&1, &buyer, &seller, &600, &token_id);
         client.refund(&1, &token_id);
         assert_eq!(TokenClient::new(&env, &token_id).balance(&buyer), 1000);
@@ -219,7 +219,7 @@ mod test_multi_session {
     fn test_refund_reverts_if_already_completed() {
         let (env, buyer, seller, treasury, token_id, admin) = setup();
         let client = EscrowContractClient::new(&env, &env.register(EscrowContract, ()));
-        client.initialize(&admin);
+        client.initialize(&admin, &treasury);
         client.lock_funds(&1, &buyer, &seller, &500, &token_id);
         client.complete(&1);
         client.refund(&1, &token_id); // should panic — not Locked
@@ -230,19 +230,19 @@ mod test_multi_session {
     fn test_refund_reverts_if_already_approved() {
         let (env, buyer, seller, treasury, token_id, admin) = setup();
         let client = EscrowContractClient::new(&env, &env.register(EscrowContract, ()));
-        client.initialize(&admin);
+        client.initialize(&admin, &treasury);
         client.lock_funds(&1, &buyer, &seller, &500, &token_id);
         client.complete(&1);
-        client.approve(&1, &token_id, &treasury);
+        client.approve(&1, &token_id);
         client.refund(&1, &token_id); // should panic — not Locked
     }
 
     #[test]
     fn test_auto_refund_after_window() {
-        let (env, buyer, seller, _, token_id, admin) = setup();
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
         let cid = env.register(EscrowContract, ());
         let client = EscrowContractClient::new(&env, &cid);
-        client.initialize(&admin);
+        client.initialize(&admin, &treasury);
         client.lock_funds(&1, &buyer, &seller, &800, &token_id);
         client.complete(&1);
         env.ledger().set_timestamp(env.ledger().timestamp() + DISPUTE_WINDOW + 1);
@@ -254,9 +254,9 @@ mod test_multi_session {
     #[test]
     #[should_panic]
     fn test_auto_refund_before_window_reverts() {
-        let (env, buyer, seller, _, token_id, admin) = setup();
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
         let client = EscrowContractClient::new(&env, &env.register(EscrowContract, ()));
-        client.initialize(&admin);
+        client.initialize(&admin, &treasury);
         client.lock_funds(&1, &buyer, &seller, &500, &token_id);
         client.complete(&1);
         // Do NOT advance time — should panic
@@ -268,12 +268,12 @@ mod test_multi_session {
     fn test_approve_after_auto_refund_reverts() {
         let (env, buyer, seller, treasury, token_id, admin) = setup();
         let client = EscrowContractClient::new(&env, &env.register(EscrowContract, ()));
-        client.initialize(&admin);
+        client.initialize(&admin, &treasury);
         client.lock_funds(&1, &buyer, &seller, &500, &token_id);
         client.complete(&1);
         env.ledger().set_timestamp(env.ledger().timestamp() + DISPUTE_WINDOW + 1);
         client.auto_refund(&1, &token_id);
-        client.approve(&1, &token_id, &treasury); // should panic — not Completed
+        client.approve(&1, &token_id); // should panic — not Completed
     }
 
     fn setup_fresh_client<'a>() -> (Env, EscrowContractClient<'a>) {
@@ -405,10 +405,10 @@ mod test_multi_session {
 
     #[test]
     fn test_platform_fee_admin_flow() {
-        let (env, _, _, _, _, admin) = setup();
+        let (env, _, _, treasury, _, admin) = setup();
         let cid = env.register(EscrowContract, ());
         let client = EscrowContractClient::new(&env, &cid);
-        client.initialize(&admin);
+        client.initialize(&admin, &treasury);
 
         assert_eq!(client.get_platform_fee(), 0);
 
@@ -425,10 +425,30 @@ mod test_multi_session {
     #[test]
     #[should_panic(expected = "fee_bps must not exceed 1000")]
     fn test_platform_fee_above_max_reverts() {
-        let (env, _, _, _, _, admin) = setup();
+        let (env, _, _, treasury, _, admin) = setup();
         let cid = env.register(EscrowContract, ());
         let client = EscrowContractClient::new(&env, &cid);
-        client.initialize(&admin);
+        client.initialize(&admin, &treasury);
         client.set_platform_fee(&1001);
+    }
+
+    #[test]
+    fn test_treasury_admin_flow() {
+        let (env, _, _, treasury, _, admin) = setup();
+        let cid = env.register(EscrowContract, ());
+        let client = EscrowContractClient::new(&env, &cid);
+        client.initialize(&admin, &treasury);
+
+        assert_eq!(client.get_treasury(), treasury);
+
+        let new_treasury = Address::generate(&env);
+        client.set_treasury(&new_treasury);
+        assert_eq!(client.get_treasury(), new_treasury);
+
+        let events = env.events().all();
+        let last_event = events.last().unwrap();
+        assert_eq!(last_event.0, cid);
+        assert_eq!(last_event.1, (Symbol::new(&env, "TreasuryUpdated"),).into_val(&env));
+        assert_eq!(last_event.2, new_treasury.into_val(&env));
     }
 }
