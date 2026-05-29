@@ -1,9 +1,15 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env};
+use soroban_sdk::{
+    contract, contractimpl, contracttype, symbol_short, token, Address, Env, IntoVal, Symbol,
+};
+
+// ============================================================================
+// Single Session Escrow Contract (Contract)
+// ============================================================================
 
 #[contracttype]
-#[derive(Clone)]
-pub enum SessionState {
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum SingleSessionState {
     Pending,
     Locked,
     Completed,
@@ -11,29 +17,94 @@ pub enum SessionState {
     Refunded,
 }
 
-#[contracttype]
-#[derive(Clone)]
-pub enum SessionState {
-    Pending,
-    Locked,
-    Completed,
-    Disputed,
-    Refunded,
+#[contract]
+pub struct Contract;
+
+#[contractimpl]
+impl Contract {
+    pub fn init(env: Env, buyer: Address, seller: Address, amount: i128) {
+        env.storage().instance().set(&symbol_short!("buyer"), &buyer);
+        env.storage().instance().set(&symbol_short!("seller"), &seller);
+        env.storage().instance().set(&symbol_short!("amount"), &amount);
+        env.storage().instance().set(&symbol_short!("state"), &SingleSessionState::Pending);
+    }
+
+    pub fn lock(env: Env) {
+        let buyer: Address = env.storage().instance().get(&symbol_short!("buyer")).unwrap();
+        buyer.require_auth();
+        env.storage().instance().set(&symbol_short!("state"), &SingleSessionState::Locked);
+    }
+
+    pub fn complete(env: Env) {
+        let buyer: Address = env.storage().instance().get(&symbol_short!("buyer")).unwrap();
+        buyer.require_auth();
+        env.storage().instance().set(&symbol_short!("state"), &SingleSessionState::Completed);
+    }
+
+    pub fn approve(env: Env) {
+        let seller: Address = env.storage().instance().get(&symbol_short!("seller")).unwrap();
+        seller.require_auth();
+        env.storage().instance().set(&symbol_short!("state"), &SingleSessionState::Pending);
+    }
+
+    pub fn dispute(env: Env) {
+        let buyer: Address = env.storage().instance().get(&symbol_short!("buyer")).unwrap();
+        buyer.require_auth();
+        env.storage().instance().set(&symbol_short!("state"), &SingleSessionState::Disputed);
+    }
+
+    pub fn resolve(env: Env, admin: Address, _buyer_pct: u32) {
+        admin.require_auth();
+        env.storage().instance().set(&symbol_short!("state"), &SingleSessionState::Refunded);
+    }
+
+    pub fn refund(env: Env) {
+        env.storage().instance().set(&symbol_short!("state"), &SingleSessionState::Refunded);
+    }
+
+    pub fn get_state(env: Env) -> SingleSessionState {
+        env.storage()
+            .instance()
+            .get(&symbol_short!("state"))
+            .unwrap_or(SingleSessionState::Pending)
+    }
 }
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, token, Address, Env};
 
-#[contracttype] pub enum DataKey { Session(u64) }
-#[contracttype] #[derive(Clone, PartialEq)] pub enum SessionState { Locked, Completed, Approved, Refunded }
-#[contracttype] #[derive(Clone)]
-pub struct Session { pub buyer: Address, pub seller: Address, pub amount: i128, pub state: SessionState }
+// ============================================================================
+// Multi Session Escrow Contract (EscrowContract)
+// ============================================================================
 
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, vec, Env, String, Symbol, Vec};
-
-/// Basis-point denominator. 10_000 bps == 100%.
+pub const DISPUTE_WINDOW: u64 = 7 * 24 * 3600; // 7 days
 const BPS_DENOMINATOR: i128 = 10_000;
-
-/// Storage key for the accumulated treasury balance.
 const TREASURY_KEY: Symbol = symbol_short!("TREASURY");
+
+#[contracttype]
+#[derive(Clone)]
+pub enum DataKey {
+    Session(u64),
+    Admin,
+    PlatformFee,
+}
+
+#[contracttype]
+#[derive(Clone, PartialEq, Debug)]
+pub enum SessionState {
+    Locked,
+    Completed,
+    Approved,
+    Refunded,
+    AutoRefunded,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct Session {
+    pub buyer: Address,
+    pub seller: Address,
+    pub amount: i128,
+    pub state: SessionState,
+    pub completed_at: u64,
+}
 
 /// Result of splitting a session payment into seller and treasury portions.
 #[contracttype]
@@ -43,85 +114,51 @@ pub struct FeeSplit {
     pub treasury_amount: i128,
 }
 
-pub const DISPUTE_WINDOW: u64 = 7 * 24 * 3600; // 7 days
+#[contract]
+pub struct EscrowContract;
 
-#[contracttype] pub enum DataKey { Session(u64) }
-#[contracttype] #[derive(Clone, PartialEq)] pub enum SessionState { Locked, Completed, Approved, Refunded, AutoRefunded }
-#[contracttype] #[derive(Clone)]
-pub struct Session { pub buyer: Address, pub seller: Address, pub amount: i128, pub state: SessionState, pub completed_at: u64 }
-
-#[contract] pub struct EscrowContract;
 #[contractimpl]
-impl Contract {
-    pub fn init(env: Env, buyer: Address, seller: Address, amount: i128) {
-        env.storage().instance().set(&symbol_short!("buyer"), &buyer);
-        env.storage().instance().set(&symbol_short!("seller"), &seller);
-        env.storage().instance().set(&symbol_short!("amount"), &amount);
-        env.storage().instance().set(&symbol_short!("state"), &SessionState::Pending);
-    }
-
-    pub fn lock(env: Env) {
-        let buyer: Address = env.storage().instance().get(&symbol_short!("buyer")).unwrap();
-        buyer.require_auth();
-        env.storage().instance().set(&symbol_short!("state"), &SessionState::Locked);
-    }
-
-    pub fn complete(env: Env) {
-        let buyer: Address = env.storage().instance().get(&symbol_short!("buyer")).unwrap();
-        buyer.require_auth();
-        env.storage().instance().set(&symbol_short!("state"), &SessionState::Completed);
-    }
-
-    pub fn approve(env: Env) {
-        let seller: Address = env.storage().instance().get(&symbol_short!("seller")).unwrap();
-        seller.require_auth();
-        env.storage().instance().set(&symbol_short!("state"), &SessionState::Pending);
-    }
-
-    pub fn dispute(env: Env) {
-        let buyer: Address = env.storage().instance().get(&symbol_short!("buyer")).unwrap();
-        buyer.require_auth();
-        env.storage().instance().set(&symbol_short!("state"), &SessionState::Disputed);
-    }
-
-    pub fn resolve(env: Env, admin: Address, _buyer_pct: u32) {
-        admin.require_auth();
-        env.storage().instance().set(&symbol_short!("state"), &SessionState::Refunded);
-    }
-
-    pub fn refund(env: Env) {
-        env.storage().instance().set(&symbol_short!("state"), &SessionState::Refunded);
-    }
-
-    pub fn get_state(env: Env) -> SessionState {
-        env.storage()
-            .instance()
-            .get(&symbol_short!("state"))
-            .unwrap_or(SessionState::Pending)
-    }
-
-    pub fn refund(env: Env) {
-        env.storage().instance().set(&symbol_short!("state"), &SessionState::Refunded);
-    }
-
-    pub fn get_state(env: Env) -> SessionState {
-        env.storage()
-            .instance()
-            .get(&symbol_short!("state"))
-            .unwrap_or(SessionState::Pending)
 impl EscrowContract {
+    pub fn initialize(env: Env, admin: Address) {
+        if env.storage().persistent().has(&DataKey::Admin) {
+            panic!("already initialized");
+        }
+        env.storage().persistent().set(&DataKey::Admin, &admin);
+        env.storage().persistent().set(&DataKey::PlatformFee, &0_u32);
+    }
+
+    pub fn set_platform_fee(env: Env, new_fee_bps: u32) {
+        let admin: Address = env.storage().persistent().get(&DataKey::Admin).expect("not initialized");
+        admin.require_auth();
+        if new_fee_bps > 1000 {
+            panic!("fee_bps must not exceed 1000");
+        }
+        env.storage().persistent().set(&DataKey::PlatformFee, &new_fee_bps);
+        env.events().publish((Symbol::new(&env, "PlatformFeeUpdated"),), new_fee_bps);
+    }
+
+    pub fn get_platform_fee(env: Env) -> u32 {
+        env.storage().persistent().get(&DataKey::PlatformFee).unwrap_or(0_u32)
+    }
+
     pub fn lock_funds(env: Env, session_id: u64, buyer: Address, seller: Address, amount: i128, token_id: Address) {
         buyer.require_auth();
         assert!(amount > 0, "amount must be positive");
         assert!(!env.storage().persistent().has(&DataKey::Session(session_id)), "duplicate session");
         token::Client::new(&env, &token_id).transfer(&buyer, &env.current_contract_address(), &amount);
-        env.storage().persistent().set(&DataKey::Session(session_id), &Session { buyer, seller, amount, state: SessionState::Locked });
-        assert!(amount > 0);
-        assert!(!env.storage().persistent().has(&DataKey::Session(session_id)));
-        token::Client::new(&env, &token_id).transfer(&buyer, &env.current_contract_address(), &amount);
-        env.storage().persistent().set(&DataKey::Session(session_id), &Session { buyer, seller, amount, state: SessionState::Locked, completed_at: 0 });
+        env.storage().persistent().set(
+            &DataKey::Session(session_id),
+            &Session {
+                buyer,
+                seller,
+                amount,
+                state: SessionState::Locked,
+                completed_at: 0,
+            },
+        );
         env.events().publish((symbol_short!("LOCKED"), session_id), amount);
     }
+
     pub fn complete(env: Env, session_id: u64) {
         let mut s: Session = env.storage().persistent().get(&DataKey::Session(session_id)).unwrap();
         s.seller.require_auth();
@@ -130,18 +167,25 @@ impl EscrowContract {
         s.completed_at = env.ledger().timestamp();
         env.storage().persistent().set(&DataKey::Session(session_id), &s);
     }
-    pub fn approve(env: Env, session_id: u64, token_id: Address, fee_bps: u32, treasury: Address) {
+
+    pub fn approve(env: Env, session_id: u64, token_id: Address, treasury: Address) {
         let mut s: Session = env.storage().persistent().get(&DataKey::Session(session_id)).unwrap();
         s.buyer.require_auth();
         assert_eq!(s.state, SessionState::Completed);
+
+        let fee_bps = Self::get_platform_fee(env.clone());
         let fee = s.amount * fee_bps as i128 / 10_000;
         let payout = s.amount - fee;
+
         let t = token::Client::new(&env, &token_id);
         t.transfer(&env.current_contract_address(), &s.seller, &payout);
-        if fee > 0 { t.transfer(&env.current_contract_address(), &treasury, &fee); }
+        if fee > 0 {
+            t.transfer(&env.current_contract_address(), &treasury, &fee);
+        }
         s.state = SessionState::Approved;
         env.storage().persistent().set(&DataKey::Session(session_id), &s);
     }
+
     pub fn refund(env: Env, session_id: u64, token_id: Address) {
         let mut s: Session = env.storage().persistent().get(&DataKey::Session(session_id)).unwrap();
         s.buyer.require_auth();
@@ -151,11 +195,7 @@ impl EscrowContract {
         env.storage().persistent().set(&DataKey::Session(session_id), &s);
         env.events().publish((symbol_short!("REFUNDED"), session_id), s.amount);
     }
-    pub fn get_session(env: Env, session_id: u64) -> Session {
-        env.storage().persistent().get(&DataKey::Session(session_id)).unwrap()
-    }
-    }
-    }
+
     pub fn auto_refund(env: Env, session_id: u64, token_id: Address) {
         let mut s: Session = env.storage().persistent().get(&DataKey::Session(session_id)).unwrap();
         assert_eq!(s.state, SessionState::Completed);
@@ -165,6 +205,7 @@ impl EscrowContract {
         env.storage().persistent().set(&DataKey::Session(session_id), &s);
         env.events().publish((symbol_short!("AUTOREF"), session_id), s.amount);
     }
+
     pub fn get_session(env: Env, session_id: u64) -> Session {
         env.storage().persistent().get(&DataKey::Session(session_id)).unwrap()
     }
@@ -217,4 +258,6 @@ impl EscrowContract {
         env.storage().instance().get(&TREASURY_KEY).unwrap_or(0)
     }
 }
-#[cfg(test)] mod test;
+
+#[cfg(test)]
+mod test;
