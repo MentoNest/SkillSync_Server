@@ -1,0 +1,10 @@
+export const THROTTLE_OPTIONS = 'THROTTLE_OPTIONS';
+
+export const DEFAULT_AUTHENTICATED_LIMIT = 100;
+export const DEFAULT_UNAUTHENTICATED_LIMIT = 20;
+
+export const DEFAULT_WINDOW_SECONDS = 60;
+
+export const TRUSTED_IPS = [
+  '127.0.0.1',
+];
