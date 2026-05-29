@@ -1,6 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, Env, IntoVal, Symbol,
+    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, IntoVal,
+    Symbol,
 };
 
 // ============================================================================
@@ -270,6 +271,179 @@ impl EscrowContract {
     /// `settle_session` calls for this contract instance.
     pub fn treasury_balance(env: Env) -> i128 {
         env.storage().instance().get(&TREASURY_KEY).unwrap_or(0)
+    }
+}
+
+// ============================================================================
+// SkillSync Escrow Contract — issues #521 #522 #523 #525
+// ============================================================================
+
+pub type Bytes32 = BytesN<32>;
+
+/// Session status enum (#525)
+#[contracttype]
+#[derive(Clone, PartialEq, Debug)]
+pub enum Status {
+    Locked,
+    Completed,
+    Approved,
+    Refunded,
+    Disputed,
+    Resolved,
+}
+
+/// Session struct (#525)
+#[contracttype]
+#[derive(Clone)]
+pub struct SessionData {
+    pub buyer: Address,
+    pub seller: Address,
+    pub amount: i128,
+    pub status: Status,
+    pub created_at: u64,
+    pub completed_at: u64,
+    pub dispute_resolved_at: u64,
+}
+
+#[contracttype]
+pub enum SkillSyncKey {
+    Session(Bytes32),
+    Admin,
+    DisputeWindow,
+}
+
+const DEFAULT_DISPUTE_WINDOW: u32 = 1000;
+
+#[contract]
+pub struct SkillSyncEscrow;
+
+impl SkillSyncEscrow {
+    /// Helper: load session, panic if not found (#525)
+    fn get_session_internal(env: &Env, id: &Bytes32) -> SessionData {
+        env.storage()
+            .persistent()
+            .get(&SkillSyncKey::Session(id.clone()))
+            .expect("session not found")
+    }
+
+    /// Helper: persist session (#525)
+    fn save_session_internal(env: &Env, id: &Bytes32, session: &SessionData) {
+        env.storage()
+            .persistent()
+            .set(&SkillSyncKey::Session(id.clone()), session);
+    }
+}
+
+#[contractimpl]
+impl SkillSyncEscrow {
+    /// Initialize with admin address
+    pub fn initialize(env: Env, admin: Address) {
+        if env.storage().persistent().has(&SkillSyncKey::Admin) {
+            panic!("already initialized");
+        }
+        env.storage().persistent().set(&SkillSyncKey::Admin, &admin);
+    }
+
+    // ── #525: session storage helpers (public view) ──────────────────────────
+
+    pub fn get_session(env: Env, id: Bytes32) -> SessionData {
+        Self::get_session_internal(&env, &id)
+    }
+
+    pub fn save_session(env: Env, id: Bytes32, session: SessionData) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&SkillSyncKey::Admin)
+            .expect("not initialized");
+        admin.require_auth();
+        Self::save_session_internal(&env, &id, &session);
+    }
+
+    // ── #523: lock_funds ─────────────────────────────────────────────────────
+
+    /// Lock funds into a new escrow session.
+    /// Caller is the buyer; transfers `amount` of `token_id` to the contract.
+    /// Emits FundsLocked event.
+    pub fn lock_funds(
+        env: Env,
+        session_id: Bytes32,
+        buyer: Address,
+        seller: Address,
+        amount: i128,
+        token_id: Address,
+    ) {
+        buyer.require_auth();
+        assert!(amount > 0, "amount must be positive");
+        assert!(
+            !env.storage()
+                .persistent()
+                .has(&SkillSyncKey::Session(session_id.clone())),
+            "session already exists"
+        );
+
+        token::Client::new(&env, &token_id).transfer(
+            &buyer,
+            &env.current_contract_address(),
+            &amount,
+        );
+
+        let session = SessionData {
+            buyer,
+            seller,
+            amount,
+            status: Status::Locked,
+            created_at: env.ledger().sequence() as u64,
+            completed_at: 0,
+            dispute_resolved_at: 0,
+        };
+        Self::save_session_internal(&env, &session_id, &session);
+
+        env.events()
+            .publish((Symbol::new(&env, "FundsLocked"), session_id), amount);
+    }
+
+    // ── #521: dispute window ─────────────────────────────────────────────────
+
+    /// Set dispute window in ledgers (admin only). Emits DisputeWindowUpdated.
+    pub fn set_dispute_window(env: Env, window_ledgers: u32) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&SkillSyncKey::Admin)
+            .expect("not initialized");
+        admin.require_auth();
+        env.storage()
+            .persistent()
+            .set(&SkillSyncKey::DisputeWindow, &window_ledgers);
+        env.events().publish(
+            (Symbol::new(&env, "DisputeWindowUpdated"),),
+            window_ledgers,
+        );
+    }
+
+    /// Get dispute window in ledgers (default 1000).
+    pub fn get_dispute_window(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&SkillSyncKey::DisputeWindow)
+            .unwrap_or(DEFAULT_DISPUTE_WINDOW)
+    }
+
+    // ── #522: upgrade ────────────────────────────────────────────────────────
+
+    /// Upgrade contract WASM (admin only). Emits ContractUpgraded.
+    pub fn upgrade(env: Env, new_wasm_hash: Bytes32) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&SkillSyncKey::Admin)
+            .expect("not initialized");
+        admin.require_auth();
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
+        env.events()
+            .publish((Symbol::new(&env, "ContractUpgraded"),), new_wasm_hash);
     }
 }
 
