@@ -16,3 +16,10 @@ export class AssignRoleParamDto {
   @IsNotEmpty()
   role: string;
 }
+
+export class RevokeRoleBodyDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
+}
