@@ -458,7 +458,7 @@ mod test_multi_session {
 // ============================================================================
 
 mod test_skillsync_escrow {
-    use super::super::{SkillSyncEscrow, SkillSyncEscrowClient, Status};
+    use super::super::{SkillSyncEscrow, SkillSyncEscrowClient, Status, ContractUpgraded, Bytes32};
     use soroban_sdk::{
         testutils::Address as _,
         token::{Client as TokenClient, StellarAssetClient},
@@ -695,5 +695,39 @@ mod test_skillsync_escrow {
             (Symbol::new(&env, "DisputeWindowUpdated"),).into_val(&env)
         );
         assert_eq!(last.2, 500_u32.into_val(&env));
+    }
+
+    #[test]
+    fn test_upgrade_emits_contract_upgraded_event() {
+        let (env, admin, .., cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        let new_wasm_hash = make_id(&env, 99);
+        client.upgrade(&new_wasm_hash);
+
+        let events = env.events().all();
+        let last = events.last().unwrap();
+        assert_eq!(last.0, cid);
+        assert_eq!(
+            last.1,
+            (Symbol::new(&env, "ContractUpgraded"),).into_val(&env)
+        );
+
+        let event_data: ContractUpgraded = last.2.into_val(&env);
+        assert_eq!(event_data.old_wasm_hash, Bytes32::from_array(&env, &[0; 32]));
+        assert_eq!(event_data.new_wasm_hash, new_wasm_hash);
+        assert_eq!(event_data.upgraded_by, admin);
+        assert_eq!(event_data.timestamp, env.ledger().timestamp());
+
+        // Upgrade again to check that old_wasm_hash updates
+        let newer_wasm_hash = make_id(&env, 88);
+        client.upgrade(&newer_wasm_hash);
+
+        let events = env.events().all();
+        let last = events.last().unwrap();
+        let event_data: ContractUpgraded = last.2.into_val(&env);
+        assert_eq!(event_data.old_wasm_hash, new_wasm_hash);
+        assert_eq!(event_data.new_wasm_hash, newer_wasm_hash);
     }
 }
