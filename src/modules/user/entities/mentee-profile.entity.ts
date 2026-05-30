@@ -47,8 +47,8 @@ export class MenteeProfile {
   @Column('simple-array', { nullable: true })
   portfolioLinks: string[];
 
-  @OneToOne(() => User, (user) => user.menteeProfile)
-  @JoinColumn()
+  @OneToOne(() => User, (user) => user.menteeProfile, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'userId', referencedColumnName: 'id' })
   user: User;
 
   @CreateDateColumn()

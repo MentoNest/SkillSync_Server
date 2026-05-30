@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Role } from '../../modules/auth/entities/role.entity';
-import { User } from '../../modules/auth/entities/user.entity';
+import { User, UserStatus } from '../../modules/auth/entities/user.entity';
 import { normalizeWalletAddress } from '../../common/utils/wallet.utils';
 
 export interface SeedResult {
@@ -83,39 +83,47 @@ export class AdminSeedService {
    * Seed the admin role (idempotent)
    */
   private async seedAdminRole(
-    queryRunner: any,
+    queryRunner: QueryRunner,
   ): Promise<{ created: boolean; alreadyExists: boolean; role: Role }> {
     const adminRoleName = 'admin';
 
-    // Check if admin role already exists using raw query for consistency
-    const existingRole = await queryRunner.query(
+    const existingRoles = await queryRunner.query(
       `SELECT * FROM roles WHERE name = $1`,
       [adminRoleName],
     );
 
-    if (existingRole && existingRole.length > 0) {
+    if (existingRoles && existingRoles.length > 0) {
       this.logger.log(`Admin role already exists`);
-      const roleData = existingRole[0] as Role;
       return {
         created: false,
         alreadyExists: true,
-        role: roleData,
+        role: existingRoles[0] as Role,
       };
     }
 
-    // Create admin role with full permissions description
-    const adminRole = this.roleRepository.create({
-      name: adminRoleName,
-      description: 'Administrator role with full system permissions',
-    });
+    const savedRoleResult = await queryRunner.query(
+      `INSERT INTO roles (name, description)
+       VALUES ($1, $2)
+       ON CONFLICT (name)
+       DO UPDATE SET description = EXCLUDED.description
+       RETURNING *`,
+      [adminRoleName, 'Administrator role with full system permissions'],
+    );
 
-    const savedRole = await queryRunner.manager.save(adminRole);
-    this.logger.log(`Created new admin role with ID: ${savedRole.id}`);
+    const savedRole = Array.isArray(savedRoleResult)
+      ? savedRoleResult[0]
+      : savedRoleResult;
+
+    if (!savedRole) {
+      throw new Error('Failed to create or retrieve admin role');
+    }
+
+    this.logger.log(`Created or updated admin role with ID: ${savedRole.id}`);
 
     return {
       created: true,
       alreadyExists: false,
-      role: savedRole,
+      role: savedRole as Role,
     };
   }
 
@@ -123,10 +131,9 @@ export class AdminSeedService {
    * Seed the default admin user (idempotent)
    */
   private async seedAdminUser(
-    queryRunner: any,
+    queryRunner: QueryRunner,
     roleResult: { created: boolean; alreadyExists: boolean; role: Role },
   ): Promise<{ created: boolean; alreadyExists: boolean; user?: User }> {
-    // Get admin wallet from environment
     const adminWallet = this.configService.get<string>('DEFAULT_ADMIN_WALLET');
 
     if (!adminWallet) {
@@ -142,7 +149,6 @@ export class AdminSeedService {
 
     const normalizedWallet = normalizeWalletAddress(adminWallet);
 
-    // Check if admin user already exists
     const existingUser = await queryRunner.query(
       `SELECT u.* FROM users u WHERE u."walletAddress" = $1`,
       [normalizedWallet],
@@ -150,8 +156,6 @@ export class AdminSeedService {
 
     if (existingUser && existingUser.length > 0) {
       this.logger.log(`Admin user already exists for wallet: ${normalizedWallet}`);
-
-      // Ensure the user has the admin role assigned
       await this.ensureUserHasAdminRole(
         queryRunner,
         existingUser[0].id,
@@ -161,24 +165,23 @@ export class AdminSeedService {
       return {
         created: false,
         alreadyExists: true,
-        user: existingUser[0],
+        user: existingUser[0] as User,
       };
     }
 
-    // Create admin user
     const adminUser = this.userRepository.create({
       walletAddress: normalizedWallet,
       nonce: null,
       tokenVersion: 1,
-      roles: [roleResult.role],
+      status: UserStatus.ACTIVE,
     });
 
     const savedUser = await queryRunner.manager.save(adminUser);
     this.logger.log(`Created new admin user with ID: ${savedUser.id}`);
 
-    // Assign admin role to the user
     await queryRunner.query(
-      `INSERT INTO user_roles ("userId", "roleId") VALUES ($1, $2)`,
+      `INSERT INTO user_roles ("userId", "roleId") VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
       [savedUser.id, roleResult.role.id],
     );
 
@@ -193,20 +196,19 @@ export class AdminSeedService {
    * Ensure the user has the admin role assigned
    */
   private async ensureUserHasAdminRole(
-    queryRunner: any,
+    queryRunner: QueryRunner,
     userId: string,
     roleId: string,
   ): Promise<void> {
-    // Check if user already has admin role
     const userRole = await queryRunner.query(
-      `SELECT * FROM user_roles WHERE "userId" = $1 AND "roleId" = $2`,
+      `SELECT 1 FROM user_roles WHERE "userId" = $1 AND "roleId" = $2`,
       [userId, roleId],
     );
 
     if (!userRole || userRole.length === 0) {
-      // Assign admin role
       await queryRunner.query(
-        `INSERT INTO user_roles ("userId", "roleId") VALUES ($1, $2)`,
+        `INSERT INTO user_roles ("userId", "roleId") VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`,
         [userId, roleId],
       );
       this.logger.log(`Assigned admin role to user: ${userId}`);
@@ -217,19 +219,30 @@ export class AdminSeedService {
    * Build result message based on seed results
    */
   private buildResultMessage(roleResult: any, userResult: any): string {
-    const rolePart = roleResult.alreadyExists
-      ? 'Admin role already exists'
-      : 'Admin role created';
-
-    let userPart: string;
-    if (userResult.user === undefined) {
-      userPart = 'Admin user not created (no DEFAULT_ADMIN_WALLET)';
-    } else {
-      userPart = userResult.alreadyExists
-        ? 'Admin user already exists'
-        : 'Admin user created';
+    if (roleResult.alreadyExists && userResult.user && userResult.alreadyExists) {
+      return 'Admin already exists';
     }
 
-    return `${rolePart}; ${userPart}`;
+    const parts: string[] = [];
+
+    if (roleResult.created) {
+      parts.push('Admin role created');
+    } else if (roleResult.alreadyExists) {
+      parts.push('Admin role already exists');
+    }
+
+    if (userResult.user === undefined) {
+      parts.push('No default admin wallet configured');
+    } else if (userResult.created) {
+      parts.push('Admin user created');
+    } else if (userResult.alreadyExists) {
+      parts.push('Admin user already exists');
+    }
+
+    if (parts.every((part) => part.endsWith('already exists'))) {
+      return 'Admin already exists';
+    }
+
+    return `Admin seeded successfully: ${parts.join('; ')}`;
   }
 }

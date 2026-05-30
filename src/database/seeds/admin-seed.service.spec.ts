@@ -14,8 +14,8 @@ describe('AdminSeedService', () => {
   let mockUserRepository: jest.Mocked<any>;
   let mockQueryRunner: any;
 
-  const mockAdminWallet = '0x742d35Cc6634C0532925a3b844Bc2e7c6A9A8B0F';
-  const normalizedWallet = '0x742d35cc6634c0532925a3b844bc2e7c6a9a8b0f';
+  const mockAdminWallet = 'GD5HYXSWXWFDGWZQOB3Q2SHDTSVAU4AYTPULFTBEFVNOTIFNDGXEDKGM';
+  const normalizedWallet = 'gd5hyxswxwfdgwzqob3q2shdtsvau4aytpulftbefvnotifndgxedkgm';
 
   beforeEach(async () => {
     // Setup mock query runner
@@ -111,15 +111,11 @@ describe('AdminSeedService', () => {
       mockRoleRepository.create.mockReturnValue(mockRole);
       mockUserRepository.create.mockReturnValue(mockUser);
 
-      // Mock role doesn't exist
+      // Mock role doesn't exist and is inserted
       mockQueryRunner.query
         .mockResolvedValueOnce([]) // No existing role
-        .mockResolvedValueOnce(undefined); // Save role
-
-      // Mock user doesn't exist
-      mockQueryRunner.query
+        .mockResolvedValueOnce([mockRole]) // Inserted role returned
         .mockResolvedValueOnce([]) // No existing user
-        .mockResolvedValueOnce(undefined) // Save user
         .mockResolvedValueOnce(undefined); // Insert user_role
 
       mockQueryRunner.manager.save
@@ -152,7 +148,8 @@ describe('AdminSeedService', () => {
       // Mock role already exists
       mockQueryRunner.query
         .mockResolvedValueOnce([mockRole]) // Existing role found
-        .mockResolvedValueOnce([]); // No existing user
+        .mockResolvedValueOnce([]) // No existing user
+        .mockResolvedValueOnce(undefined); // Insert user_role
 
       const mockUser = { id: '223e4567-e89b-12d3-a456-426614174000', walletAddress: normalizedWallet };
       mockUserRepository.create.mockReturnValue(mockUser);
@@ -173,15 +170,17 @@ describe('AdminSeedService', () => {
 
       mockRoleRepository.create.mockReturnValue(mockRole);
 
-      // Mock role doesn't exist
-      mockQueryRunner.query.mockResolvedValueOnce([]);
+      // Mock role doesn't exist and is inserted
+      mockQueryRunner.query
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([mockRole]);
       mockQueryRunner.manager.save.mockResolvedValueOnce(mockRole);
 
       const result = await service.seed();
 
       expect(result.roleCreated).toBe(true);
       expect(result.userCreated).toBe(false);
-      expect(result.message).toContain('Admin user not created');
+      expect(result.message).toContain('No default admin wallet configured');
     });
 
     it('should rollback transaction on error', async () => {

@@ -126,8 +126,17 @@ export class UserController {
 
     // Handle mentor profile updates
     if (type === 'mentor') {
+      // Only users with mentor role or admins can update mentor profiles
+      const hasMentorRole = user.roles && user.roles.some((r) => r.name === UserRole.MENTOR);
+      const isAdminRole = user.roles && user.roles.some((r) => r.name === UserRole.ADMIN);
+      if (!hasMentorRole && !isAdminRole) {
+        throw new ForbiddenException('Only mentors can update mentor profiles');
+      }
+
       if (!user.mentorProfile) {
-        throw new NotFoundException('Mentor profile not found');
+        // create a new mentor profile for the user
+        const newProfile = this.mentorProfileRepository.create({ user: user as any });
+        user.mentorProfile = await this.mentorProfileRepository.save(newProfile);
       }
       
       // Store old values for audit
@@ -142,6 +151,18 @@ export class UserController {
       
       profile = user.mentorProfile;
       Object.assign(profile, dto);
+
+      // Server-side guards: enforce skills max 20 and hourlyRate bounds
+      if (Array.isArray(profile.skills) && profile.skills.length > 20) {
+        throw new ForbiddenException('Maximum 20 skills allowed');
+      }
+      if (profile.hourlyRate !== undefined && profile.hourlyRate !== null) {
+        const rate = Number(profile.hourlyRate);
+        if (isNaN(rate) || rate < 0 || rate > 1000) {
+          throw new ForbiddenException('hourlyRate must be between 0 and 1000');
+        }
+      }
+
       await this.mentorProfileRepository.save(profile);
     } 
     // Handle mentee profile updates
@@ -185,10 +206,88 @@ export class UserController {
     await this.auditLogRepository.save(auditLog);
 
     // Return updated profile
+    const p = profile as any;
+
+    // Compute simple profile completion percentage based on required fields
+    const requiredFields = [
+      'bio',
+      'skills',
+      'hourlyRate',
+      'yearsOfExperience',
+      'currentRole',
+      'education',
+      'languages',
+    ];
+    let filled = 0;
+    for (const f of requiredFields) {
+      if (p[f] !== undefined && p[f] !== null && (Array.isArray(p[f]) ? p[f].length > 0 : String(p[f]).trim() !== '')) {
+        filled += 1;
+      }
+    }
+    const completion = Math.round((filled / requiredFields.length) * 100);
+
     return {
       id: profile.id,
-      ...(profile as any),
+      ...p,
       userId: user.id,
+      profileCompletion: completion,
     };
+  }
+
+  @Get('me/mentor')
+  @ApiOperation({ summary: 'Get own mentor profile' })
+  @ApiResponse({ status: 200, description: 'Mentor profile' })
+  async getMyMentorProfile(@CurrentUser() currentUser: any) {
+    const user = await this.userRepository.findOne({ where: { id: currentUser.userId }, relations: ['mentorProfile', 'roles'] });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.mentorProfile) return null;
+
+    const p: any = user.mentorProfile;
+    const requiredFields = ['bio','skills','hourlyRate','yearsOfExperience','currentRole','education','languages'];
+    let filled = 0;
+    for (const f of requiredFields) {
+      if (p[f] !== undefined && p[f] !== null && (Array.isArray(p[f]) ? p[f].length > 0 : String(p[f]).trim() !== '')) filled += 1;
+    }
+    const completion = Math.round((filled / requiredFields.length) * 100);
+    return { id: p.id, ...p, userId: user.id, profileCompletion: completion };
+  }
+
+  @Get(':id/mentor')
+  @ApiOperation({ summary: 'Get mentor profile by user id' })
+  @ApiParam({ name: 'id', type: String })
+  @ApiResponse({ status: 200, description: 'Mentor profile' })
+  async getMentorProfileByUserId(@Param('id', ParseUUIDPipe) id: string) {
+    const user = await this.userRepository.findOne({ where: { id }, relations: ['mentorProfile'] });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.mentorProfile) return null;
+    const p: any = user.mentorProfile;
+    const requiredFields = ['bio','skills','hourlyRate','yearsOfExperience','currentRole','education','languages'];
+    let filled = 0;
+    for (const f of requiredFields) {
+      if (p[f] !== undefined && p[f] !== null && (Array.isArray(p[f]) ? p[f].length > 0 : String(p[f]).trim() !== '')) filled += 1;
+    }
+    const completion = Math.round((filled / requiredFields.length) * 100);
+    return { id: p.id, ...p, userId: user.id, profileCompletion: completion };
+  }
+
+  @Delete('me/mentor')
+  @ApiOperation({ summary: 'Delete own mentor profile' })
+  @ApiResponse({ status: 204, description: 'Mentor profile deleted' })
+  async deleteMyMentorProfile(@CurrentUser() currentUser: any) {
+    const user = await this.userRepository.findOne({ where: { id: currentUser.userId }, relations: ['mentorProfile', 'roles'] });
+    if (!user) throw new NotFoundException('User not found');
+
+    const hasMentorRole = user.roles && user.roles.some((r) => r.name === UserRole.MENTOR);
+    const isAdminRole = user.roles && user.roles.some((r) => r.name === UserRole.ADMIN);
+    if (!hasMentorRole && !isAdminRole) {
+      throw new ForbiddenException('Only mentors can delete their mentor profile');
+    }
+
+    if (!user.mentorProfile) {
+      return null;
+    }
+
+    await this.mentorProfileRepository.delete(user.mentorProfile.id);
+    return null;
   }
 }
