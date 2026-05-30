@@ -86,6 +86,7 @@ pub enum DataKey {
     Admin,
     PlatformFee,
     Treasury,
+    DisputeWindow,
 }
 
 #[contracttype]
@@ -121,13 +122,18 @@ pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
-    pub fn initialize(env: Env, admin: Address, treasury: Address) {
+    pub fn initialize(env: Env, admin: Address, treasury: Address, dispute_window: u32) {
         if env.storage().persistent().has(&DataKey::Admin) {
             panic!("already initialized");
         }
         env.storage().persistent().set(&DataKey::Admin, &admin);
         env.storage().persistent().set(&DataKey::Treasury, &treasury);
         env.storage().persistent().set(&DataKey::PlatformFee, &0_u32);
+        env.storage().persistent().set(&DataKey::DisputeWindow, &dispute_window);
+        env.events().publish(
+            (Symbol::new(&env, "Initialized"),),
+            (admin, treasury, dispute_window),
+        );
     }
 
     pub fn set_treasury(env: Env, new_treasury: Address) {
