@@ -12,6 +12,7 @@ import { UsersModule } from './users/users.module';
 import { PortfolioModule } from './portfolio/portfolio.module';
 import { AvailabilityModule } from './availability/availability.module';
 import { AvatarModule } from './avatar/avatar.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { AvatarModule } from './avatar/avatar.module';
     }),
     AuthModule,
     UsersModule,
+    AdminModule,
     RedisModule,
     HealthModule,
     PortfolioModule,
