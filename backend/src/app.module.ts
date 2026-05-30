@@ -13,6 +13,8 @@ import { PortfolioModule } from './portfolio/portfolio.module';
 import { AvailabilityModule } from './availability/availability.module';
 import { AvatarModule } from './avatar/avatar.module';
 import { AdminModule } from './admin/admin.module';
+import { MonitoringModule } from './monitoring/monitoring.module';
+import { MetricsMiddleware } from './monitoring/metrics.middleware';
 
 @Module({
   imports: [
@@ -29,12 +31,13 @@ import { AdminModule } from './admin/admin.module';
     PortfolioModule,
     AvailabilityModule,
     AvatarModule,
+    MonitoringModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(HttpLoggerMiddleware).forRoutes('*');
+    consumer.apply(HttpLoggerMiddleware, MetricsMiddleware).forRoutes('*');
   }
 }

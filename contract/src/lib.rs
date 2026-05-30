@@ -209,6 +209,11 @@ impl EscrowContract {
         }
         s.state = SessionState::Approved;
         env.storage().persistent().set(&DataKey::Session(session_id), &s);
+        env.events().publish((Symbol::new(&env, "SessionApproved"),), session_id);
+    }
+
+    pub fn approve_session(env: Env, session_id: u64, token_id: Address) {
+        Self::approve(env, session_id, token_id);
     }
 
     pub fn refund(env: Env, session_id: u64, token_id: Address) {
@@ -219,6 +224,11 @@ impl EscrowContract {
         s.state = SessionState::Refunded;
         env.storage().persistent().set(&DataKey::Session(session_id), &s);
         env.events().publish((symbol_short!("REFUNDED"), session_id), s.amount);
+        env.events().publish((Symbol::new(&env, "SessionRefunded"),), session_id);
+    }
+
+    pub fn refund_session(env: Env, session_id: u64, token_id: Address) {
+        Self::refund(env, session_id, token_id);
     }
 
     pub fn auto_refund(env: Env, session_id: u64, token_id: Address) {
