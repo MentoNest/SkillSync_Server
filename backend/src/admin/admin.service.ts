@@ -50,6 +50,8 @@ export class AdminService {
       take: limit,
       skip: offset,
     });
+    return { items, total };
+  }
 
   async suspendUser(
     userId: string,
@@ -66,7 +68,5 @@ export class AdminService {
 
   async listSuspendedUsers(limit = 50, offset = 0) {
     return this.suspensionService.listActiveSuspensions(limit, offset);
-  }
-    return { items, total };
   }
 }

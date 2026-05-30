@@ -105,7 +105,7 @@ describe('AuthService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
     repository = new InMemoryRefreshTokenRepository();
-    const userStore = {
+    userStore = {
       users: [] as User[],
       findOne: jest.fn(async (options: { where: { walletAddress?: string; id?: string } }) => {
         if (options.where.walletAddress) {
@@ -132,6 +132,10 @@ describe('AuthService', () => {
       logRefreshTokenUsage: jest.fn().mockResolvedValue(undefined),
       logLoginSuccess: jest.fn().mockResolvedValue(undefined),
       logLoginFailure: jest.fn().mockResolvedValue(undefined),
+      logLogout: jest.fn().mockResolvedValue(undefined),
+      logPasswordEquivalentChange: jest.fn().mockResolvedValue(undefined),
+      logRoleAssignment: jest.fn().mockResolvedValue(undefined),
+    };
     suspensionServiceMock = { getActiveSuspension: jest.fn().mockResolvedValue(null) };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -150,9 +154,6 @@ describe('AuthService', () => {
           useValue: {
             manager,
             transaction: (
-              handler: (entityManager: InMemoryEntityManager) => Promise<unknown>,
-            ) => handler(manager),
-              transaction: (
               handler: (entityManager: InMemoryEntityManager) => Promise<unknown>,
             ) => handler(manager),
           },
@@ -178,6 +179,7 @@ describe('AuthService', () => {
   });
 
   it('rotates refresh tokens and invalidates the previous token', async () => {
+    userStore.users.push({ id: 'user-1', walletAddress: 'GABC', roles: [] } as any);
     const issued = await service.issueTokenPair(
       { sub: 'user-1', walletAddress: 'GABC' },
       audit(),
@@ -200,6 +202,7 @@ describe('AuthService', () => {
   });
 
   it('returns 401 when the refresh token is expired', async () => {
+    userStore.users.push({ id: 'user-1', walletAddress: 'GABC', roles: [] } as any);
     const issued = await service.issueTokenPair({ sub: 'user-1' }, audit());
     jest.setSystemTime(new Date('2026-02-01T00:00:01.000Z'));
 
@@ -207,7 +210,11 @@ describe('AuthService', () => {
       UnauthorizedException,
     );
     expect(auditLogService.logRefreshTokenUsage).toHaveBeenCalledWith(
-      blocks login for suspended users with suspension reason', async () => {
+      expect.objectContaining({ success: false, userId: null }),
+    );
+  });
+
+  it('blocks login for suspended users with suspension reason', async () => {
     userStore.users.push({
       id: 'user-1',
       walletAddress: 'GABC',
@@ -237,13 +244,15 @@ describe('AuthService', () => {
 
     await expect(service.login('GABC', audit())).rejects.toBeInstanceOf(ForbiddenException);
     expect(auditLogService.logLoginFailure).toHaveBeenCalledWith(
-      'GABC',
-      expect.anything(),
-      'Account suspended',
+      expect.objectContaining({
+        attemptedWalletAddress: 'GABC',
+        reason: 'Account suspended',
+      })
     );
   });
 
   it('blocks refresh for suspended users with suspension reason', async () => {
+    userStore.users.push({ id: 'user-1', walletAddress: 'GABC', roles: [] } as any);
     const issued = await service.issueTokenPair({ sub: 'user-1', walletAddress: 'GABC' }, audit());
     const suspended = {
       id: 'suspension-1',
@@ -264,11 +273,8 @@ describe('AuthService', () => {
     );
   });
 
-  it('expect.objectContaining({ success: false, userId: 'user-1' }),
-    );
-  });
-
   it('detects refresh token reuse and revokes the token family', async () => {
+    userStore.users.push({ id: 'user-1', walletAddress: 'GABC', roles: [] } as any);
     const issued = await service.issueTokenPair({ sub: 'user-1' }, audit());
     await service.refresh(issued.refreshToken, audit());
 

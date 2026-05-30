@@ -50,6 +50,8 @@ describe('SuspensionService', () => {
   };
   const auditLogService = {
     logEvent: jest.fn(),
+    logUserSuspension: jest.fn(),
+    logUserUnsuspension: jest.fn(),
   };
   const manager = {
     create: jest.fn(),
@@ -129,9 +131,9 @@ describe('SuspensionService', () => {
         suspendedBy: 'admin-1',
       }));
       expect(refreshUpdateBuilder.execute).toHaveBeenCalled();
-      expect(auditLogService.logEvent).toHaveBeenCalledWith(expect.objectContaining({
+      expect(auditLogService.logUserSuspension).toHaveBeenCalledWith(expect.objectContaining({
         userId: 'user-1',
-        eventType: 'SUSPEND_USER',
+        suspendedBy: 'admin-1',
       }));
     });
   });
@@ -164,9 +166,9 @@ describe('SuspensionService', () => {
 
       expect(result.liftedAt).toBeInstanceOf(Date);
       expect(result.liftedBy).toBe('admin-1');
-      expect(auditLogService.logEvent).toHaveBeenCalledWith(expect.objectContaining({
+      expect(auditLogService.logUserUnsuspension).toHaveBeenCalledWith(expect.objectContaining({
         userId: 'user-1',
-        eventType: 'UNSUSPEND_USER',
+        liftedBy: 'admin-1',
       }));
     });
   });
