@@ -474,8 +474,16 @@ impl SkillSyncEscrow {
         );
         session.status = Status::Approved;
         Self::save_session_internal(&env, &session_id, &session);
-        env.events()
-            .publish((Symbol::new(&env, "SessionApproved"), session_id), session.amount);
+        env.events().publish(
+            (Symbol::new(&env, "SessionApproved"), session_id),
+            (
+                session.buyer,
+                session.seller,
+                session.amount,
+                0_i128, // fee is currently 0 in SkillSyncEscrow
+                env.ledger().timestamp(),
+            ),
+        );
     }
 
     // ── #526: refund_session ──────────────────────────────────────────────────
