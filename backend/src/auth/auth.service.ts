@@ -1,10 +1,11 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { AuditLogService, RequestAudit } from './audit-log.service';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { SuspensionService } from './suspension.service';
 import { User } from '../users/entities/user.entity';
 import { Role } from '../users/entities/role.entity';
 import * as StellarSDK from 'stellar-sdk';
@@ -39,6 +40,7 @@ export class AuthService {
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
     private readonly auditLogService: AuditLogService,
+    private readonly suspensionService: SuspensionService,
   ) {}
 
   verifyStellarSignature(walletAddress: string, nonce: string, signature: string): boolean {
@@ -90,6 +92,17 @@ export class AuthService {
       user = await this.dataSource.manager.save(user);
     }
 
+    const activeSuspension = await this.suspensionService.getActiveSuspension(user.id);
+    if (activeSuspension) {
+      const untilText = activeSuspension.suspendedUntil
+        ? activeSuspension.suspendedUntil.toISOString()
+        : 'permanently';
+      await this.logLoginFailure(user.walletAddress, audit, 'Account suspended');
+      throw new ForbiddenException(
+        `Account suspended until ${untilText}: ${activeSuspension.reason}`,
+      );
+    }
+
     const claims = {
       sub: user.id,
       walletAddress: user.walletAddress,
@@ -97,7 +110,9 @@ export class AuthService {
       tokenVersion: user.tokenVersion,
     };
 
-    return this.issueTokenPair(claims, audit);
+    const tokenPair = await this.issueTokenPair(claims, audit);
+    await this.logLoginSuccess(user.id, user.walletAddress, audit);
+    return tokenPair;
   }
 
   async refresh(refreshToken: string, audit: RequestAudit): Promise<TokenPair> {
@@ -141,6 +156,16 @@ export class AuthService {
 
           if (!user) {
             throw new UnauthorizedException('User not found');
+          }
+
+          const activeSuspension = await this.suspensionService.getActiveSuspension(user.id);
+          if (activeSuspension) {
+            const untilText = activeSuspension.suspendedUntil
+              ? activeSuspension.suspendedUntil.toISOString()
+              : 'permanently';
+            throw new ForbiddenException(
+              `Account suspended until ${untilText}: ${activeSuspension.reason}`,
+            );
           }
 
           if (payload.tokenVersion !== user.tokenVersion) {

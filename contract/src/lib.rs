@@ -86,6 +86,7 @@ pub enum DataKey {
     Admin,
     PlatformFee,
     Treasury,
+    DisputeWindow,
 }
 
 #[contracttype]
@@ -121,20 +122,29 @@ pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
-    pub fn initialize(env: Env, admin: Address, treasury: Address) {
+    pub fn initialize(env: Env, admin: Address, treasury: Address, dispute_window: u32) {
         if env.storage().persistent().has(&DataKey::Admin) {
             panic!("already initialized");
         }
         env.storage().persistent().set(&DataKey::Admin, &admin);
         env.storage().persistent().set(&DataKey::Treasury, &treasury);
         env.storage().persistent().set(&DataKey::PlatformFee, &0_u32);
+        env.storage().persistent().set(&DataKey::DisputeWindow, &dispute_window);
+        env.events().publish(
+            (Symbol::new(&env, "Initialized"),),
+            (admin, treasury, dispute_window),
+        );
     }
 
     pub fn set_treasury(env: Env, new_treasury: Address) {
         let admin: Address = env.storage().persistent().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
+        let old_treasury: Address = env.storage().persistent().get(&DataKey::Treasury).expect("treasury not set");
         env.storage().persistent().set(&DataKey::Treasury, &new_treasury);
-        env.events().publish((Symbol::new(&env, "TreasuryUpdated"),), new_treasury);
+        env.events().publish(
+            (Symbol::new(&env, "TreasuryUpdated"),),
+            (old_treasury, new_treasury, admin),
+        );
     }
 
     pub fn get_treasury(env: Env) -> Address {
@@ -290,6 +300,7 @@ pub enum Status {
     Refunded,
     Disputed,
     Resolved,
+    AutoRefunded,
 }
 
 /// Session struct (#525)
@@ -310,6 +321,7 @@ pub enum SkillSyncKey {
     Session(Bytes32),
     Admin,
     DisputeWindow,
+    WasmHash,
 }
 
 /// Error codes for SkillSyncEscrow (#526)
@@ -321,6 +333,15 @@ pub enum EscrowError {
     SessionNotFound = 2,
     InvalidState = 3,
     Unauthorized = 4,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractUpgraded {
+    pub old_wasm_hash: Bytes32,
+    pub new_wasm_hash: Bytes32,
+    pub upgraded_by: Address,
+    pub timestamp: u64,
 }
 
 const DEFAULT_DISPUTE_WINDOW: u32 = 1000;
@@ -429,8 +450,10 @@ impl SkillSyncEscrow {
         session.status = Status::Completed;
         session.completed_at = env.ledger().timestamp();
         Self::save_session_internal(&env, &session_id, &session);
-        env.events()
-            .publish((Symbol::new(&env, "SessionCompleted"), session_id), ());
+        env.events().publish(
+            (Symbol::new(&env, "SessionCompleted"), session_id),
+            (session.seller.clone(), session.completed_at),
+        );
     }
 
     // ── #526: approve_session ─────────────────────────────────────────────────
@@ -475,8 +498,51 @@ impl SkillSyncEscrow {
         );
         session.status = Status::Refunded;
         Self::save_session_internal(&env, &session_id, &session);
-        env.events()
-            .publish((Symbol::new(&env, "SessionRefunded"), session_id), session.amount);
+        env.events().publish(
+            (Symbol::new(&env, "SessionRefunded"), session_id),
+            (session.buyer, session.amount, env.ledger().timestamp()),
+        );
+    }
+
+    // ── Auto-refund: timeout-based refund after dispute window ──────────────────
+
+    /// Automatically refunds buyer after dispute window expires following session completion.
+    /// - Session must be in Completed status.
+    /// - Current ledger timestamp must be >= completed_at + dispute_window.
+    /// - Refunds full amount to buyer.
+    /// - Emits AutoRefundExecuted event with session details.
+    pub fn auto_refund(env: Env, session_id: Bytes32, token_id: Address) {
+        let mut session = Self::get_session_internal(&env, &session_id);
+        assert!(
+            session.status == Status::Completed,
+            "InvalidState: session must be Completed"
+        );
+
+        let dispute_window = Self::get_dispute_window(env.clone());
+        let current_timestamp = env.ledger().timestamp();
+        assert!(
+            current_timestamp >= session.completed_at + dispute_window as u64,
+            "DisputeWindowNotPassed: refund window has not expired"
+        );
+
+        let refunded_at = current_timestamp;
+        token::Client::new(&env, &token_id).transfer(
+            &env.current_contract_address(),
+            &session.buyer,
+            &session.amount,
+        );
+        session.status = Status::AutoRefunded;
+        Self::save_session_internal(&env, &session_id, &session);
+
+        // Emit AutoRefundExecuted event with all required parameters
+        env.events().publish(
+            (
+                Symbol::new(&env, "AutoRefundExecuted"),
+                session_id.clone(),
+                session.buyer.clone(),
+            ),
+            (session.amount, session.completed_at, refunded_at),
+        );
     }
 
     // ── #521: dispute window ──────────────────────────────────────────────────
@@ -513,10 +579,29 @@ impl SkillSyncEscrow {
             .get(&SkillSyncKey::Admin)
             .expect("not initialized");
         admin.require_auth();
+
+        let old_wasm_hash = env
+            .storage()
+            .persistent()
+            .get::<_, Bytes32>(&SkillSyncKey::WasmHash)
+            .unwrap_or_else(|| BytesN::from_array(&env, &[0; 32]));
+
+        env.storage()
+            .persistent()
+            .set(&SkillSyncKey::WasmHash, &new_wasm_hash);
+
         env.deployer()
             .update_current_contract_wasm(new_wasm_hash.clone());
+
+        let event = ContractUpgraded {
+            old_wasm_hash,
+            new_wasm_hash,
+            upgraded_by: admin,
+            timestamp: env.ledger().timestamp(),
+        };
+
         env.events()
-            .publish((Symbol::new(&env, "ContractUpgraded"),), new_wasm_hash);
+            .publish((Symbol::new(&env, "ContractUpgraded"),), event);
     }
 }
 

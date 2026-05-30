@@ -3,12 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { ProfileHistory } from '../users/entities/profile-history.entity';
+import { SuspensionService } from '../auth/suspension.service';
 
 @Injectable()
 export class AdminService {
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(ProfileHistory) private readonly historyRepo: Repository<ProfileHistory>,
+    private readonly suspensionService: SuspensionService,
   ) {}
 
   async verifyMentor(
@@ -48,6 +50,23 @@ export class AdminService {
       take: limit,
       skip: offset,
     });
+
+  async suspendUser(
+    userId: string,
+    adminId: string,
+    reason: string,
+    durationDays?: number | null,
+  ) {
+    return this.suspensionService.suspendUser(userId, adminId, reason, durationDays);
+  }
+
+  async unsuspendUser(userId: string, adminId: string) {
+    return this.suspensionService.unsuspendUser(userId, adminId);
+  }
+
+  async listSuspendedUsers(limit = 50, offset = 0) {
+    return this.suspensionService.listActiveSuspensions(limit, offset);
+  }
     return { items, total };
   }
 }
