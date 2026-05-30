@@ -24,6 +24,18 @@ export class User {
   @Column({ name: 'token_version', type: 'int', default: 0 })
   tokenVersion!: number;
 
+  @Column({ name: 'is_verified', type: 'boolean', default: false })
+  isVerified!: boolean;
+
+  @Column({ name: 'verified_at', type: 'timestamptz', nullable: true })
+  verifiedAt!: Date | null;
+
+  @Column({ name: 'verified_by', type: 'varchar', length: 128, nullable: true })
+  verifiedBy!: string | null;
+
+  @Column({ name: 'verification_notes', type: 'text', nullable: true })
+  verificationNotes!: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

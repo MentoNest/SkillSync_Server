@@ -452,3 +452,248 @@ mod test_multi_session {
         assert_eq!(last_event.2, new_treasury.into_val(&env));
     }
 }
+
+// ============================================================================
+// SkillSync Escrow Contract Tests — issues #521 #522 #523 #525 #526 #527
+// ============================================================================
+
+mod test_skillsync_escrow {
+    use super::super::{SkillSyncEscrow, SkillSyncEscrowClient, Status};
+    use soroban_sdk::{
+        testutils::Address as _,
+        token::{Client as TokenClient, StellarAssetClient},
+        Address, BytesN, Env, IntoVal, Symbol,
+    };
+
+    fn make_id(env: &Env, n: u8) -> BytesN<32> {
+        BytesN::from_array(env, &[n; 32])
+    }
+
+    fn setup() -> (Env, Address, Address, Address, Address, Address) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let token_id = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+        StellarAssetClient::new(&env, &token_id).mint(&buyer, &1000);
+        let cid = env.register(SkillSyncEscrow, ());
+        (env, admin, buyer, seller, token_id, cid)
+    }
+
+    // ── #525: session struct & helpers ───────────────────────────────────────
+
+    #[test]
+    fn test_lock_funds_stores_session_with_locked_status() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 1);
+        client.lock_funds(&id, &buyer, &seller, &500, &token_id);
+        let s = client.get_session(&id);
+        assert!(matches!(s.status, Status::Locked));
+        assert_eq!(s.buyer, buyer);
+        assert_eq!(s.seller, seller);
+        assert_eq!(s.amount, 500);
+    }
+
+    // ── #523: lock_funds ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_lock_funds_transfers_tokens_to_contract() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 2);
+        client.lock_funds(&id, &buyer, &seller, &300, &token_id);
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&cid), 300);
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&buyer), 700);
+    }
+
+    #[test]
+    fn test_lock_funds_emits_funds_locked_event() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 3);
+        client.lock_funds(&id, &buyer, &seller, &100, &token_id);
+        let events = env.events().all();
+        let last = events.last().unwrap();
+        assert_eq!(last.0, cid);
+        assert_eq!(
+            last.1,
+            (Symbol::new(&env, "FundsLocked"), id.clone()).into_val(&env)
+        );
+        assert_eq!(last.2, 100_i128.into_val(&env));
+    }
+
+    #[test]
+    #[should_panic(expected = "amount must be positive")]
+    fn test_lock_funds_zero_amount_reverts() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        client.lock_funds(&make_id(&env, 4), &buyer, &seller, &0, &token_id);
+    }
+
+    // ── #526: DuplicateSessionId — lock_funds ─────────────────────────────────
+
+    #[test]
+    #[should_panic(expected = "DuplicateSessionId")]
+    fn test_lock_funds_duplicate_session_id_reverts() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 5);
+        client.lock_funds(&id, &buyer, &seller, &100, &token_id);
+        client.lock_funds(&id, &buyer, &seller, &100, &token_id);
+    }
+
+    // ── #527: complete_session ────────────────────────────────────────────────
+
+    #[test]
+    fn test_complete_session_seller_only_locked_to_completed() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 10);
+        client.lock_funds(&id, &buyer, &seller, &500, &token_id);
+        client.complete_session(&id);
+        let s = client.get_session(&id);
+        assert!(matches!(s.status, Status::Completed));
+        assert!(s.completed_at > 0);
+    }
+
+    #[test]
+    fn test_complete_session_emits_session_completed_event() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 11);
+        client.lock_funds(&id, &buyer, &seller, &200, &token_id);
+        client.complete_session(&id);
+        let events = env.events().all();
+        let last = events.last().unwrap();
+        assert_eq!(last.0, cid);
+        assert_eq!(
+            last.1,
+            (Symbol::new(&env, "SessionCompleted"), id.clone()).into_val(&env)
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_complete_session_requires_locked_state() {
+        let (env, admin, .., cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 12);
+        // session doesn't exist — should panic
+        client.complete_session(&id);
+    }
+
+    // ── #526: DuplicateSessionId — complete_session ───────────────────────────
+
+    #[test]
+    #[should_panic(expected = "DuplicateSessionId")]
+    fn test_complete_session_already_completed_reverts_with_duplicate_id() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 13);
+        client.lock_funds(&id, &buyer, &seller, &100, &token_id);
+        client.complete_session(&id);
+        client.complete_session(&id); // already Completed → DuplicateSessionId
+    }
+
+    // ── #526: DuplicateSessionId — refund_session ─────────────────────────────
+
+    #[test]
+    fn test_refund_session_locked_succeeds() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 20);
+        client.lock_funds(&id, &buyer, &seller, &400, &token_id);
+        client.refund_session(&id, &token_id);
+        let s = client.get_session(&id);
+        assert!(matches!(s.status, Status::Refunded));
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&buyer), 1000);
+    }
+
+    #[test]
+    #[should_panic(expected = "DuplicateSessionId")]
+    fn test_refund_session_already_refunded_reverts_with_duplicate_id() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 21);
+        client.lock_funds(&id, &buyer, &seller, &100, &token_id);
+        client.refund_session(&id, &token_id);
+        client.refund_session(&id, &token_id); // already Refunded → DuplicateSessionId
+    }
+
+    // ── #526: approve_session state check ────────────────────────────────────
+
+    #[test]
+    fn test_approve_session_after_complete_succeeds() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 30);
+        client.lock_funds(&id, &buyer, &seller, &600, &token_id);
+        client.complete_session(&id);
+        client.approve_session(&id, &token_id);
+        let s = client.get_session(&id);
+        assert!(matches!(s.status, Status::Approved));
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&seller), 600);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_approve_session_before_complete_reverts() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 31);
+        client.lock_funds(&id, &buyer, &seller, &100, &token_id);
+        client.approve_session(&id, &token_id); // not Completed → should panic
+    }
+
+    // ── #521: dispute window ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_get_dispute_window_default_is_1000() {
+        let (env, admin, .., cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        assert_eq!(client.get_dispute_window(), 1000);
+    }
+
+    #[test]
+    fn test_set_dispute_window_updates_value() {
+        let (env, admin, .., cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        client.set_dispute_window(&2000);
+        assert_eq!(client.get_dispute_window(), 2000);
+    }
+
+    #[test]
+    fn test_set_dispute_window_emits_event() {
+        let (env, admin, .., cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        client.set_dispute_window(&500);
+        let events = env.events().all();
+        let last = events.last().unwrap();
+        assert_eq!(last.0, cid);
+        assert_eq!(
+            last.1,
+            (Symbol::new(&env, "DisputeWindowUpdated"),).into_val(&env)
+        );
+        assert_eq!(last.2, 500_u32.into_val(&env));
+    }
+}

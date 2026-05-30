@@ -103,107 +103,7 @@ export class UserController {
     @Param('type') type: 'mentor' | 'mentee',
     @Body() dto: UpdateMentorProfileDto | UpdateMenteeProfileDto,
   ): Promise<any> {
-    this.ensureProfileRole(currentUser, type);
-
     // Find the user
-    const user = await this.userRepository.findOne({
-      where: { id: currentUser.userId },
-      relations: ['roles', 'mentorProfile', 'menteeProfile'],
-    });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    const isOwner = user.id === currentUser.userId;
-    const isAdmin = currentUser.roles?.includes(UserRole.ADMIN) ?? false;
-
-    if (!isOwner && !isAdmin) {
-      throw new ForbiddenException('You do not have permission to update this profile');
-    }
-
-    let profile: MentorProfile | MenteeProfile | null = null;
-    let oldValues: any = {};
-
-    if (type === 'mentor') {
-      if (!user.mentorProfile) {
-        throw new NotFoundException('Mentor profile not found');
-      }
-
-      oldValues = {
-        bio: user.mentorProfile.bio,
-        yearsOfExperience: user.mentorProfile.yearsOfExperience,
-        expertise: user.mentorProfile.expertise,
-        preferredMentoringStyle: user.mentorProfile.preferredMentoringStyle,
-        availabilityHoursPerWeek: user.mentorProfile.availabilityHoursPerWeek,
-        availabilityDetails: user.mentorProfile.availabilityDetails,
-      };
-
-      profile = user.mentorProfile;
-      Object.assign(profile, dto);
-      await this.mentorProfileRepository.save(profile);
-    } else if (type === 'mentee') {
-      if (!user.menteeProfile) {
-        profile = this.menteeProfileRepository.create({
-          ...(dto as UpdateMenteeProfileDto),
-          user,
-        });
-      } else {
-        oldValues = {
-          learningGoals: user.menteeProfile.learningGoals,
-          areasOfInterest: user.menteeProfile.areasOfInterest,
-          currentSkillLevel: user.menteeProfile.currentSkillLevel,
-          preferredMentoringStyle: user.menteeProfile.preferredMentoringStyle,
-          timeCommitmentHoursPerWeek: user.menteeProfile.timeCommitmentHoursPerWeek,
-          professionalBackground: user.menteeProfile.professionalBackground,
-          jobTitle: user.menteeProfile.jobTitle,
-          industry: user.menteeProfile.industry,
-          portfolioLinks: user.menteeProfile.portfolioLinks,
-        };
-
-        profile = user.menteeProfile;
-        Object.assign(profile, dto);
-      }
-
-      await this.menteeProfileRepository.save(profile);
-    }
-
-    const auditLog = this.auditLogRepository.create({
-      userId: user.id,
-      walletAddress: user.walletAddress,
-      eventType: AuditEventType.PROFILE_UPDATED,
-      ipAddress: '0.0.0.0',
-      metadata: {
-        profileType: type,
-        oldValues,
-        newValues: dto,
-        updatedBy: isAdmin && !isOwner ? currentUser.userId : null,
-      },
-    });
-
-    await this.auditLogRepository.save(auditLog);
-
-    return {
-      id: profile.id,
-      ...(profile as any),
-      userId: user.id,
-      profileCompletion: type === 'mentee' ? this.calculateMenteeProfileCompletion(profile as MenteeProfile) : undefined,
-    };
-  }
-
-  @Get('profile/:type')
-  @ApiOperation({ summary: 'Get own mentor or mentee profile' })
-  @ApiParam({ name: 'type', enum: ['mentor', 'mentee'] })
-  @ApiResponse({ status: 200, description: 'Profile retrieved successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
-  @ApiResponse({ status: 404, description: 'Profile not found' })
-  async getProfile(
-    @CurrentUser() currentUser: any,
-    @Param('type') type: 'mentor' | 'mentee',
-  ): Promise<any> {
-    this.ensureProfileRole(currentUser, type);
-
     const user = await this.userRepository.findOne({
       where: { id: currentUser.userId },
       relations: ['mentorProfile', 'menteeProfile'],
@@ -213,65 +113,181 @@ export class UserController {
       throw new NotFoundException('User not found');
     }
 
-    if (type === 'mentor') {
-      if (!user.mentorProfile) {
-        throw new NotFoundException('Mentor profile not found');
-      }
-      return {
-        id: user.mentorProfile.id,
-        ...user.mentorProfile,
-        userId: user.id,
-      };
+    // Check permissions: user can update own profile, or admin can update any profile
+    const isOwner = user.id === currentUser.userId;
+    const isAdmin = user.roles.some(role => role.name === UserRole.ADMIN);
+    
+    if (!isOwner && !isAdmin) {
+      throw new ForbiddenException('You do not have permission to update this profile');
     }
 
-    if (!user.menteeProfile) {
-      throw new NotFoundException('Mentee profile not found');
+    let profile: MentorProfile | MenteeProfile | null = null;
+    let oldValues: any = {};
+
+    // Handle mentor profile updates
+    if (type === 'mentor') {
+      // Only users with mentor role or admins can update mentor profiles
+      const hasMentorRole = user.roles && user.roles.some((r) => r.name === UserRole.MENTOR);
+      const isAdminRole = user.roles && user.roles.some((r) => r.name === UserRole.ADMIN);
+      if (!hasMentorRole && !isAdminRole) {
+        throw new ForbiddenException('Only mentors can update mentor profiles');
+      }
+
+      if (!user.mentorProfile) {
+        // create a new mentor profile for the user
+        const newProfile = this.mentorProfileRepository.create({ user: user as any });
+        user.mentorProfile = await this.mentorProfileRepository.save(newProfile);
+      }
+      
+      // Store old values for audit
+      oldValues = {
+        bio: user.mentorProfile.bio,
+        yearsOfExperience: user.mentorProfile.yearsOfExperience,
+        expertise: user.mentorProfile.expertise,
+        preferredMentoringStyle: user.mentorProfile.preferredMentoringStyle,
+        availabilityHoursPerWeek: user.mentorProfile.availabilityHoursPerWeek,
+        availabilityDetails: user.mentorProfile.availabilityDetails,
+      };
+      
+      profile = user.mentorProfile;
+      Object.assign(profile, dto);
+
+      // Server-side guards: enforce skills max 20 and hourlyRate bounds
+      if (Array.isArray(profile.skills) && profile.skills.length > 20) {
+        throw new ForbiddenException('Maximum 20 skills allowed');
+      }
+      if (profile.hourlyRate !== undefined && profile.hourlyRate !== null) {
+        const rate = Number(profile.hourlyRate);
+        if (isNaN(rate) || rate < 0 || rate > 1000) {
+          throw new ForbiddenException('hourlyRate must be between 0 and 1000');
+        }
+      }
+
+      await this.mentorProfileRepository.save(profile);
+    } 
+    // Handle mentee profile updates
+    else if (type === 'mentee') {
+      if (!user.menteeProfile) {
+        throw new NotFoundException('Mentee profile not found');
+      }
+      
+      // Store old values for audit
+      oldValues = {
+        learningGoals: user.menteeProfile.learningGoals,
+        areasOfInterest: user.menteeProfile.areasOfInterest,
+        currentSkillLevel: user.menteeProfile.currentSkillLevel,
+        preferredMentoringStyle: user.menteeProfile.preferredMentoringStyle,
+        timeCommitmentHoursPerWeek: user.menteeProfile.timeCommitmentHoursPerWeek,
+        professionalBackground: user.menteeProfile.professionalBackground,
+        jobTitle: user.menteeProfile.jobTitle,
+        industry: user.menteeProfile.industry,
+        portfolioLinks: user.menteeProfile.portfolioLinks,
+      };
+      
+      profile = user.menteeProfile;
+      Object.assign(profile, dto);
+      await this.menteeProfileRepository.save(profile);
     }
+
+    // Create audit log entry
+    const auditLog = this.auditLogRepository.create({
+      userId: user.id,
+      walletAddress: user.walletAddress,
+      eventType: AuditEventType.PROFILE_UPDATED,
+      ipAddress: '0.0.0.0', // In a real app, extract from request
+      metadata: {
+        profileType: type,
+        oldValues,
+        newValues: dto,
+        updatedBy: isAdmin && !isOwner ? currentUser.userId : null,
+      },
+    });
+    
+    await this.auditLogRepository.save(auditLog);
+
+    // Return updated profile
+    const p = profile as any;
+
+    // Compute simple profile completion percentage based on required fields
+    const requiredFields = [
+      'bio',
+      'skills',
+      'hourlyRate',
+      'yearsOfExperience',
+      'currentRole',
+      'education',
+      'languages',
+    ];
+    let filled = 0;
+    for (const f of requiredFields) {
+      if (p[f] !== undefined && p[f] !== null && (Array.isArray(p[f]) ? p[f].length > 0 : String(p[f]).trim() !== '')) {
+        filled += 1;
+      }
+    }
+    const completion = Math.round((filled / requiredFields.length) * 100);
 
     return {
-      id: user.menteeProfile.id,
-      ...user.menteeProfile,
+      id: profile.id,
+      ...p,
       userId: user.id,
-      profileCompletion: this.calculateMenteeProfileCompletion(user.menteeProfile),
+      profileCompletion: completion,
     };
   }
 
-  private ensureProfileRole(currentUser: any, type: 'mentor' | 'mentee') {
-    const roles: string[] = currentUser.roles || [];
+  @Get('me/mentor')
+  @ApiOperation({ summary: 'Get own mentor profile' })
+  @ApiResponse({ status: 200, description: 'Mentor profile' })
+  async getMyMentorProfile(@CurrentUser() currentUser: any) {
+    const user = await this.userRepository.findOne({ where: { id: currentUser.userId }, relations: ['mentorProfile', 'roles'] });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.mentorProfile) return null;
 
-    if (type === 'mentee' && !roles.includes(UserRole.MENTEE) && !roles.includes(UserRole.ADMIN)) {
-      throw new ForbiddenException('Only mentee or admin users may manage mentee profiles');
+    const p: any = user.mentorProfile;
+    const requiredFields = ['bio','skills','hourlyRate','yearsOfExperience','currentRole','education','languages'];
+    let filled = 0;
+    for (const f of requiredFields) {
+      if (p[f] !== undefined && p[f] !== null && (Array.isArray(p[f]) ? p[f].length > 0 : String(p[f]).trim() !== '')) filled += 1;
     }
-
-    if (type === 'mentor' && !roles.includes(UserRole.MENTOR) && !roles.includes(UserRole.ADMIN)) {
-      throw new ForbiddenException('Only mentor or admin users may manage mentor profiles');
-    }
+    const completion = Math.round((filled / requiredFields.length) * 100);
+    return { id: p.id, ...p, userId: user.id, profileCompletion: completion };
   }
 
-  private calculateMenteeProfileCompletion(profile: MenteeProfile): number {
-    const fields = [
-      profile.learningGoals,
-      profile.areasOfInterest,
-      profile.currentSkillLevel,
-      profile.preferredMentoringStyle,
-      profile.timeCommitmentHoursPerWeek,
-      profile.professionalBackground,
-      profile.jobTitle,
-      profile.industry,
-      profile.portfolioLinks,
-    ];
+  @Get(':id/mentor')
+  @ApiOperation({ summary: 'Get mentor profile by user id' })
+  @ApiParam({ name: 'id', type: String })
+  @ApiResponse({ status: 200, description: 'Mentor profile' })
+  async getMentorProfileByUserId(@Param('id', ParseUUIDPipe) id: string) {
+    const user = await this.userRepository.findOne({ where: { id }, relations: ['mentorProfile'] });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.mentorProfile) return null;
+    const p: any = user.mentorProfile;
+    const requiredFields = ['bio','skills','hourlyRate','yearsOfExperience','currentRole','education','languages'];
+    let filled = 0;
+    for (const f of requiredFields) {
+      if (p[f] !== undefined && p[f] !== null && (Array.isArray(p[f]) ? p[f].length > 0 : String(p[f]).trim() !== '')) filled += 1;
+    }
+    const completion = Math.round((filled / requiredFields.length) * 100);
+    return { id: p.id, ...p, userId: user.id, profileCompletion: completion };
+  }
 
-    const filled = fields.reduce<number>((count, value) => {
-      if (Array.isArray(value)) {
-        return count + (value.length > 0 ? 1 : 0);
-      }
-      if (value === null || value === undefined) {
-        return count;
-      }
-      return count + 1;
-    }, 0);
+  @Delete('me/mentor')
+  @ApiOperation({ summary: 'Delete own mentor profile' })
+  @ApiResponse({ status: 204, description: 'Mentor profile deleted' })
+  async deleteMyMentorProfile(@CurrentUser() currentUser: any) {
+    const user = await this.userRepository.findOne({ where: { id: currentUser.userId }, relations: ['mentorProfile', 'roles'] });
+    if (!user) throw new NotFoundException('User not found');
 
-    return Math.round((filled / fields.length) * 100);
+    const hasMentorRole = user.roles && user.roles.some((r) => r.name === UserRole.MENTOR);
+    const isAdminRole = user.roles && user.roles.some((r) => r.name === UserRole.ADMIN);
+    if (!hasMentorRole && !isAdminRole) {
+      throw new ForbiddenException('Only mentors can delete their mentor profile');
+    }
+
+    if (!user.mentorProfile) {
+      return null;
+    }
+
+    await this.mentorProfileRepository.delete(user.mentorProfile.id);
+    return null;
   }
 }
-
