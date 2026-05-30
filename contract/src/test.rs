@@ -449,7 +449,7 @@ mod test_multi_session {
         let last_event = events.last().unwrap();
         assert_eq!(last_event.0, cid);
         assert_eq!(last_event.1, (Symbol::new(&env, "TreasuryUpdated"),).into_val(&env));
-        assert_eq!(last_event.2, new_treasury.into_val(&env));
+        assert_eq!(last_event.2, (treasury, new_treasury, admin).into_val(&env));
     }
 
     #[test]

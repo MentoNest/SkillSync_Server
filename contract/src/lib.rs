@@ -139,8 +139,12 @@ impl EscrowContract {
     pub fn set_treasury(env: Env, new_treasury: Address) {
         let admin: Address = env.storage().persistent().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
+        let old_treasury: Address = env.storage().persistent().get(&DataKey::Treasury).expect("treasury not set");
         env.storage().persistent().set(&DataKey::Treasury, &new_treasury);
-        env.events().publish((Symbol::new(&env, "TreasuryUpdated"),), new_treasury);
+        env.events().publish(
+            (Symbol::new(&env, "TreasuryUpdated"),),
+            (old_treasury, new_treasury, admin),
+        );
     }
 
     pub fn get_treasury(env: Env) -> Address {
