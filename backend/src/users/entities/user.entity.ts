@@ -47,6 +47,16 @@ export class User {
   @Column({ name: 'verification_notes', type: 'text', nullable: true })
   verificationNotes!: string | null;
 
+  @Index({ unique: true })
+  @Column({ name: 'username', type: 'varchar', length: 30, nullable: true })
+  username!: string | null;
+
+  @Column({ name: 'display_name', type: 'varchar', length: 50, nullable: true })
+  displayName!: string | null;
+
+  @Column({ name: 'username_changed_at', type: 'timestamptz', nullable: true })
+  usernameChangedAt!: Date | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

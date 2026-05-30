@@ -4,7 +4,7 @@ import { Injectable } from '@nestjs/common';
 import { User } from '../users/entities/user.entity';
 import { ChangeReason, ProfileHistory } from '../users/entities/profile-history.entity';
 
-const TRACKED_FIELDS: (keyof User)[] = ['isVerified', 'verifiedAt', 'verifiedBy', 'verificationNotes'];
+const TRACKED_FIELDS: (keyof User)[] = ['isVerified', 'verifiedAt', 'verifiedBy', 'verificationNotes', 'username', 'displayName'];
 
 @Injectable()
 @EventSubscriber()
