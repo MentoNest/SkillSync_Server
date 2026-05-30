@@ -290,6 +290,7 @@ pub enum Status {
     Refunded,
     Disputed,
     Resolved,
+    AutoRefunded,
 }
 
 /// Session struct (#525)
@@ -477,6 +478,47 @@ impl SkillSyncEscrow {
         Self::save_session_internal(&env, &session_id, &session);
         env.events()
             .publish((Symbol::new(&env, "SessionRefunded"), session_id), session.amount);
+    }
+
+    // ── Auto-refund: timeout-based refund after dispute window ──────────────────
+
+    /// Automatically refunds buyer after dispute window expires following session completion.
+    /// - Session must be in Completed status.
+    /// - Current ledger timestamp must be >= completed_at + dispute_window.
+    /// - Refunds full amount to buyer.
+    /// - Emits AutoRefundExecuted event with session details.
+    pub fn auto_refund(env: Env, session_id: Bytes32, token_id: Address) {
+        let mut session = Self::get_session_internal(&env, &session_id);
+        assert!(
+            session.status == Status::Completed,
+            "InvalidState: session must be Completed"
+        );
+
+        let dispute_window = Self::get_dispute_window(env.clone());
+        let current_timestamp = env.ledger().timestamp();
+        assert!(
+            current_timestamp >= session.completed_at + dispute_window as u64,
+            "DisputeWindowNotPassed: refund window has not expired"
+        );
+
+        let refunded_at = current_timestamp;
+        token::Client::new(&env, &token_id).transfer(
+            &env.current_contract_address(),
+            &session.buyer,
+            &session.amount,
+        );
+        session.status = Status::AutoRefunded;
+        Self::save_session_internal(&env, &session_id, &session);
+
+        // Emit AutoRefundExecuted event with all required parameters
+        env.events().publish(
+            (
+                Symbol::new(&env, "AutoRefundExecuted"),
+                session_id.clone(),
+                session.buyer.clone(),
+            ),
+            (session.amount, session.completed_at, refunded_at),
+        );
     }
 
     // ── #521: dispute window ──────────────────────────────────────────────────
