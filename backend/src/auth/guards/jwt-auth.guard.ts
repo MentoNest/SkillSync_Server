@@ -9,12 +9,16 @@ import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { SuspensionService } from '../suspension.service';
+import { RedisService } from '../../redis/redis.service';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
+  private readonly TOKEN_BLACKLIST_PREFIX = 'blacklist:token';
+
   constructor(
     private readonly configService: ConfigService,
     private readonly suspensionService: SuspensionService,
+    private readonly redisService: RedisService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -30,6 +34,16 @@ export class JwtAuthGuard implements CanActivate {
 
     const token = authorization.slice(7).trim();
     const payload = this.verifyAccessToken(token);
+
+    // Check Redis blacklist — rejects tokens invalidated by logout
+    if (payload.jti) {
+      const blacklistKey = `${this.TOKEN_BLACKLIST_PREFIX}:${payload.jti}`;
+      const isBlacklisted = await this.redisService.get(blacklistKey);
+      if (isBlacklisted !== null) {
+        throw new UnauthorizedException('Token has been revoked');
+      }
+    }
+
     const suspension = await this.suspensionService.getActiveSuspension(payload.sub);
     if (suspension) {
       const untilText = suspension.suspendedUntil
