@@ -91,6 +91,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       responseBody.code ?? mapHttpStatusToErrorCode(status, error.toString());
 
     const payload: Record<string, unknown> = {
+      success: false,
       statusCode: status,
       message,
       error,

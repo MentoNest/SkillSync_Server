@@ -6,9 +6,10 @@ import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { ProfileHistorySubscriber } from './profile-history.subscriber';
 import { AuthModule } from '../auth/auth.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, ProfileHistory]), AuthModule],
+  imports: [TypeOrmModule.forFeature([User, ProfileHistory]), AuthModule, UsersModule],
   controllers: [AdminController],
   providers: [AdminService, ProfileHistorySubscriber],
 })

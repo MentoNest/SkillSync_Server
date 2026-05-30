@@ -456,6 +456,35 @@ impl SkillSyncEscrow {
         );
     }
 
+    // ── #550: dispute_session ──────────────────────────────────────────────────
+
+    /// Opens a dispute for a session.
+    /// - Caller can be buyer or seller.
+    /// - Session must be in Locked or Completed state.
+    /// - Emits DisputeOpened event.
+    pub fn dispute_session(env: Env, session_id: Bytes32, opened_by: Address, reason: soroban_sdk::String) {
+        let mut session = Self::get_session_internal(&env, &session_id);
+        
+        opened_by.require_auth();
+        assert!(
+            opened_by == session.buyer || opened_by == session.seller,
+            "Unauthorized: must be buyer or seller"
+        );
+
+        assert!(
+            session.status == Status::Locked || session.status == Status::Completed,
+            "InvalidState: session must be Locked or Completed"
+        );
+        
+        session.status = Status::Disputed;
+        Self::save_session_internal(&env, &session_id, &session);
+        
+        env.events().publish(
+            (Symbol::new(&env, "DisputeOpened"), session_id.clone()),
+            (opened_by, reason, env.ledger().timestamp()),
+        );
+    }
+
     // ── #526: approve_session ─────────────────────────────────────────────────
 
     /// Buyer approves completed session, releasing funds to seller.

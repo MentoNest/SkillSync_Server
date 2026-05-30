@@ -156,4 +156,81 @@ export class UsersService implements OnModuleInit {
   async findByUsername(username: string): Promise<User | null> {
     return this.userRepo.findOne({ where: { username } });
   }
+
+  async featureMentor(userId: string, audit?: RequestAudit): Promise<User> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Mentor not found');
+    
+    // Enforce max featured mentors
+    const maxFeatured = 10;
+    const currentFeaturedCount = await this.userRepo.count({ where: { isFeatured: true } });
+    
+    if (!user.isFeatured && currentFeaturedCount >= maxFeatured) {
+      throw new BadRequestException(`Maximum of ${maxFeatured} featured mentors reached`);
+    }
+
+    user.isFeatured = true;
+    user.featuredAt = new Date();
+    // Sort logic (just set to count if not set)
+    if (user.featuredOrder === null || user.featuredOrder === undefined) {
+       const maxOrderUser = await this.userRepo.findOne({
+          where: { isFeatured: true },
+          order: { featuredOrder: 'DESC' }
+       });
+       user.featuredOrder = maxOrderUser?.featuredOrder != null ? maxOrderUser.featuredOrder + 1 : 1;
+    }
+
+    const saved = await this.userRepo.save(user);
+
+    if (audit) {
+      await this.auditLogService.logEvent({
+        userId,
+        eventType: 'MENTOR_FEATURED' as AuditEventType,
+        audit,
+        details: { featuredOrder: user.featuredOrder },
+      });
+    }
+
+    return saved;
+  }
+
+  async unfeatureMentor(userId: string, audit?: RequestAudit): Promise<User> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Mentor not found');
+
+    user.isFeatured = false;
+    user.featuredAt = null;
+    user.featuredOrder = null;
+
+    const saved = await this.userRepo.save(user);
+
+    if (audit) {
+      await this.auditLogService.logEvent({
+        userId,
+        eventType: 'MENTOR_UNFEATURED' as AuditEventType,
+        audit,
+        details: {},
+      });
+    }
+
+    return saved;
+  }
+
+  async getFeaturedMentors(page: number = 1, limit: number = 10): Promise<{ items: User[], meta: { total: number, page: number, lastPage: number } }> {
+    const [items, total] = await this.userRepo.findAndCount({
+      where: { isFeatured: true },
+      order: { featuredOrder: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return {
+      items,
+      meta: {
+        total,
+        page,
+        lastPage: Math.ceil(total / limit),
+      },
+    };
+  }
 }
