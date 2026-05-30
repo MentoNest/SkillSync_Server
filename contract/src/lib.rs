@@ -450,8 +450,10 @@ impl SkillSyncEscrow {
         session.status = Status::Completed;
         session.completed_at = env.ledger().timestamp();
         Self::save_session_internal(&env, &session_id, &session);
-        env.events()
-            .publish((Symbol::new(&env, "SessionCompleted"), session_id), ());
+        env.events().publish(
+            (Symbol::new(&env, "SessionCompleted"), session_id),
+            (session.seller.clone(), session.completed_at),
+        );
     }
 
     // ── #526: approve_session ─────────────────────────────────────────────────
