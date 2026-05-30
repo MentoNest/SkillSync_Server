@@ -1,0 +1,454 @@
+#![cfg(test)]
+use super::*;
+use soroban_sdk::{testutils::Address as _, Env, Address, IntoVal, Symbol};
+
+// ============================================================================
+// Single Session Escrow Contract Tests
+// ============================================================================
+
+mod test_single_session {
+    use super::super::{Contract, ContractClient, SingleSessionState as SessionState};
+    use soroban_sdk::{testutils::Address as _, Address, Env};
+
+    fn setup(env: &Env) -> (ContractClient, Address, Address, Address) {
+        let id = env.register(Contract, ());
+        let client = ContractClient::new(env, &id);
+        let buyer = Address::generate(env);
+        let seller = Address::generate(env);
+        let admin = Address::generate(env);
+        client.init(&buyer, &seller, &100_i128);
+        (client, buyer, seller, admin)
+    }
+
+    #[test]
+    fn test_lock_complete_approve() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, ..) = setup(&env);
+        client.lock();
+        assert!(matches!(client.get_state(), SessionState::Locked));
+        client.complete();
+        assert!(matches!(client.get_state(), SessionState::Completed));
+        client.approve();
+        assert!(matches!(client.get_state(), SessionState::Pending));
+    }
+
+    #[test]
+    fn test_refund_path() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, ..) = setup(&env);
+        client.lock();
+        client.refund();
+        assert!(matches!(client.get_state(), SessionState::Refunded));
+    }
+
+    #[test]
+    fn test_dispute_and_resolve() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _, _, admin) = setup(&env);
+        client.lock();
+        client.complete();
+        client.dispute();
+        assert!(matches!(client.get_state(), SessionState::Disputed));
+        client.resolve(&admin, &50_u32);
+        assert!(matches!(client.get_state(), SessionState::Refunded));
+    }
+
+    #[test]
+    fn test_initial_state_is_pending() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, ..) = setup(&env);
+        assert!(matches!(client.get_state(), SessionState::Pending));
+    }
+
+    #[test]
+    fn test_buyer_opens_dispute_after_complete() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, ..) = setup(&env);
+        client.lock();
+        client.complete();
+        client.dispute();
+        assert!(matches!(client.get_state(), SessionState::Disputed));
+    }
+
+    #[test]
+    fn test_resolve_buyer_100_pct() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _, _, admin) = setup(&env);
+        client.lock();
+        client.dispute();
+        client.resolve(&admin, &100_u32);
+        assert!(matches!(client.get_state(), SessionState::Refunded));
+    }
+
+    #[test]
+    fn test_resolve_seller_100_pct() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _, _, admin) = setup(&env);
+        client.lock();
+        client.dispute();
+        client.resolve(&admin, &0_u32);
+        assert!(matches!(client.get_state(), SessionState::Refunded));
+    }
+
+    #[test]
+    fn test_split_resolution() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _, _, admin) = setup(&env);
+        client.lock();
+        client.dispute();
+        client.resolve(&admin, &50_u32);
+        assert!(matches!(client.get_state(), SessionState::Refunded));
+    }
+}
+
+// ============================================================================
+// Multi Session Escrow Contract Tests
+// ============================================================================
+
+mod test_multi_session {
+    use super::super::{EscrowContract, EscrowContractClient, SessionState, DISPUTE_WINDOW};
+    use soroban_sdk::{testutils::{Address as _, Ledger}, Env, Address, IntoVal, Symbol};
+    use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
+
+    fn setup() -> (Env, Address, Address, Address, Address, Address) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let token_id = env.register_stellar_asset_contract_v2(admin.clone()).address();
+        StellarAssetClient::new(&env, &token_id).mint(&buyer, &1000);
+        (env, buyer, seller, treasury, token_id, admin)
+    }
+
+    #[test]
+    fn test_lock_funds_success() {
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
+        let contract_id = env.register(EscrowContract, ());
+        let client = EscrowContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &treasury);
+        client.lock_funds(&1, &buyer, &seller, &500, &token_id);
+        let s = client.get_session(&1);
+        assert!(matches!(s.state, SessionState::Locked));
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&contract_id), 500);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_lock_funds_zero_amount_reverts() {
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
+        let client = EscrowContractClient::new(&env, &env.register(EscrowContract, ()));
+        client.initialize(&admin, &treasury);
+        client.lock_funds(&1, &buyer, &seller, &0, &token_id);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_lock_funds_duplicate_session_reverts() {
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
+        let client = EscrowContractClient::new(&env, &env.register(EscrowContract, ()));
+        client.initialize(&admin, &treasury);
+        client.lock_funds(&1, &buyer, &seller, &100, &token_id);
+        client.lock_funds(&1, &buyer, &seller, &100, &token_id);
+    }
+
+    #[test]
+    fn test_complete_and_approve_happy_path() {
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
+        let cid = env.register(EscrowContract, ());
+        let client = EscrowContractClient::new(&env, &cid);
+        client.initialize(&admin, &treasury);
+        
+        // Admin sets platform fee to 500 bps (5%)
+        client.set_platform_fee(&500);
+        assert_eq!(client.get_platform_fee(), 500);
+        
+        client.lock_funds(&1, &buyer, &seller, &1000, &token_id);
+        client.complete(&1);
+        assert!(matches!(client.get_session(&1).state, SessionState::Completed));
+        
+        client.approve(&1, &token_id);
+        let s = client.get_session(&1);
+        assert!(matches!(s.state, SessionState::Approved));
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&seller), 950);
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&treasury), 50);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_seller_cannot_complete_before_lock() {
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
+        let client = EscrowContractClient::new(&env, &env.register(EscrowContract, ()));
+        client.initialize(&admin, &treasury);
+        client.complete(&99);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_buyer_cannot_approve_before_complete() {
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
+        let client = EscrowContractClient::new(&env, &env.register(EscrowContract, ()));
+        client.initialize(&admin, &treasury);
+        client.lock_funds(&1, &buyer, &seller, &500, &token_id);
+        client.approve(&1, &token_id); // not completed yet
+    }
+
+    #[test]
+    fn test_buyer_can_refund_before_complete() {
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
+        let cid = env.register(EscrowContract, ());
+        let client = EscrowContractClient::new(&env, &cid);
+        client.initialize(&admin, &treasury);
+        client.lock_funds(&1, &buyer, &seller, &600, &token_id);
+        client.refund(&1, &token_id);
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&buyer), 1000);
+        assert!(matches!(client.get_session(&1).state, SessionState::Refunded));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_refund_reverts_if_already_completed() {
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
+        let client = EscrowContractClient::new(&env, &env.register(EscrowContract, ()));
+        client.initialize(&admin, &treasury);
+        client.lock_funds(&1, &buyer, &seller, &500, &token_id);
+        client.complete(&1);
+        client.refund(&1, &token_id); // should panic — not Locked
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_refund_reverts_if_already_approved() {
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
+        let client = EscrowContractClient::new(&env, &env.register(EscrowContract, ()));
+        client.initialize(&admin, &treasury);
+        client.lock_funds(&1, &buyer, &seller, &500, &token_id);
+        client.complete(&1);
+        client.approve(&1, &token_id);
+        client.refund(&1, &token_id); // should panic — not Locked
+    }
+
+    #[test]
+    fn test_auto_refund_after_window() {
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
+        let cid = env.register(EscrowContract, ());
+        let client = EscrowContractClient::new(&env, &cid);
+        client.initialize(&admin, &treasury);
+        client.lock_funds(&1, &buyer, &seller, &800, &token_id);
+        client.complete(&1);
+        env.ledger().set_timestamp(env.ledger().timestamp() + DISPUTE_WINDOW + 1);
+        client.auto_refund(&1, &token_id);
+        assert!(matches!(client.get_session(&1).state, SessionState::AutoRefunded));
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&buyer), 1000);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_auto_refund_before_window_reverts() {
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
+        let client = EscrowContractClient::new(&env, &env.register(EscrowContract, ()));
+        client.initialize(&admin, &treasury);
+        client.lock_funds(&1, &buyer, &seller, &500, &token_id);
+        client.complete(&1);
+        // Do NOT advance time — should panic
+        client.auto_refund(&1, &token_id);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_approve_after_auto_refund_reverts() {
+        let (env, buyer, seller, treasury, token_id, admin) = setup();
+        let client = EscrowContractClient::new(&env, &env.register(EscrowContract, ()));
+        client.initialize(&admin, &treasury);
+        client.lock_funds(&1, &buyer, &seller, &500, &token_id);
+        client.complete(&1);
+        env.ledger().set_timestamp(env.ledger().timestamp() + DISPUTE_WINDOW + 1);
+        client.auto_refund(&1, &token_id);
+        client.approve(&1, &token_id); // should panic — not Completed
+    }
+
+    fn setup_fresh_client<'a>() -> (Env, EscrowContractClient<'a>) {
+        let env = Env::default();
+        let contract_id = env.register(EscrowContract, ());
+        let client = EscrowContractClient::new(&env, &contract_id);
+        (env, client)
+    }
+
+    #[test]
+    fn fee_zero_bps_seller_receives_full_amount() {
+        let (_env, client) = setup_fresh_client();
+        let split = client.calculate_fee(&1_000, &0);
+        assert_eq!(split.seller_amount, 1_000);
+        assert_eq!(split.treasury_amount, 0);
+        assert_eq!(split.seller_amount + split.treasury_amount, 1_000);
+    }
+
+    #[test]
+    fn fee_1000_bps_seller_receives_ninety_percent() {
+        let (_env, client) = setup_fresh_client();
+        let split = client.calculate_fee(&1_000, &1_000);
+        assert_eq!(split.seller_amount, 900);
+        assert_eq!(split.treasury_amount, 100);
+        assert_eq!(split.seller_amount + split.treasury_amount, 1_000);
+    }
+
+    #[test]
+    fn fee_with_odd_amount_rounds_down_to_smallest_unit() {
+        let (_env, client) = setup_fresh_client();
+        let split = client.calculate_fee(&1234, &123);
+        assert_eq!(split.treasury_amount, 15, "treasury must round down");
+        assert_eq!(split.seller_amount, 1234 - 15);
+        assert_eq!(split.seller_amount + split.treasury_amount, 1234);
+    }
+
+    #[test]
+    fn fee_rounding_behaviour_is_consistent() {
+        let (_env, client) = setup_fresh_client();
+        let s = client.calculate_fee(&1, &9_999);
+        assert_eq!(s.treasury_amount, 0);
+        assert_eq!(s.seller_amount, 1);
+
+        let s = client.calculate_fee(&9_999, &1);
+        assert_eq!(s.treasury_amount, 0);
+        assert_eq!(s.seller_amount, 9_999);
+
+        let s = client.calculate_fee(&12_345, &333);
+        assert_eq!(s.treasury_amount, 411);
+        assert_eq!(s.seller_amount, 12_345 - 411);
+    }
+
+    #[test]
+    fn fee_never_exceeds_amount() {
+        let (_env, client) = setup_fresh_client();
+        let max_fee = client.calculate_fee(&1_000, &10_000);
+        assert_eq!(max_fee.treasury_amount, 1_000);
+        assert_eq!(max_fee.seller_amount, 0);
+
+        let bps_samples: [u32; 11] = [
+            0, 1, 50, 250, 999, 1_000, 4_999, 5_000, 7_500, 9_999, 10_000,
+        ];
+        let amount_samples: [i128; 5] = [1, 7, 1_234, 9_999, 1_000_000_000];
+
+        for amount in amount_samples {
+            for bps in bps_samples {
+                let split = client.calculate_fee(&amount, &bps);
+                assert!(split.treasury_amount <= amount);
+                assert!(split.seller_amount >= 0);
+                assert_eq!(split.seller_amount + split.treasury_amount, amount);
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "fee_bps must not exceed 10000")]
+    fn fee_bps_above_max_is_rejected() {
+        let (_env, client) = setup_fresh_client();
+        client.calculate_fee(&1_000, &10_001);
+    }
+
+    #[test]
+    #[should_panic(expected = "amount must be non-negative")]
+    fn negative_amount_is_rejected() {
+        let (_env, client) = setup_fresh_client();
+        client.calculate_fee(&-1, &100);
+    }
+
+    #[test]
+    fn treasury_balance_accumulates_across_multiple_sessions() {
+        let (_env, client) = setup_fresh_client();
+        assert_eq!(client.treasury_balance(), 0);
+
+        let s1 = client.settle_session(&1_000, &250);
+        assert_eq!(s1.treasury_amount, 25);
+        assert_eq!(client.treasury_balance(), 25);
+
+        let s2 = client.settle_session(&1_234, &123);
+        assert_eq!(s2.treasury_amount, 15);
+        assert_eq!(client.treasury_balance(), 40);
+
+        let s3 = client.settle_session(&500, &1_000);
+        assert_eq!(s3.treasury_amount, 50);
+        assert_eq!(client.treasury_balance(), 90);
+
+        let s4 = client.settle_session(&999, &0);
+        assert_eq!(s4.treasury_amount, 0);
+        assert_eq!(client.treasury_balance(), 90);
+
+        let s5 = client.settle_session(&200, &10_000);
+        assert_eq!(s5.treasury_amount, 200);
+        assert_eq!(client.treasury_balance(), 290);
+    }
+
+    #[test]
+    fn treasury_balance_is_isolated_per_contract_instance() {
+        let env = Env::default();
+        let id_a = env.register(EscrowContract, ());
+        let id_b = env.register(EscrowContract, ());
+        let client_a = EscrowContractClient::new(&env, &id_a);
+        let client_b = EscrowContractClient::new(&env, &id_b);
+
+        client_a.settle_session(&1_000, &500);
+        client_a.settle_session(&2_000, &250);
+
+        assert_eq!(client_a.treasury_balance(), 100);
+        assert_eq!(client_b.treasury_balance(), 0);
+    }
+
+    #[test]
+    fn test_platform_fee_admin_flow() {
+        let (env, _, _, treasury, _, admin) = setup();
+        let cid = env.register(EscrowContract, ());
+        let client = EscrowContractClient::new(&env, &cid);
+        client.initialize(&admin, &treasury);
+
+        assert_eq!(client.get_platform_fee(), 0);
+
+        client.set_platform_fee(&250);
+        assert_eq!(client.get_platform_fee(), 250);
+
+        let events = env.events().all();
+        let last_event = events.last().unwrap();
+        assert_eq!(last_event.0, cid);
+        assert_eq!(last_event.1, (Symbol::new(&env, "PlatformFeeUpdated"),).into_val(&env));
+        assert_eq!(last_event.2, 250_u32.into_val(&env));
+    }
+
+    #[test]
+    #[should_panic(expected = "fee_bps must not exceed 1000")]
+    fn test_platform_fee_above_max_reverts() {
+        let (env, _, _, treasury, _, admin) = setup();
+        let cid = env.register(EscrowContract, ());
+        let client = EscrowContractClient::new(&env, &cid);
+        client.initialize(&admin, &treasury);
+        client.set_platform_fee(&1001);
+    }
+
+    #[test]
+    fn test_treasury_admin_flow() {
+        let (env, _, _, treasury, _, admin) = setup();
+        let cid = env.register(EscrowContract, ());
+        let client = EscrowContractClient::new(&env, &cid);
+        client.initialize(&admin, &treasury);
+
+        assert_eq!(client.get_treasury(), treasury);
+
+        let new_treasury = Address::generate(&env);
+        client.set_treasury(&new_treasury);
+        assert_eq!(client.get_treasury(), new_treasury);
+
+        let events = env.events().all();
+        let last_event = events.last().unwrap();
+        assert_eq!(last_event.0, cid);
+        assert_eq!(last_event.1, (Symbol::new(&env, "TreasuryUpdated"),).into_val(&env));
+        assert_eq!(last_event.2, new_treasury.into_val(&env));
+    }
+}
