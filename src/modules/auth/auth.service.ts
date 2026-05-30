@@ -22,6 +22,8 @@ import { RefreshToken } from './entities/refresh-token.entity';
 import { AuditLog, AuditEventType } from './entities/audit-log.entity';
 import { RedisService } from '../../redis/redis.service';
 import { normalizeWalletAddress } from '../../common/utils/wallet.utils';
+import { BusinessException } from '../../common/exceptions/business.exception';
+import { ErrorCodes } from '../../common/exceptions/error-codes.enum';
 
 export interface JwtPayload {
   sub: string;
@@ -492,7 +494,7 @@ export class AuthService {
      }
 
     const user = await this.userRepository.findOne({ where: { id: userId } });
-    if (!user) throw new UnauthorizedException('User not found');
+    if (!user) throw new BusinessException('User not found', ErrorCodes.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
 
     // Increment token version — invalidates all existing JWTs
     user.tokenVersion += 1;
@@ -536,7 +538,7 @@ export class AuthService {
     );
 
     if (isBlacklisted) {
-      throw new UnauthorizedException('Token has been revoked');
+      throw new BusinessException('Token has been revoked', ErrorCodes.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
     }
 
     // Verify user exists and token version matches
@@ -546,12 +548,12 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      throw new BusinessException('User not found', ErrorCodes.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
     }
 
     // Check token version
     if (user.tokenVersion !== payload.tokenVersion) {
-      throw new UnauthorizedException('Token version mismatch');
+      throw new BusinessException('Token version mismatch', ErrorCodes.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
     }
 
     const roles = user.roles.map((role) => role.name);
