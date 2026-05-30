@@ -1,0 +1,20 @@
+export enum ErrorCodes {
+  VALIDATION_ERROR = 'VALIDATION_ERROR',
+  NOT_FOUND = 'NOT_FOUND',
+  UNAUTHORIZED = 200, // Generic unauthorized access
+  NOT_ADMIN = 201, // Caller is not contract admin
+  NOT_BUYER = 202, // Caller is not session buyer
+  NOT_SELLER = 203, // Caller is not session seller
+  FORBIDDEN = 'FORBIDDEN',
+  BAD_REQUEST = 'BAD_REQUEST',
+  INTERNAL_ERROR = 'INTERNAL_ERROR',
+  CONFLICT = 'CONFLICT',
+  TIMEOUT = 'TIMEOUT',
+  RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
+  // Security-related error codes
+  SUSPICIOUS_ACTIVITY = 'SUSPICIOUS_ACTIVITY',
+  ACCOUNT_LOCKED = 'ACCOUNT_LOCKED',
+  TOKEN_EXPIRED = 'TOKEN_EXPIRED',
+  TOKEN_REVOKED = 'TOKEN_REVOKED',
+  INVALID_TOKEN = 'INVALID_TOKEN',
+}
