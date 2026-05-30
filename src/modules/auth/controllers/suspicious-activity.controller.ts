@@ -18,6 +18,8 @@ import { Roles } from '../decorators/roles.decorator';
 import { RolesGuard } from '../guards/roles.guard';
 import { User, UserRole } from '../entities/user.entity';
 import { AuditLog } from '../entities/audit-log.entity';
+import { BusinessException } from '../../../common/exceptions/business.exception';
+import { ErrorCodes } from '../../../common/exceptions/error-codes.enum';
 
 /**
  * Query parameters for suspicious activity report
@@ -234,7 +236,7 @@ export class SuspiciousActivityController {
       // Only ADMIN can unlock, not MODERATOR
       // This is a security decision - adjust as needed
     } else {
-      throw new ForbiddenException('Only administrators can unlock accounts');
+      throw new BusinessException('Caller is not contract admin', ErrorCodes.NOT_ADMIN, HttpStatus.FORBIDDEN);
     }
 
     await this.suspiciousLoginDetectionService.unlockAccount(dto.walletAddress);

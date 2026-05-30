@@ -216,7 +216,7 @@ export class AuthService {
         ipAddress,
         'Invalid or expired nonce',
       );
-      throw new UnauthorizedException('Invalid or expired nonce');
+      throw new BusinessException('Invalid or expired nonce', ErrorCodes.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
     }
 
     const isValidSignature = await this.verifySignature(
@@ -235,7 +235,7 @@ export class AuthService {
         ipAddress,
         'Invalid signature',
       );
-      throw new UnauthorizedException('Invalid signature');
+      throw new BusinessException('Invalid signature', ErrorCodes.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
     }
 
     let user = await this.userRepository.findOne({
@@ -256,8 +256,10 @@ export class AuthService {
           'Account permanently deleted',
           user.id,
         );
-        throw new UnauthorizedException(
+        throw new BusinessException(
           'Account has been permanently deleted. Please contact support to create a new account.',
+          ErrorCodes.UNAUTHORIZED,
+          HttpStatus.UNAUTHORIZED,
         );
       }
     }
@@ -346,7 +348,7 @@ export class AuthService {
       }) as JwtPayload;
 
       if (payload.type !== 'refresh') {
-        throw new UnauthorizedException('Invalid token type');
+        throw new BusinessException('Invalid token type', ErrorCodes.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
       }
 
       // Check if token is blacklisted
@@ -355,7 +357,7 @@ export class AuthService {
       );
 
       if (isBlacklisted) {
-        throw new UnauthorizedException('Token has been revoked');
+        throw new BusinessException('Token has been revoked', ErrorCodes.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
       }
 
       // Find refresh token in database
@@ -365,12 +367,12 @@ export class AuthService {
       });
 
       if (!storedToken || storedToken.isRevoked) {
-        throw new UnauthorizedException('Invalid refresh token');
+        throw new BusinessException('Invalid refresh token', ErrorCodes.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
       }
 
       // Check if token expired
       if (new Date() > storedToken.expiresAt) {
-        throw new UnauthorizedException('Refresh token expired');
+        throw new BusinessException('Refresh token expired', ErrorCodes.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
       }
 
       // Concurrent refresh detection - security alert
@@ -381,8 +383,10 @@ export class AuthService {
         );
         // Revoke all tokens for security
         await this.revokeAllUserTokens(storedToken.userId);
-        throw new UnauthorizedException(
+        throw new BusinessException(
           'Security alert: Concurrent token use detected',
+          ErrorCodes.UNAUTHORIZED,
+          HttpStatus.UNAUTHORIZED,
         );
       }
 
@@ -427,10 +431,10 @@ export class AuthService {
         refreshToken: tokens.refreshToken,
       };
     } catch (error) {
-      if (error instanceof UnauthorizedException) {
+      if (error instanceof BusinessException || error instanceof UnauthorizedException) {
         throw error;
       }
-      throw new UnauthorizedException('Invalid refresh token');
+      throw new BusinessException('Invalid refresh token', ErrorCodes.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
     }
   }
 
@@ -577,7 +581,7 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      throw new BusinessException('User not found', ErrorCodes.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
     }
 
     const roles = user.roles.map((role) => role.name);
@@ -795,7 +799,7 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      throw new BusinessException('User not found', ErrorCodes.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
     }
 
     let role = await this.roleRepository.findOne({ where: { name: roleName } });
@@ -846,7 +850,7 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      throw new BusinessException('User not found', ErrorCodes.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
     }
 
     user.roles = user.roles.filter((r) => r.name !== roleName);

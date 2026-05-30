@@ -11,6 +11,7 @@ import { User } from '../entities/user.entity';
 import { Role } from '../entities/role.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { AuditLog } from '../entities/audit-log.entity';
+import { BusinessException } from '../../../common/exceptions/business.exception';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -133,14 +134,14 @@ describe('AuthService', () => {
   });
 
   describe('login', () => {
-    it('should throw UnauthorizedException for invalid nonce', async () => {
+    it('should throw BusinessException for invalid nonce', async () => {
       const loginDto: LoginDto = {
         walletAddress: '0x1234567890123456789012345678901234567890',
         signature: '0xsignature',
         nonce: 'invalid-nonce',
       };
 
-      await expect(service.login(loginDto)).rejects.toThrow(UnauthorizedException);
+      await expect(service.login(loginDto)).rejects.toThrow(BusinessException);
     });
 
     it('should login successfully with valid credentials', async () => {
@@ -169,7 +170,7 @@ describe('AuthService', () => {
   });
 
   describe('refreshTokens', () => {
-    it('should throw UnauthorizedException for invalid refresh token', async () => {
+    it('should throw BusinessException for invalid refresh token', async () => {
       const refreshDto: RefreshDto = {
         refreshToken: 'invalid-token',
       };
@@ -179,7 +180,7 @@ describe('AuthService', () => {
       });
 
       await expect(service.refreshTokens(refreshDto)).rejects.toThrow(
-        UnauthorizedException,
+        BusinessException,
       );
     });
 

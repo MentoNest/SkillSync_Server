@@ -34,8 +34,10 @@ export class RolesGuard implements CanActivate {
         throw new BusinessException('Caller is not contract admin', ErrorCodes.NOT_ADMIN, HttpStatus.FORBIDDEN);
       }
 
-      throw new ForbiddenException(
+      throw new BusinessException(
         `Access denied: Required roles: ${requiredRoles.join(', ')}`,
+        ErrorCodes.UNAUTHORIZED,
+        HttpStatus.FORBIDDEN,
       );
     }
 
