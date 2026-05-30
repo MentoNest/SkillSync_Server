@@ -16,6 +16,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { AuthRole } from '../auth/enums/auth-role.enum';
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { AdminService } from './admin.service';
+import { SuspendUserDto } from './dto/suspend-user.dto';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -48,6 +49,39 @@ export class AdminController {
   ) {
     return this.adminService.getProfileHistory(
       userId,
+      limit ? Math.min(parseInt(limit, 10) || 50, 500) : 50,
+      offset ? parseInt(offset, 10) || 0 : 0,
+    );
+  }
+
+  @Post('users/:userId/suspend')
+  suspendUser(
+    @Param('userId') userId: string,
+    @Body() body: SuspendUserDto,
+    @Req() req: Request & { user?: JwtPayload },
+  ) {
+    return this.adminService.suspendUser(
+      userId,
+      req.user!.sub,
+      body.reason,
+      body.durationDays ?? null,
+    );
+  }
+
+  @Post('users/:userId/unsuspend')
+  unsuspendUser(
+    @Param('userId') userId: string,
+    @Req() req: Request & { user?: JwtPayload },
+  ) {
+    return this.adminService.unsuspendUser(userId, req.user!.sub);
+  }
+
+  @Get('users/suspended')
+  listSuspendedUsers(
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.adminService.listSuspendedUsers(
       limit ? Math.min(parseInt(limit, 10) || 50, 500) : 50,
       offset ? parseInt(offset, 10) || 0 : 0,
     );

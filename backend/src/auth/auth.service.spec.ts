@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -6,6 +6,8 @@ import { DataSource, IsNull } from 'typeorm';
 import { AuditLogService } from './audit-log.service';
 import { AuthService } from './auth.service';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { SuspensionService } from './suspension.service';
+import { User } from '../users/entities/user.entity';
 
 class InMemoryRefreshTokenRepository {
   tokens: RefreshToken[] = [];
@@ -28,17 +30,39 @@ class InMemoryRefreshTokenRepository {
 }
 
 class InMemoryEntityManager {
-  constructor(private readonly repository: InMemoryRefreshTokenRepository) {}
+  constructor(
+    private readonly repository: InMemoryRefreshTokenRepository,
+    private readonly userRepository: { users: User[]; findOne: (options: { where: { walletAddress?: string; id?: string } }) => Promise<User | null>; save: (user: User) => Promise<User> },
+  ) {}
 
   async findOne(
-    _entity: typeof RefreshToken,
-    options: { where: { tokenHash: string } },
-  ): Promise<RefreshToken | null> {
-    return this.repository.tokens.find((token) => token.tokenHash === options.where.tokenHash) ?? null;
+    entity: typeof RefreshToken | typeof User,
+    options: { where: { tokenHash?: string; walletAddress?: string; id?: string } },
+  ): Promise<RefreshToken | User | null> {
+    if (entity === RefreshToken) {
+      return this.repository.tokens.find((token) => token.tokenHash === options.where.tokenHash) ?? null;
+    }
+
+    if (entity === User) {
+      if (options.where.walletAddress) {
+        return (
+          this.userRepository.users.find((user) => user.walletAddress === options.where.walletAddress) ??
+          null
+        );
+      }
+      if (options.where.id) {
+        return this.userRepository.users.find((user) => user.id === options.where.id) ?? null;
+      }
+    }
+
+    return null;
   }
 
-  async save(_entity: typeof RefreshToken, token: RefreshToken): Promise<RefreshToken> {
-    return this.repository.save(token);
+  async save(entity: typeof RefreshToken | typeof User, item: RefreshToken | User): Promise<RefreshToken | User> {
+    if (entity === RefreshToken) {
+      return this.repository.save(item as RefreshToken);
+    }
+    return this.userRepository.save(item as User);
   }
 
   async update(
@@ -57,6 +81,12 @@ class InMemoryEntityManager {
 describe('AuthService', () => {
   let service: AuthService;
   let repository: InMemoryRefreshTokenRepository;
+  let suspensionServiceMock: { getActiveSuspension: jest.Mock };
+  let userStore: {
+    users: User[];
+    findOne: jest.Mock<Promise<User | null>, [options: { where: { walletAddress?: string; id?: string } }]>
+    save: jest.Mock<Promise<User>, [user: User]>;
+  };
   let auditLogService: {
     logRefreshTokenUsage: jest.Mock;
     logLoginSuccess: jest.Mock;
@@ -75,15 +105,34 @@ describe('AuthService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
     repository = new InMemoryRefreshTokenRepository();
-    const manager = new InMemoryEntityManager(repository);
+    const userStore = {
+      users: [] as User[],
+      findOne: jest.fn(async (options: { where: { walletAddress?: string; id?: string } }) => {
+        if (options.where.walletAddress) {
+          return userStore.users.find((user) => user.walletAddress === options.where.walletAddress) ?? null;
+        }
+        if (options.where.id) {
+          return userStore.users.find((user) => user.id === options.where.id) ?? null;
+        }
+        return null;
+      }),
+      save: jest.fn(async (user: User) => {
+        const index = userStore.users.findIndex((existing) => existing.id === user.id);
+        if (index >= 0) {
+          userStore.users[index] = user;
+        } else {
+          userStore.users.push(user);
+        }
+        return user;
+      }),
+    };
+
+    const manager = new InMemoryEntityManager(repository, userStore);
     auditLogService = {
       logRefreshTokenUsage: jest.fn().mockResolvedValue(undefined),
       logLoginSuccess: jest.fn().mockResolvedValue(undefined),
       logLoginFailure: jest.fn().mockResolvedValue(undefined),
-      logLogout: jest.fn().mockResolvedValue(undefined),
-      logPasswordEquivalentChange: jest.fn().mockResolvedValue(undefined),
-      logRoleAssignment: jest.fn().mockResolvedValue(undefined),
-    };
+    suspensionServiceMock = { getActiveSuspension: jest.fn().mockResolvedValue(null) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -93,9 +142,17 @@ describe('AuthService', () => {
           useValue: repository,
         },
         {
+          provide: SuspensionService,
+          useValue: suspensionServiceMock,
+        },
+        {
           provide: DataSource,
           useValue: {
+            manager,
             transaction: (
+              handler: (entityManager: InMemoryEntityManager) => Promise<unknown>,
+            ) => handler(manager),
+              transaction: (
               handler: (entityManager: InMemoryEntityManager) => Promise<unknown>,
             ) => handler(manager),
           },
@@ -150,7 +207,64 @@ describe('AuthService', () => {
       UnauthorizedException,
     );
     expect(auditLogService.logRefreshTokenUsage).toHaveBeenCalledWith(
+      blocks login for suspended users with suspension reason', async () => {
+    userStore.users.push({
+      id: 'user-1',
+      walletAddress: 'GABC',
+      tokenVersion: 0,
+      timezone: 'UTC',
+      avatarUrl: null,
+      avatarThumbnailUrl: null,
+      isVerified: false,
+      verifiedAt: null,
+      verifiedBy: null,
+      verificationNotes: null,
+      roles: [],
+    } as unknown as User);
+
+    const suspended = {
+      id: 'suspension-1',
+      userId: 'user-1',
+      reason: 'Policy violation',
+      suspendedBy: 'admin-1',
+      suspendedAt: new Date('2026-01-01T00:00:00.000Z'),
+      suspendedUntil: new Date('2026-01-10T00:00:00.000Z'),
+      liftedAt: null,
+      liftedBy: null,
+      liftedReason: null,
+    } as unknown as any;
+    suspensionServiceMock.getActiveSuspension.mockResolvedValue(suspended);
+
+    await expect(service.login('GABC', audit())).rejects.toBeInstanceOf(ForbiddenException);
+    expect(auditLogService.logLoginFailure).toHaveBeenCalledWith(
+      'GABC',
+      expect.anything(),
+      'Account suspended',
+    );
+  });
+
+  it('blocks refresh for suspended users with suspension reason', async () => {
+    const issued = await service.issueTokenPair({ sub: 'user-1', walletAddress: 'GABC' }, audit());
+    const suspended = {
+      id: 'suspension-1',
+      userId: 'user-1',
+      reason: 'Policy violation',
+      suspendedBy: 'admin-1',
+      suspendedAt: new Date('2026-01-01T00:00:00.000Z'),
+      suspendedUntil: new Date('2026-01-10T00:00:00.000Z'),
+      liftedAt: null,
+      liftedBy: null,
+      liftedReason: null,
+    } as unknown as any;
+    suspensionServiceMock.getActiveSuspension.mockResolvedValue(suspended);
+
+    await expect(service.refresh(issued.refreshToken, audit())).rejects.toBeInstanceOf(ForbiddenException);
+    expect(auditLogService.logRefreshTokenUsage).toHaveBeenCalledWith(
       expect.objectContaining({ success: false, userId: 'user-1' }),
+    );
+  });
+
+  it('expect.objectContaining({ success: false, userId: 'user-1' }),
     );
   });
 

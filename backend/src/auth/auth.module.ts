@@ -10,16 +10,16 @@ import { AdminAccessGuard } from './admin-access.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { NonceProvider } from './providers/nonce.provider';
+import { SuspensionService } from './suspension.service';
 
 import { AuditLog } from './entities/audit-log.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { User } from '../users/entities/user.entity';
 import { Role } from '../users/entities/role.entity';
+import { UserSuspension } from '../users/entities/user-suspension.entity';
 
 @Module({
-  imports: [
-    ConfigModule,
-    TypeOrmModule.forFeature([RefreshToken, AuditLog, User, Role]),
+  imports: [, UserSuspension]),
   ],
   controllers: [AuthController, AuditLogsController],
   providers: [
@@ -29,6 +29,9 @@ import { Role } from '../users/entities/role.entity';
     JwtAuthGuard,
     RolesGuard,
     NonceProvider,
+    SuspensionService,
+  ],
+  exports: [AuthService, AuditLogService, JwtAuthGuard, RolesGuard, SuspensionService
   ],
   exports: [AuthService, JwtAuthGuard, RolesGuard],
 })

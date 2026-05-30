@@ -177,6 +177,40 @@ export class AuditLogService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async logUserSuspension(input: {
+    userId: string;
+    suspendedBy: string;
+    reason: string;
+    suspendedUntil: string | null;
+    audit: RequestAudit;
+  }): Promise<void> {
+    await this.logEvent({
+      userId: input.userId,
+      eventType: AuditEventType.SUSPEND_USER,
+      audit: input.audit,
+      details: {
+        suspendedBy: input.suspendedBy,
+        reason: input.reason,
+        suspendedUntil: input.suspendedUntil,
+      },
+    });
+  }
+
+  async logUserUnsuspension(input: {
+    userId: string;
+    liftedBy: string;
+    audit: RequestAudit;
+  }): Promise<void> {
+    await this.logEvent({
+      userId: input.userId,
+      eventType: AuditEventType.UNSUSPEND_USER,
+      audit: input.audit,
+      details: {
+        liftedBy: input.liftedBy,
+      },
+    });
+  }
+
   async listLogs(filters: ListAuditLogsFilters): Promise<{ items: AuditLog[]; total: number }> {
     const query = this.applyFilters(this.auditLogRepository.createQueryBuilder('audit_log'), filters);
     query.orderBy('audit_log.timestamp', 'DESC').limit(filters.limit).offset(filters.offset);
