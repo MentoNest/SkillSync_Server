@@ -310,6 +310,7 @@ pub enum SkillSyncKey {
     Session(Bytes32),
     Admin,
     DisputeWindow,
+    WasmHash,
 }
 
 /// Error codes for SkillSyncEscrow (#526)
@@ -321,6 +322,15 @@ pub enum EscrowError {
     SessionNotFound = 2,
     InvalidState = 3,
     Unauthorized = 4,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractUpgraded {
+    pub old_wasm_hash: Bytes32,
+    pub new_wasm_hash: Bytes32,
+    pub upgraded_by: Address,
+    pub timestamp: u64,
 }
 
 const DEFAULT_DISPUTE_WINDOW: u32 = 1000;
@@ -513,10 +523,29 @@ impl SkillSyncEscrow {
             .get(&SkillSyncKey::Admin)
             .expect("not initialized");
         admin.require_auth();
+
+        let old_wasm_hash = env
+            .storage()
+            .persistent()
+            .get::<_, Bytes32>(&SkillSyncKey::WasmHash)
+            .unwrap_or_else(|| BytesN::from_array(&env, &[0; 32]));
+
+        env.storage()
+            .persistent()
+            .set(&SkillSyncKey::WasmHash, &new_wasm_hash);
+
         env.deployer()
             .update_current_contract_wasm(new_wasm_hash.clone());
+
+        let event = ContractUpgraded {
+            old_wasm_hash,
+            new_wasm_hash,
+            upgraded_by: admin,
+            timestamp: env.ledger().timestamp(),
+        };
+
         env.events()
-            .publish((Symbol::new(&env, "ContractUpgraded"),), new_wasm_hash);
+            .publish((Symbol::new(&env, "ContractUpgraded"),), event);
     }
 }
 
