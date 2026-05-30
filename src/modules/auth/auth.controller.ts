@@ -75,17 +75,39 @@ export class AuthController {
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
   @ApiTags('Session Management')
-  @ApiOperation({ summary: 'Logout current session', description: 'Blacklists the access token and revokes all refresh tokens for the current session.' })
-  @ApiResponse({ status: 201, description: 'Logout successful', schema: { example: { message: 'Logout successful' } } })
+  @ApiOperation({ summary: 'Logout current session', description: 'Blacklists the access token by JTI and revokes all refresh tokens for the current user.' })
+  @ApiResponse({ status: 200, description: 'Logout successful', schema: { example: { message: 'Logout successful' } } })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async logout(
     @CurrentUser() user: any,
     @Headers('authorization') authorization: string,
+    @Headers('user-agent') userAgent?: string,
+    @Headers('x-forwarded-for') ipAddress?: string,
   ) {
     const accessToken = authorization.replace('Bearer ', '');
-    await this.authService.logout(accessToken, user.userId);
+    await this.authService.logout(accessToken, user.userId, ipAddress, userAgent);
     return { message: 'Logout successful' };
+  }
+
+  @Post('logout-all')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiTags('Session Management')
+  @ApiOperation({
+    summary: 'Logout all sessions',
+    description: 'Increments token version to immediately invalidate all access tokens across all devices, and revokes all refresh tokens. Use this for account compromise scenarios or password-equivalent resets.',
+  })
+  @ApiResponse({ status: 200, description: 'All sessions revoked', schema: { example: { message: 'All sessions revoked successfully', revokedCount: 3 } } })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async logoutAll(
+    @CurrentUser() user: any,
+    @Headers('user-agent') userAgent?: string,
+    @Headers('x-forwarded-for') ipAddress?: string,
+  ) {
+    return this.authService.logoutAll(user.userId, ipAddress, userAgent);
   }
 
   @Post('revoke-all')

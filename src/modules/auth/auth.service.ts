@@ -347,9 +347,9 @@ export class AuthService {
         throw new UnauthorizedException('Invalid token type');
       }
 
-      // Check if token is blacklisted
+      // Check if token is blacklisted (by jti)
       const isBlacklisted = await this.redisService.exists(
-        `${this.TOKEN_BLACKLIST_PREFIX}:${refreshToken}`,
+        `${this.TOKEN_BLACKLIST_PREFIX}:${payload.jti}`,
       );
 
       if (isBlacklisted) {
@@ -388,9 +388,9 @@ export class AuthService {
       storedToken.isRevoked = true;
       await this.refreshTokenRepository.save(storedToken);
 
-      // Blacklist old refresh token
+      // Blacklist old refresh token by its jti
       await this.blacklistToken(
-        refreshToken,
+        payload.jti,
         this.parseExpirationToMs(
           this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d',
         ),
@@ -435,17 +435,22 @@ export class AuthService {
   /**
    * Logout and invalidate tokens
    */
-  async logout(accessToken: string, userId: string): Promise<void> {
-    // Blacklist access token until expiration
+  async logout(
+    accessToken: string,
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<void> {
+    // Blacklist access token by its jti until natural expiration
     const decoded = this.jwtService.decode(accessToken) as JwtPayload;
-    if (decoded && decoded.exp) {
+    if (decoded && decoded.jti && decoded.exp) {
       const ttlMs = decoded.exp * 1000 - Date.now();
       if (ttlMs > 0) {
-        await this.blacklistToken(accessToken, ttlMs);
+        await this.blacklistToken(decoded.jti, ttlMs);
       }
     }
 
-    // Delete refresh tokens from database
+    // Revoke all refresh tokens for this user in the database
     await this.refreshTokenRepository.update(
       { userId, isRevoked: false },
       { isRevoked: true },
@@ -454,28 +459,65 @@ export class AuthService {
     // Remove user sessions from Redis
     await this.redisService.del(`${this.USER_SESSIONS_PREFIX}:${userId}`);
 
-    // Audit log
+    // Fetch wallet address for audit log
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+
+    // Record logout in audit log
+    await this.auditLogRepository.save(
+      this.auditLogRepository.create({
+        userId,
+        walletAddress: user?.walletAddress ?? 'unknown',
+        eventType: AuditEventType.LOGOUT,
+        ipAddress: ipAddress || 'unknown',
+        userAgent: userAgent || null,
+        metadata: { jti: decoded?.jti },
+      }),
+    );
+
     this.logger.log(`User logged out: ${userId}`);
   }
 
   /**
-   * Logout all sessions for a user
+   * Logout all sessions for a user (token versioning — invalidates all JWTs)
    */
-  async logoutAll(userId: string): Promise<void> {
-    // Increment token version to invalidate all access tokens
+  async logoutAll(
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<{ message: string; revokedCount: number }> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
-    if (user) {
-      user.tokenVersion += 1;
-      await this.userRepository.save(user);
-    }
+    if (!user) throw new UnauthorizedException('User not found');
+
+    // Increment token version to invalidate all existing access tokens
+    user.tokenVersion += 1;
+    await this.userRepository.save(user);
 
     // Revoke all refresh tokens
-    await this.revokeAllUserTokens(userId);
+    const result = await this.refreshTokenRepository
+      .createQueryBuilder()
+      .update()
+      .set({ isRevoked: true })
+      .where('userId = :userId AND isRevoked = false', { userId })
+      .execute();
+    const revokedCount = result.affected ?? 0;
 
     // Clear user sessions
     await this.redisService.del(`${this.USER_SESSIONS_PREFIX}:${userId}`);
 
-    this.logger.log(`All sessions logged out for user: ${userId}`);
+    // Audit log
+    await this.auditLogRepository.save(
+      this.auditLogRepository.create({
+        userId,
+        walletAddress: user.walletAddress,
+        eventType: AuditEventType.SESSIONS_REVOKED,
+        ipAddress: ipAddress || 'unknown',
+        userAgent: userAgent || null,
+        metadata: { reason: 'logout_all', revokedCount, newTokenVersion: user.tokenVersion },
+      }),
+    );
+
+    this.logger.log(`All sessions logged out for user: ${userId} (${revokedCount} tokens)`);
+    return { message: 'All sessions revoked successfully', revokedCount };
   }
 
   /**
