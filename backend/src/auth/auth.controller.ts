@@ -7,6 +7,7 @@ import {
   UnauthorizedException,
   Get,
   Param,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { AuthService } from './auth.service';
@@ -14,6 +15,8 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LoginDto } from './dto/login.dto';
 import { NonceProvider } from './providers/nonce.provider';
 import { NonceParamDto } from './dto/nonce-param.dto';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { JwtPayload } from './interfaces/jwt-payload.interface';
 
 @Controller('auth')
 export class AuthController {
@@ -70,6 +73,48 @@ export class AuthController {
     }
 
     return this.authService.refresh(body.refreshToken, {
+      ipAddress: this.getIpAddress(request),
+      userAgent: request.headers['user-agent'] ?? null,
+      deviceFingerprint: this.getDeviceFingerprint(request),
+    });
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
+  async logout(@Req() request: Request) {
+    const authHeader = request.headers['authorization'];
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      throw new UnauthorizedException('Missing Bearer token');
+    }
+
+    const accessToken = authHeader.slice(7);
+    const user = (request as Request & { user?: JwtPayload }).user;
+
+    if (!user?.sub) {
+      throw new UnauthorizedException('Invalid token payload');
+    }
+
+    await this.authService.logoutUser(accessToken, user.sub, {
+      ipAddress: this.getIpAddress(request),
+      userAgent: request.headers['user-agent'] ?? null,
+      deviceFingerprint: this.getDeviceFingerprint(request),
+    });
+
+    return { message: 'Logout successful' };
+  }
+
+  @Post('logout-all')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
+  async logoutAll(@Req() request: Request) {
+    const user = (request as Request & { user?: JwtPayload }).user;
+
+    if (!user?.sub) {
+      throw new UnauthorizedException('Invalid token payload');
+    }
+
+    return this.authService.logoutAllSessions(user.sub, {
       ipAddress: this.getIpAddress(request),
       userAgent: request.headers['user-agent'] ?? null,
       deviceFingerprint: this.getDeviceFingerprint(request),
