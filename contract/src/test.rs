@@ -635,6 +635,28 @@ mod test_skillsync_escrow {
         client.refund_session(&id, &token_id); // already Refunded → DuplicateSessionId
     }
 
+    #[test]
+    fn test_refund_session_emits_session_refunded_event() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 40);
+        client.lock_funds(&id, &buyer, &seller, &500, &token_id);
+        let timestamp = env.ledger().timestamp();
+        client.refund_session(&id, &token_id);
+        let events = env.events().all();
+        let last = events.last().unwrap();
+        assert_eq!(last.0, cid);
+        assert_eq!(
+            last.1,
+            (Symbol::new(&env, "SessionRefunded"), id.clone()).into_val(&env)
+        );
+        assert_eq!(
+            last.2,
+            (buyer.clone(), 500_i128, timestamp).into_val(&env)
+        );
+    }
+
     // ── #526: approve_session state check ────────────────────────────────────
 
     #[test]
