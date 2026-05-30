@@ -63,6 +63,17 @@ export class User {
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt!: Date;
 
+  @Index()
+  @Column({ name: 'is_featured', type: 'boolean', default: false })
+  isFeatured!: boolean;
+
+  @Column({ name: 'featured_at', type: 'timestamptz', nullable: true })
+  featuredAt!: Date | null;
+
+  @Index()
+  @Column({ name: 'featured_order', type: 'int', nullable: true })
+  featuredOrder!: number | null;
+
   @ManyToMany(() => Role, (role) => role.users, { eager: true })
   @JoinTable({
     name: 'user_roles',

@@ -21,11 +21,42 @@ import { VerifyMentorBodyDto } from './dto/admin.dto';
 import { ProfileHistoryQueryDto } from '../availability/dto/availability-query.dto';
 import { SuspendUserDto } from './dto/suspend-user.dto';
 
+import { UsersService } from '../users/users.service';
+
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(AuthRole.ADMIN)
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly usersService: UsersService,
+  ) {}
+
+  @Post('mentors/:id/feature')
+  featureMentor(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: JwtPayload },
+  ) {
+    const audit = {
+      ipAddress: (req.ip || req.socket?.remoteAddress || null) as string | null,
+      userAgent: req.headers['user-agent'] || null,
+      deviceFingerprint: null,
+    };
+    return this.usersService.featureMentor(id, audit);
+  }
+
+  @Delete('mentors/:id/unfeature')
+  unfeatureMentor(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: JwtPayload },
+  ) {
+    const audit = {
+      ipAddress: (req.ip || req.socket?.remoteAddress || null) as string | null,
+      userAgent: req.headers['user-agent'] || null,
+      deviceFingerprint: null,
+    };
+    return this.usersService.unfeatureMentor(id, audit);
+  }
 
   @Post('mentors/:id/verify')
   verifyMentor(

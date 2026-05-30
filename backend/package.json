@@ -38,6 +38,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "sharp": "^0.33.5",
+    "stellar-sdk": "^13.3.0",
     "typeorm": "^1.0.0"
   },
   "devDependencies": {

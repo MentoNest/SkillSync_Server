@@ -118,7 +118,7 @@ describe('UsersService - Username Functionality', () => {
   });
 
   describe('updateUsername', () => {
-    const mockUser: User = {
+    const getMockUser = (): User => ({
       id: 'user-1',
       walletAddress: 'GABC123...',
       username: null,
@@ -135,7 +135,7 @@ describe('UsersService - Username Functionality', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       roles: [],
-    };
+    });
 
     const mockAudit: RequestAudit = {
       ipAddress: '127.0.0.1',
@@ -144,8 +144,8 @@ describe('UsersService - Username Functionality', () => {
     };
 
     it('should successfully update username when valid and available', async () => {
-      mockUserRepo.findOne.mockResolvedValueOnce(mockUser).mockResolvedValueOnce(null);
-      mockUserRepo.save.mockResolvedValue({ ...mockUser, username: 'john_doe', usernameChangedAt: new Date() });
+      mockUserRepo.findOne.mockResolvedValueOnce(getMockUser()).mockResolvedValueOnce(null);
+      mockUserRepo.save.mockResolvedValue({ ...getMockUser(), username: 'john_doe', usernameChangedAt: new Date() });
 
       const result = await service.updateUsername('user-1', 'john_doe', mockAudit);
 
@@ -163,9 +163,9 @@ describe('UsersService - Username Functionality', () => {
     });
 
     it('should set default display name based on wallet address when not set', async () => {
-      mockUserRepo.findOne.mockResolvedValueOnce(mockUser).mockResolvedValueOnce(null);
+      mockUserRepo.findOne.mockResolvedValueOnce(getMockUser()).mockResolvedValueOnce(null);
       mockUserRepo.save.mockResolvedValue({ 
-        ...mockUser, 
+        ...getMockUser(), 
         username: 'john_doe', 
         usernameChangedAt: new Date(),
         displayName: 'GABC12...3...' 
@@ -191,8 +191,8 @@ describe('UsersService - Username Functionality', () => {
     });
 
     it('should throw ConflictException when username is already taken by another user', async () => {
-      const otherUser = { ...mockUser, id: 'user-2', username: 'john_doe' };
-      mockUserRepo.findOne.mockResolvedValueOnce(mockUser).mockResolvedValueOnce(otherUser);
+      const otherUser = { ...getMockUser(), id: 'user-2', username: 'john_doe' };
+      mockUserRepo.findOne.mockResolvedValueOnce(getMockUser()).mockResolvedValueOnce(otherUser);
 
       await expect(service.updateUsername('user-1', 'john_doe', mockAudit)).rejects.toThrow(
         ConflictException,
@@ -200,7 +200,7 @@ describe('UsersService - Username Functionality', () => {
     });
 
     it('should allow updating to same username (no conflict with self)', async () => {
-      const userWithUsername = { ...mockUser, username: 'john_doe' };
+      const userWithUsername = { ...getMockUser(), username: 'john_doe' };
       mockUserRepo.findOne.mockResolvedValueOnce(userWithUsername).mockResolvedValueOnce(userWithUsername);
       mockUserRepo.save.mockResolvedValue({ ...userWithUsername, usernameChangedAt: new Date() });
 
@@ -211,7 +211,7 @@ describe('UsersService - Username Functionality', () => {
 
     it('should throw BadRequestException when username changed within cooldown period', async () => {
       const userWithRecentChange = {
-        ...mockUser,
+        ...getMockUser(),
         username: 'old_username',
         usernameChangedAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000), // 15 days ago
       };
@@ -225,7 +225,7 @@ describe('UsersService - Username Functionality', () => {
 
     it('should allow username change after 30 day cooldown period', async () => {
       const userWithExpiredCooldown = {
-        ...mockUser,
+        ...getMockUser(),
         username: 'old_username',
         usernameChangedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000), // 31 days ago
       };
@@ -242,8 +242,8 @@ describe('UsersService - Username Functionality', () => {
     });
 
     it('should allow first username change (no previous change)', async () => {
-      mockUserRepo.findOne.mockResolvedValueOnce(mockUser).mockResolvedValueOnce(null);
-      mockUserRepo.save.mockResolvedValue({ ...mockUser, username: 'john_doe', usernameChangedAt: new Date() });
+      mockUserRepo.findOne.mockResolvedValueOnce(getMockUser()).mockResolvedValueOnce(null);
+      mockUserRepo.save.mockResolvedValue({ ...getMockUser(), username: 'john_doe', usernameChangedAt: new Date() });
 
       const result = await service.updateUsername('user-1', 'john_doe', mockAudit);
 
@@ -251,8 +251,8 @@ describe('UsersService - Username Functionality', () => {
     });
 
     it('should not log audit event when audit parameter is not provided', async () => {
-      mockUserRepo.findOne.mockResolvedValueOnce(mockUser).mockResolvedValueOnce(null);
-      mockUserRepo.save.mockResolvedValue({ ...mockUser, username: 'john_doe', usernameChangedAt: new Date() });
+      mockUserRepo.findOne.mockResolvedValueOnce(getMockUser()).mockResolvedValueOnce(null);
+      mockUserRepo.save.mockResolvedValue({ ...getMockUser(), username: 'john_doe', usernameChangedAt: new Date() });
 
       await service.updateUsername('user-1', 'john_doe');
 

@@ -777,4 +777,89 @@ mod test_skillsync_escrow {
         assert_eq!(event_data.old_wasm_hash, new_wasm_hash);
         assert_eq!(event_data.new_wasm_hash, newer_wasm_hash);
     }
+
+    // ── #550: dispute_session ────────────────────────────────────────────────
+
+    #[test]
+    fn test_dispute_session_by_buyer_succeeds() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 100);
+        client.lock_funds(&id, &buyer, &seller, &100, &token_id);
+        
+        let reason = soroban_sdk::String::from_str(&env, "Service not delivered");
+        client.dispute_session(&id, &buyer, &reason);
+        
+        let s = client.get_session(&id);
+        assert!(matches!(s.status, Status::Disputed));
+        
+        let events = env.events().all();
+        let last = events.last().unwrap();
+        assert_eq!(last.0, cid);
+        assert_eq!(
+            last.1,
+            (Symbol::new(&env, "DisputeOpened"), id.clone()).into_val(&env)
+        );
+        assert_eq!(
+            last.2,
+            (buyer, reason, env.ledger().timestamp()).into_val(&env)
+        );
+    }
+
+    #[test]
+    fn test_dispute_session_by_seller_succeeds() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 101);
+        client.lock_funds(&id, &buyer, &seller, &100, &token_id);
+        client.complete_session(&id); // Seller completes it
+        
+        let reason = soroban_sdk::String::from_str(&env, "Buyer unresponsive");
+        client.dispute_session(&id, &seller, &reason);
+        
+        let s = client.get_session(&id);
+        assert!(matches!(s.status, Status::Disputed));
+        
+        let events = env.events().all();
+        let last = events.last().unwrap();
+        assert_eq!(last.0, cid);
+        assert_eq!(
+            last.1,
+            (Symbol::new(&env, "DisputeOpened"), id.clone()).into_val(&env)
+        );
+        assert_eq!(
+            last.2,
+            (seller, reason, env.ledger().timestamp()).into_val(&env)
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized: must be buyer or seller")]
+    fn test_dispute_session_by_unauthorized_reverts() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 102);
+        client.lock_funds(&id, &buyer, &seller, &100, &token_id);
+        
+        let random_user = Address::generate(&env);
+        let reason = soroban_sdk::String::from_str(&env, "Random reason");
+        client.dispute_session(&id, &random_user, &reason);
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidState: session must be Locked or Completed")]
+    fn test_dispute_session_invalid_state_reverts() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 103);
+        client.lock_funds(&id, &buyer, &seller, &100, &token_id);
+        client.refund_session(&id, &token_id); // State becomes Refunded
+        
+        let reason = soroban_sdk::String::from_str(&env, "Want to dispute after refund");
+        client.dispute_session(&id, &buyer, &reason); // Should panic
+    }
 }

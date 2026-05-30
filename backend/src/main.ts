@@ -7,6 +7,8 @@ import { DataSource } from 'typeorm';
 import { ApiValidationException } from './common/exceptions/api-exceptions';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
+import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     // Disable NestJS built-in logger noise; our middleware handles request logs
@@ -28,6 +30,7 @@ async function bootstrap() {
     }),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalInterceptors(new ResponseInterceptor());
 
   // Verify database connection before starting server
   const dataSource = app.get(DataSource);
