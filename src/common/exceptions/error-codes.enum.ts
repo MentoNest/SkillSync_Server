@@ -1,7 +1,10 @@
 export enum ErrorCodes {
   VALIDATION_ERROR = 'VALIDATION_ERROR',
   NOT_FOUND = 'NOT_FOUND',
-  UNAUTHORIZED = 'UNAUTHORIZED',
+  UNAUTHORIZED = 200, // Generic unauthorized access
+  NOT_ADMIN = 201, // Caller is not contract admin
+  NOT_BUYER = 202, // Caller is not session buyer
+  NOT_SELLER = 203, // Caller is not session seller
   FORBIDDEN = 'FORBIDDEN',
   BAD_REQUEST = 'BAD_REQUEST',
   INTERNAL_ERROR = 'INTERNAL_ERROR',
