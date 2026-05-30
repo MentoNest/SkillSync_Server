@@ -1,6 +1,7 @@
 import { HttpStatus, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { DataSource } from 'typeorm';
 import { ApiValidationException } from './common/exceptions/api-exceptions';

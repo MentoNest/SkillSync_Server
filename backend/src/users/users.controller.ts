@@ -17,6 +17,8 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { AuthRole } from '../auth/enums/auth-role.enum';
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { UsersService } from './users.service';
+import { UUIDParamDto } from '../common/dto/uuid-param.dto';
+import { AssignRoleParamDto } from '../admin/dto/admin.dto';
 import { UpdateUsernameDto } from './dto/update-username.dto';
 import { UpdateDisplayNameDto } from './dto/update-display-name.dto';
 
@@ -35,14 +37,14 @@ export class UsersController {
 
   @Post(':id/roles/:role')
   @Roles(AuthRole.ADMIN)
-  assignRole(@Param('id') id: string, @Param('role') role: string) {
-    return this.usersService.assignRole(id, role);
+  assignRole(@Param() params: AssignRoleParamDto) {
+    return this.usersService.assignRole(params.id, params.role);
   }
 
   @Delete(':id/roles/:role')
   @Roles(AuthRole.ADMIN)
-  revokeRole(@Param('id') id: string, @Param('role') role: string) {
-    return this.usersService.revokeRole(id, role);
+  revokeRole(@Param() params: AssignRoleParamDto) {
+    return this.usersService.revokeRole(params.id, params.role);
   }
 
   @Get('username/available')

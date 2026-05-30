@@ -5,13 +5,15 @@ import {
   Post,
   Req,
   UnauthorizedException,
+  Get,
+  Param,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { AuthService } from './auth.service';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LoginDto } from './dto/login.dto';
-import { Get, Param } from '@nestjs/common';
 import { NonceProvider } from './providers/nonce.provider';
+import { NonceParamDto } from './dto/nonce-param.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -21,8 +23,8 @@ export class AuthController {
   ) {}
 
   @Get('nonce/:walletAddress')
-  async generateNonce(@Param('walletAddress') walletAddress: string) {
-    return this.nonceProvider.generate(walletAddress);
+  async generateNonce(@Param() params: NonceParamDto) {
+    return this.nonceProvider.generate(params.walletAddress);
   }
 
   @Post('login')
