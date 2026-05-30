@@ -275,7 +275,7 @@ impl EscrowContract {
 }
 
 // ============================================================================
-// SkillSync Escrow Contract — issues #521 #522 #523 #525
+// SkillSync Escrow Contract — issues #521 #522 #523 #525 #526 #527
 // ============================================================================
 
 pub type Bytes32 = BytesN<32>;
@@ -312,13 +312,23 @@ pub enum SkillSyncKey {
     DisputeWindow,
 }
 
+/// Error codes for SkillSyncEscrow (#526)
+#[contracttype]
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[repr(u32)]
+pub enum EscrowError {
+    DuplicateSessionId = 1,
+    SessionNotFound = 2,
+    InvalidState = 3,
+    Unauthorized = 4,
+}
+
 const DEFAULT_DISPUTE_WINDOW: u32 = 1000;
 
 #[contract]
 pub struct SkillSyncEscrow;
 
 impl SkillSyncEscrow {
-    /// Helper: load session, panic if not found (#525)
     fn get_session_internal(env: &Env, id: &Bytes32) -> SessionData {
         env.storage()
             .persistent()
@@ -326,7 +336,6 @@ impl SkillSyncEscrow {
             .expect("session not found")
     }
 
-    /// Helper: persist session (#525)
     fn save_session_internal(env: &Env, id: &Bytes32, session: &SessionData) {
         env.storage()
             .persistent()
@@ -336,7 +345,6 @@ impl SkillSyncEscrow {
 
 #[contractimpl]
 impl SkillSyncEscrow {
-    /// Initialize with admin address
     pub fn initialize(env: Env, admin: Address) {
         if env.storage().persistent().has(&SkillSyncKey::Admin) {
             panic!("already initialized");
@@ -344,7 +352,7 @@ impl SkillSyncEscrow {
         env.storage().persistent().set(&SkillSyncKey::Admin, &admin);
     }
 
-    // ── #525: session storage helpers (public view) ──────────────────────────
+    // ── #525: session storage helpers ────────────────────────────────────────
 
     pub fn get_session(env: Env, id: Bytes32) -> SessionData {
         Self::get_session_internal(&env, &id)
@@ -360,11 +368,10 @@ impl SkillSyncEscrow {
         Self::save_session_internal(&env, &id, &session);
     }
 
-    // ── #523: lock_funds ─────────────────────────────────────────────────────
+    // ── #523 + #526: lock_funds ───────────────────────────────────────────────
 
     /// Lock funds into a new escrow session.
-    /// Caller is the buyer; transfers `amount` of `token_id` to the contract.
-    /// Emits FundsLocked event.
+    /// Returns EscrowError::DuplicateSessionId if session_id already exists (#526).
     pub fn lock_funds(
         env: Env,
         session_id: Bytes32,
@@ -375,12 +382,13 @@ impl SkillSyncEscrow {
     ) {
         buyer.require_auth();
         assert!(amount > 0, "amount must be positive");
-        assert!(
-            !env.storage()
-                .persistent()
-                .has(&SkillSyncKey::Session(session_id.clone())),
-            "session already exists"
-        );
+        if env
+            .storage()
+            .persistent()
+            .has(&SkillSyncKey::Session(session_id.clone()))
+        {
+            panic!("DuplicateSessionId");
+        }
 
         token::Client::new(&env, &token_id).transfer(
             &buyer,
@@ -403,9 +411,76 @@ impl SkillSyncEscrow {
             .publish((Symbol::new(&env, "FundsLocked"), session_id), amount);
     }
 
-    // ── #521: dispute window ─────────────────────────────────────────────────
+    // ── #527: complete_session ────────────────────────────────────────────────
 
-    /// Set dispute window in ledgers (admin only). Emits DisputeWindowUpdated.
+    /// Seller marks session as completed.
+    /// - Only seller can call.
+    /// - Session must be in Locked state.
+    /// - Sets completed_at to current ledger timestamp.
+    /// - Emits SessionCompleted event.
+    /// Returns EscrowError::DuplicateSessionId if session is already Completed (#526).
+    pub fn complete_session(env: Env, session_id: Bytes32) {
+        let mut session = Self::get_session_internal(&env, &session_id);
+        session.seller.require_auth();
+        if session.status == Status::Completed {
+            panic!("DuplicateSessionId");
+        }
+        assert!(session.status == Status::Locked, "InvalidState: session must be Locked");
+        session.status = Status::Completed;
+        session.completed_at = env.ledger().timestamp();
+        Self::save_session_internal(&env, &session_id, &session);
+        env.events()
+            .publish((Symbol::new(&env, "SessionCompleted"), session_id), ());
+    }
+
+    // ── #526: approve_session ─────────────────────────────────────────────────
+
+    /// Buyer approves completed session, releasing funds to seller.
+    /// Checks session exists and is in Completed state (#526).
+    pub fn approve_session(env: Env, session_id: Bytes32, token_id: Address) {
+        let mut session = Self::get_session_internal(&env, &session_id);
+        session.buyer.require_auth();
+        assert!(
+            session.status == Status::Completed,
+            "InvalidState: session must be Completed"
+        );
+        token::Client::new(&env, &token_id).transfer(
+            &env.current_contract_address(),
+            &session.seller,
+            &session.amount,
+        );
+        session.status = Status::Approved;
+        Self::save_session_internal(&env, &session_id, &session);
+        env.events()
+            .publish((Symbol::new(&env, "SessionApproved"), session_id), session.amount);
+    }
+
+    // ── #526: refund_session ──────────────────────────────────────────────────
+
+    /// Buyer requests refund. Session must be Locked (not already refunded) (#526).
+    pub fn refund_session(env: Env, session_id: Bytes32, token_id: Address) {
+        let mut session = Self::get_session_internal(&env, &session_id);
+        session.buyer.require_auth();
+        if session.status == Status::Refunded {
+            panic!("DuplicateSessionId");
+        }
+        assert!(
+            session.status == Status::Locked,
+            "InvalidState: session must be Locked"
+        );
+        token::Client::new(&env, &token_id).transfer(
+            &env.current_contract_address(),
+            &session.buyer,
+            &session.amount,
+        );
+        session.status = Status::Refunded;
+        Self::save_session_internal(&env, &session_id, &session);
+        env.events()
+            .publish((Symbol::new(&env, "SessionRefunded"), session_id), session.amount);
+    }
+
+    // ── #521: dispute window ──────────────────────────────────────────────────
+
     pub fn set_dispute_window(env: Env, window_ledgers: u32) {
         let admin: Address = env
             .storage()
@@ -422,7 +497,6 @@ impl SkillSyncEscrow {
         );
     }
 
-    /// Get dispute window in ledgers (default 1000).
     pub fn get_dispute_window(env: Env) -> u32 {
         env.storage()
             .persistent()
@@ -430,9 +504,8 @@ impl SkillSyncEscrow {
             .unwrap_or(DEFAULT_DISPUTE_WINDOW)
     }
 
-    // ── #522: upgrade ────────────────────────────────────────────────────────
+    // ── #522: upgrade ─────────────────────────────────────────────────────────
 
-    /// Upgrade contract WASM (admin only). Emits ContractUpgraded.
     pub fn upgrade(env: Env, new_wasm_hash: Bytes32) {
         let admin: Address = env
             .storage()
