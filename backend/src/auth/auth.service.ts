@@ -7,6 +7,8 @@ import { AuditLogService, RequestAudit } from './audit-log.service';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { User } from '../users/entities/user.entity';
 import { Role } from '../users/entities/role.entity';
+import * as StellarSDK from 'stellar-sdk';
+import { verify } from 'stellar-sdk';
 
 type JwtClaims = Record<string, unknown> & {
   sub: string;
@@ -39,10 +41,39 @@ export class AuthService {
     private readonly auditLogService: AuditLogService,
   ) {}
 
+  verifyStellarSignature(walletAddress: string, nonce: string, signature: string): boolean {
+    try {
+      const publicKey = StellarSDK.StrKey.decodeEd25519PublicKey(walletAddress);
+      const messageBuffer = Buffer.from(nonce, 'hex');
+      const signatureBuffer = Buffer.from(signature, 'base64');
+      
+      return StellarSDK.verify(messageBuffer, publicKey, signatureBuffer);
+    } catch (error) {
+      this.logger.error(`Signature verification failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return false;
+    }
+  }
+
+  async loginWithSignature(
+    walletAddress: string,
+    nonce: string,
+    signature: string,
+    audit: RequestAudit,
+  ): Promise<TokenPair> {
+    const isValid = this.verifyStellarSignature(walletAddress, nonce, signature);
+    
+    if (!isValid) {
+      await this.logLoginFailure(walletAddress, audit, 'Invalid signature');
+      throw new UnauthorizedException('Invalid signature');
+    }
+
+    return this.login(walletAddress, audit);
+  }
+
   async login(walletAddress: string, audit: RequestAudit): Promise<TokenPair> {
     let user = await this.dataSource.manager.findOne(User, {
       where: { walletAddress },
-      relations: ['roles'],
+      relations: { roles: true },
     });
 
     if (!user) {
@@ -105,7 +136,7 @@ export class AuthService {
 
           const user = await manager.findOne(User, {
             where: { id: token.userId },
-            relations: ['roles'],
+            relations: { roles: true },
           });
 
           if (!user) {

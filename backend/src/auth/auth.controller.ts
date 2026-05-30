@@ -6,7 +6,7 @@ import {
   Req,
   UnauthorizedException,
 } from '@nestjs/common';
-import { Request } from 'express';
+import type { Request } from 'express';
 import { AuthService } from './auth.service';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LoginDto } from './dto/login.dto';
@@ -28,13 +28,36 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   async login(@Body() body: LoginDto, @Req() request: Request) {
-    // TODO: Implement Stellar signature verification
-    // For now, we'll trust the wallet address from the request
-    return this.authService.login(body.walletAddress, {
-      ipAddress: this.getIpAddress(request),
-      userAgent: request.headers['user-agent'] ?? null,
-      deviceFingerprint: this.getDeviceFingerprint(request),
-    });
+    await this.nonceProvider.enforceLoginRateLimit(body.walletAddress);
+
+    const nonceValid = await this.nonceProvider.verifyAndConsume(
+      body.walletAddress,
+      body.nonce,
+    );
+
+    if (!nonceValid) {
+      await this.authService.logLoginFailure(
+        body.walletAddress,
+        {
+          ipAddress: this.getIpAddress(request),
+          userAgent: request.headers['user-agent'] ?? null,
+          deviceFingerprint: this.getDeviceFingerprint(request),
+        },
+        'Invalid or expired nonce',
+      );
+      throw new UnauthorizedException('Invalid or expired nonce');
+    }
+
+    return this.authService.loginWithSignature(
+      body.walletAddress,
+      body.nonce,
+      body.signature,
+      {
+        ipAddress: this.getIpAddress(request),
+        userAgent: request.headers['user-agent'] ?? null,
+        deviceFingerprint: this.getDeviceFingerprint(request),
+      },
+    );
   }
 
   @Post('refresh')
