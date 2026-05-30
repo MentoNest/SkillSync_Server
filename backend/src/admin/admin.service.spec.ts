@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { NotFoundException } from '@nestjs/common';
 import { AdminService } from './admin.service';
+import { SuspensionService } from '../auth/suspension.service';
 import { User } from '../users/entities/user.entity';
 import { ProfileHistory } from '../users/entities/profile-history.entity';
 
@@ -35,6 +36,7 @@ describe('AdminService', () => {
         AdminService,
         { provide: getRepositoryToken(User), useValue: userRepo },
         { provide: getRepositoryToken(ProfileHistory), useValue: historyRepo },
+        { provide: SuspensionService, useValue: { getActiveSuspension: jest.fn(), suspendUser: jest.fn(), unsuspendUser: jest.fn(), listActiveSuspensions: jest.fn() } },
       ],
     }).compile();
 

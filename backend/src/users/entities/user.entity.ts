@@ -4,13 +4,16 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  JoinColumn,
   JoinTable,
   ManyToMany,
+  OneToMany,
   PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { Role } from './role.entity';
+import { UserSuspension } from './user-suspension.entity';
 
 @Entity({ name: 'users' })
 export class User {
@@ -67,6 +70,9 @@ export class User {
     inverseJoinColumn: { name: 'role_id', referencedColumnName: 'id' },
   })
   roles!: Role[];
+
+  @OneToMany(() => UserSuspension, (suspension) => suspension.user)
+  suspensions?: UserSuspension[];
 
   @BeforeInsert()
   setId(): void {

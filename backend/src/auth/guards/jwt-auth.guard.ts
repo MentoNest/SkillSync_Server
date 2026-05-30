@@ -2,17 +2,22 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
+  ForbiddenException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
+import { SuspensionService } from '../suspension.service';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly suspensionService: SuspensionService,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<{
       headers: Record<string, string | undefined>;
       user?: JwtPayload;
@@ -24,7 +29,18 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     const token = authorization.slice(7).trim();
-    request.user = this.verifyAccessToken(token);
+    const payload = this.verifyAccessToken(token);
+    const suspension = await this.suspensionService.getActiveSuspension(payload.sub);
+    if (suspension) {
+      const untilText = suspension.suspendedUntil
+        ? suspension.suspendedUntil.toISOString()
+        : 'permanently';
+      throw new ForbiddenException(
+        `Account suspended until ${untilText}: ${suspension.reason}`,
+      );
+    }
+
+    request.user = payload;
     return true;
   }
 
