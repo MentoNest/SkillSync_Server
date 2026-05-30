@@ -30,6 +30,6 @@ import { Role } from '../users/entities/role.entity';
     RolesGuard,
     NonceProvider,
   ],
-  exports: [AuthService, JwtAuthGuard, RolesGuard],
+  exports: [AuthService, AuditLogService, JwtAuthGuard, RolesGuard],
 })
 export class AuthModule {}

@@ -6,11 +6,14 @@ import {
   Index,
   JoinTable,
   ManyToMany,
+  OneToOne,
   PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { Role } from './role.entity';
+import { MentorProfile } from './mentor-profile.entity';
+import { MenteeProfile } from './mentee-profile.entity';
 
 @Entity({ name: 'users' })
 export class User {
@@ -37,6 +40,12 @@ export class User {
     inverseJoinColumn: { name: 'role_id', referencedColumnName: 'id' },
   })
   roles!: Role[];
+
+  @OneToOne(() => MentorProfile, (mentorProfile) => mentorProfile.user)
+  mentorProfile?: MentorProfile;
+
+  @OneToOne(() => MenteeProfile, (menteeProfile) => menteeProfile.user)
+  menteeProfile?: MenteeProfile;
 
   @BeforeInsert()
   setId(): void {

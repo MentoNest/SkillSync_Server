@@ -3,10 +3,12 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Post,
-  UseGuards,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -15,6 +17,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { AuthRole } from '../auth/enums/auth-role.enum';
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { UsersService } from './users.service';
+import { CreateProfileDto } from './dto/create-profile.dto';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -27,6 +30,22 @@ export class UsersController {
       throw new Error('User not found');
     }
     return this.usersService.findById(request.user.sub);
+  }
+
+  @Post('profile')
+  @HttpCode(HttpStatus.CREATED)
+  async createProfile(
+    @Req() request: Request & { user?: JwtPayload },
+    @Body() dto: CreateProfileDto,
+  ) {
+    if (!request.user) {
+      throw new Error('User not found');
+    }
+
+    return this.usersService.createProfile(request.user.sub, dto, {
+      ipAddress: request.ip ?? null,
+      userAgent: request.headers['user-agent'] ?? null,
+    });
   }
 
   @Post(':id/roles/:role')
