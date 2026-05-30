@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { DataSource } from 'typeorm';
 
@@ -11,6 +12,22 @@ async function bootstrap() {
         ? ['error', 'warn']
         : ['log', 'error', 'warn', 'debug', 'verbose'],
   });
+
+  // Configure global ValidationPipe with strict options
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true, // Strip non-decorated properties
+      forbidNonWhitelisted: true, // Reject requests with extra properties
+      transform: true, // Auto-transform to DTO instances
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
+      validationError: {
+        target: false, // Don't expose the full object in error messages
+        value: false, // Don't expose the property values in error messages
+      },
+    }),
+  );
 
   // Verify database connection before starting server
   const dataSource = app.get(DataSource);

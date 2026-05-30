@@ -7,13 +7,13 @@ import {
   Post,
   Req,
   UseGuards,
-  ValidationPipe,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { PortfolioService } from './portfolio.service';
 import { CreatePortfolioLinkDto } from './dto/create-portfolio-link.dto';
+import { UUIDParamDto } from '../common/dto/uuid-param.dto';
 
 @Controller('user/portfolio-links')
 @UseGuards(JwtAuthGuard)
@@ -28,13 +28,13 @@ export class PortfolioController {
   @Post()
   create(
     @Req() req: Request & { user?: JwtPayload },
-    @Body(ValidationPipe) dto: CreatePortfolioLinkDto,
+    @Body() dto: CreatePortfolioLinkDto,
   ) {
     return this.portfolioService.create(req.user!.sub, dto);
   }
 
   @Delete(':id')
-  remove(@Req() req: Request & { user?: JwtPayload }, @Param('id') id: string) {
-    return this.portfolioService.remove(req.user!.sub, id);
+  remove(@Req() req: Request & { user?: JwtPayload }, @Param() params: UUIDParamDto) {
+    return this.portfolioService.remove(req.user!.sub, params.id);
   }
 }

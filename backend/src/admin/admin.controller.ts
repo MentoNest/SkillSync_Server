@@ -16,6 +16,9 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { AuthRole } from '../auth/enums/auth-role.enum';
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { AdminService } from './admin.service';
+import { UUIDParamDto } from '../common/dto/uuid-param.dto';
+import { VerifyMentorBodyDto } from './dto/admin.dto';
+import { ProfileHistoryQueryDto } from '../availability/dto/availability-query.dto';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -25,31 +28,30 @@ export class AdminController {
 
   @Post('mentors/:id/verify')
   verifyMentor(
-    @Param('id') id: string,
-    @Body() body: { notes?: string },
+    @Param() params: UUIDParamDto,
+    @Body() body: VerifyMentorBodyDto,
     @Req() req: Request & { user?: JwtPayload },
   ) {
-    return this.adminService.verifyMentor(id, req.user!.sub, body.notes);
+    return this.adminService.verifyMentor(params.id, req.user!.sub, body.notes);
   }
 
   @Delete('mentors/:id/verify')
   revokeVerification(
-    @Param('id') id: string,
+    @Param() params: UUIDParamDto,
     @Req() req: Request & { user?: JwtPayload },
   ) {
-    return this.adminService.revokeVerification(id, req.user!.sub);
+    return this.adminService.revokeVerification(params.id, req.user!.sub);
   }
 
   @Get('users/:userId/profile-history')
   getProfileHistory(
     @Param('userId') userId: string,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
+    @Query() query: ProfileHistoryQueryDto,
   ) {
     return this.adminService.getProfileHistory(
       userId,
-      limit ? Math.min(parseInt(limit, 10) || 50, 500) : 50,
-      offset ? parseInt(offset, 10) || 0 : 0,
+      query.limit ? Math.min(parseInt(query.limit, 10) || 50, 500) : 50,
+      query.offset ? parseInt(query.offset, 10) || 0 : 0,
     );
   }
 }
