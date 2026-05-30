@@ -485,8 +485,10 @@ impl SkillSyncEscrow {
         );
         session.status = Status::Refunded;
         Self::save_session_internal(&env, &session_id, &session);
-        env.events()
-            .publish((Symbol::new(&env, "SessionRefunded"), session_id), session.amount);
+        env.events().publish(
+            (Symbol::new(&env, "SessionRefunded"), session_id),
+            (session.buyer, session.amount, env.ledger().timestamp()),
+        );
     }
 
     // ── #521: dispute window ──────────────────────────────────────────────────
