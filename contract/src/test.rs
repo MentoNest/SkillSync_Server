@@ -574,12 +574,17 @@ mod test_skillsync_escrow {
         let id = make_id(&env, 11);
         client.lock_funds(&id, &buyer, &seller, &200, &token_id);
         client.complete_session(&id);
+        let s = client.get_session(&id);
         let events = env.events().all();
         let last = events.last().unwrap();
         assert_eq!(last.0, cid);
         assert_eq!(
             last.1,
             (Symbol::new(&env, "SessionCompleted"), id.clone()).into_val(&env)
+        );
+        assert_eq!(
+            last.2,
+            (seller.clone(), s.completed_at).into_val(&env)
         );
     }
 
