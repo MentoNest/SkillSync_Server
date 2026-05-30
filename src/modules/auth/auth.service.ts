@@ -45,7 +45,6 @@ export class AuthService {
   private readonly NONCE_RATE_LIMIT_PREFIX = 'nonce-generation';
   private readonly LOGIN_RATE_LIMIT_PREFIX = 'login-attempts';
 
-
   constructor(
     private jwtService: JwtService,
     private configService: ConfigService,
@@ -347,9 +346,9 @@ export class AuthService {
         throw new UnauthorizedException('Invalid token type');
       }
 
-      // Check if token is blacklisted
+      // Check if token is blacklisted (by jti)
       const isBlacklisted = await this.redisService.exists(
-        `${this.TOKEN_BLACKLIST_PREFIX}:${refreshToken}`,
+        `${this.TOKEN_BLACKLIST_PREFIX}:${payload.jti}`,
       );
 
       if (isBlacklisted) {
@@ -388,9 +387,9 @@ export class AuthService {
       storedToken.isRevoked = true;
       await this.refreshTokenRepository.save(storedToken);
 
-      // Blacklist old refresh token
+      // Blacklist old refresh token by its jti
       await this.blacklistToken(
-        refreshToken,
+        payload.jti,
         this.parseExpirationToMs(
           this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d',
         ),
@@ -435,17 +434,22 @@ export class AuthService {
   /**
    * Logout and invalidate tokens
    */
-  async logout(accessToken: string, userId: string): Promise<void> {
-    // Blacklist access token until expiration
+  async logout(
+    accessToken: string,
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<void> {
+    // Blacklist access token by its jti until natural expiration
     const decoded = this.jwtService.decode(accessToken) as JwtPayload;
-    if (decoded && decoded.exp) {
+    if (decoded && decoded.jti && decoded.exp) {
       const ttlMs = decoded.exp * 1000 - Date.now();
       if (ttlMs > 0) {
-        await this.blacklistToken(accessToken, ttlMs);
+        await this.blacklistToken(decoded.jti, ttlMs);
       }
     }
 
-    // Delete refresh tokens from database
+    // Revoke all refresh tokens for this user in the database
     await this.refreshTokenRepository.update(
       { userId, isRevoked: false },
       { isRevoked: true },
@@ -454,28 +458,65 @@ export class AuthService {
     // Remove user sessions from Redis
     await this.redisService.del(`${this.USER_SESSIONS_PREFIX}:${userId}`);
 
-    // Audit log
+    // Fetch wallet address for audit log
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+
+    // Record logout in audit log
+    await this.auditLogRepository.save(
+      this.auditLogRepository.create({
+        userId,
+        walletAddress: user?.walletAddress ?? 'unknown',
+        eventType: AuditEventType.LOGOUT,
+        ipAddress: ipAddress || 'unknown',
+        userAgent: userAgent || null,
+        metadata: { jti: decoded?.jti },
+      }),
+    );
+
     this.logger.log(`User logged out: ${userId}`);
   }
 
   /**
-   * Logout all sessions for a user
+   * Logout all sessions for a user (token versioning — invalidates all JWTs)
    */
-  async logoutAll(userId: string): Promise<void> {
-    // Increment token version to invalidate all access tokens
+  async logoutAll(
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<{ message: string; revokedCount: number }> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
-    if (user) {
-      user.tokenVersion += 1;
-      await this.userRepository.save(user);
-    }
+    if (!user) throw new UnauthorizedException('User not found');
+
+    // Increment token version to invalidate all existing access tokens
+    user.tokenVersion += 1;
+    await this.userRepository.save(user);
 
     // Revoke all refresh tokens
-    await this.revokeAllUserTokens(userId);
+    const result = await this.refreshTokenRepository
+      .createQueryBuilder()
+      .update()
+      .set({ isRevoked: true })
+      .where('userId = :userId AND isRevoked = false', { userId })
+      .execute();
+    const revokedCount = result.affected ?? 0;
 
     // Clear user sessions
     await this.redisService.del(`${this.USER_SESSIONS_PREFIX}:${userId}`);
 
-    this.logger.log(`All sessions logged out for user: ${userId}`);
+    // Audit log
+    await this.auditLogRepository.save(
+      this.auditLogRepository.create({
+        userId,
+        walletAddress: user.walletAddress,
+        eventType: AuditEventType.SESSIONS_REVOKED,
+        ipAddress: ipAddress || 'unknown',
+        userAgent: userAgent || null,
+        metadata: { reason: 'logout_all', revokedCount, newTokenVersion: user.tokenVersion },
+      }),
+    );
+
+    this.logger.log(`All sessions logged out for user: ${userId} (${revokedCount} tokens)`);
+    return { message: 'All sessions revoked successfully', revokedCount };
   }
 
   /**
@@ -487,9 +528,9 @@ export class AuthService {
     if (count === 1) {
       await this.redisService.expire(rateLimitKey, 3600);
     }
-     if (count > 3) {
-       throw new HttpException('Rate limit exceeded: 3 requests per hour', HttpStatus.TOO_MANY_REQUESTS);
-     }
+    if (count > 3) {
+      throw new HttpException('Rate limit exceeded: 3 requests per hour', HttpStatus.TOO_MANY_REQUESTS);
+    }
 
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new UnauthorizedException('User not found');
@@ -530,7 +571,7 @@ export class AuthService {
    * Validate JWT token payload
    */
   async validateToken(payload: JwtPayload) {
-    // Check if token is blacklisted
+    // Check if token is blacklisted (by jti) — first check before anything else
     const isBlacklisted = await this.redisService.exists(
       `${this.TOKEN_BLACKLIST_PREFIX}:${payload.jti}`,
     );
@@ -549,7 +590,7 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    // Check token version
+    // Check token version — catches logoutAll invalidation
     if (user.tokenVersion !== payload.tokenVersion) {
       throw new UnauthorizedException('Token version mismatch');
     }
@@ -671,12 +712,12 @@ export class AuthService {
   }
 
   /**
-   * Blacklist a token in Redis
+   * Blacklist a token in Redis by its jti
    */
-  private async blacklistToken(token: string, ttlMs: number) {
+  private async blacklistToken(jti: string, ttlMs: number) {
     const ttlSeconds = Math.ceil(ttlMs / 1000);
     await this.redisService.set(
-      `${this.TOKEN_BLACKLIST_PREFIX}:${token}`,
+      `${this.TOKEN_BLACKLIST_PREFIX}:${jti}`,
       'blacklisted',
       ttlSeconds,
     );
@@ -751,7 +792,7 @@ export class AuthService {
   private parseExpirationToMs(expiration: string): number {
     const match = expiration.match(/^(\d+)([smhd])$/);
     if (!match) {
-      return 7 * 24 * 60 * 60 * 1000; // Default 7 days
+      return 7 * 24 * 60 * 60 * 1000;
     }
 
     const value = parseInt(match[1], 10);
@@ -775,7 +816,6 @@ export class AuthService {
    * Admin: Assign role to user
    */
   async assignRole(adminUserId: string, userId: string, roleName: string) {
-    // Verify admin has permission
     const admin = await this.userRepository.findOne({
       where: { id: adminUserId },
       relations: ['roles'],
@@ -786,7 +826,6 @@ export class AuthService {
       throw new ForbiddenException('Only admins can assign roles');
     }
 
-    // Find user and role
     const user = await this.userRepository.findOne({
       where: { id: userId },
       relations: ['roles'],
@@ -806,12 +845,10 @@ export class AuthService {
       await this.roleRepository.save(role);
     }
 
-    // Add role to user
     if (!user.roles.find((r) => r.name === roleName)) {
       user.roles.push(role);
       await this.userRepository.save(user);
 
-      // Increment token version to invalidate existing tokens
       user.tokenVersion += 1;
       await this.userRepository.save(user);
     }
@@ -827,7 +864,6 @@ export class AuthService {
    * Admin: Revoke role from user
    */
   async revokeRole(adminUserId: string, userId: string, roleName: string) {
-    // Verify admin has permission
     const admin = await this.userRepository.findOne({
       where: { id: adminUserId },
       relations: ['roles'],
@@ -850,7 +886,6 @@ export class AuthService {
     user.roles = user.roles.filter((r) => r.name !== roleName);
     await this.userRepository.save(user);
 
-    // Increment token version
     user.tokenVersion += 1;
     await this.userRepository.save(user);
 
