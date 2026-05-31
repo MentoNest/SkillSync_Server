@@ -18,6 +18,14 @@ pub enum SessionError {
     SessionAlreadyRefunded = 305,
     /// Cannot act while disputed
     SessionInDispute = 306,
+    /// Extension exceeds maximum allowed ledgers
+    ExtensionExceedsMax = 307,
+    /// Extension already proposed for this session
+    ExtensionAlreadyProposed = 308,
+    /// No extension proposal exists
+    NoExtensionProposed = 309,
+    /// Only the other party can accept the extension
+    NotAuthorizedToAccept = 310,
 }
 
 impl From<SessionError> for u32 {
