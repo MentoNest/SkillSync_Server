@@ -4,6 +4,7 @@ import { NotFoundException } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { User } from '../users/entities/user.entity';
 import { ProfileHistory } from '../users/entities/profile-history.entity';
+import { PaginationService } from '../common/pagination/pagination.service';
 
 const mockUser = (): User =>
   ({
@@ -26,7 +27,11 @@ describe('AdminService', () => {
   };
 
   const historyRepo = {
-    findAndCount: jest.fn(),
+    createQueryBuilder: jest.fn(),
+  };
+
+  const paginationService = {
+    paginate: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -35,6 +40,7 @@ describe('AdminService', () => {
         AdminService,
         { provide: getRepositoryToken(User), useValue: userRepo },
         { provide: getRepositoryToken(ProfileHistory), useValue: historyRepo },
+        { provide: PaginationService, useValue: paginationService },
       ],
     }).compile();
 
@@ -84,18 +90,24 @@ describe('AdminService', () => {
   describe('getProfileHistory', () => {
     it('returns paginated history for a user', async () => {
       const items = [{ id: 'h1', userId: 'user-1', fieldName: 'isVerified' }];
-      historyRepo.findAndCount.mockResolvedValue([items, 1]);
-
-      const result = await service.getProfileHistory('user-1', 10, 0);
-
-      expect(result.items).toEqual(items);
-      expect(result.total).toBe(1);
-      expect(historyRepo.findAndCount).toHaveBeenCalledWith({
-        where: { userId: 'user-1' },
-        order: { changedAt: 'DESC' },
-        take: 10,
-        skip: 0,
+      const queryBuilder = { where: jest.fn().mockReturnThis(), orderBy: jest.fn().mockReturnThis() };
+      historyRepo.createQueryBuilder.mockReturnValue(queryBuilder);
+      paginationService.paginate.mockResolvedValue({
+        data: items,
+        meta: { page: 1, limit: 10, total: 1, totalPages: 1, hasNext: false, hasPrev: false },
       });
+
+      const result = await service.getProfileHistory('user-1', 10, 1);
+
+      expect(result.data).toEqual(items);
+      expect(result.meta.total).toBe(1);
+      expect(historyRepo.createQueryBuilder).toHaveBeenCalledWith('history');
+      expect(paginationService.paginate).toHaveBeenCalledWith(
+        queryBuilder,
+        1,
+        10,
+        { route: '/admin/users/user-1/profile-history' },
+      );
     });
   });
 });

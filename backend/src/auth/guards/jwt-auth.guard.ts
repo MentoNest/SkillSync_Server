@@ -3,10 +3,12 @@ import {
   ExecutionContext,
   Injectable,
   UnauthorizedException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
+import { UserStatus } from '../../users/enums/user-status.enum';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -24,7 +26,13 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     const token = authorization.slice(7).trim();
-    request.user = this.verifyAccessToken(token);
+    const user = this.verifyAccessToken(token);
+
+    if (user.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException('User status is not active');
+    }
+
+    request.user = user;
     return true;
   }
 

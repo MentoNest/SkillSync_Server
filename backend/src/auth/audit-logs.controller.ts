@@ -1,17 +1,21 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { ApiPaginationQuery } from '../common/pagination/decorators/api-pagination-query.decorator';
 import { AdminAccessGuard } from './admin-access.guard';
 import { AuditLogService } from './audit-log.service';
 import { AuditEventType } from './entities/audit-log.entity';
 
+@ApiTags('audit-logs')
 @Controller('auth/audit-logs')
 @UseGuards(AdminAccessGuard)
 export class AuditLogsController {
   constructor(private readonly auditLogService: AuditLogService) {}
 
   @Get()
+  @ApiPaginationQuery()
   async list(@Query() query: Record<string, string | undefined>) {
-    const limit = this.parseInt(query.limit, 100, 1, 500);
-    const offset = this.parseInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
+    const limit = this.parseInt(query.limit, 10, 1, 100);
+    const page = this.parseInt(query.page, 1, 1, Number.MAX_SAFE_INTEGER);
     const eventType = this.parseEventType(query.eventType);
     const start = this.parseDate(query.start);
     const end = this.parseDate(query.end);
@@ -24,7 +28,7 @@ export class AuditLogsController {
       start,
       end,
       limit,
-      offset,
+      page,
     });
   }
 

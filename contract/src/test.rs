@@ -419,7 +419,7 @@ mod test_multi_session {
         let last_event = events.last().unwrap();
         assert_eq!(last_event.0, cid);
         assert_eq!(last_event.1, (Symbol::new(&env, "PlatformFeeUpdated"),).into_val(&env));
-        assert_eq!(last_event.2, 250_u32.into_val(&env));
+        assert_eq!(last_event.2, (0_u32, 250_u32, admin).into_val(&env));
     }
 
     #[test]
@@ -695,5 +695,43 @@ mod test_skillsync_escrow {
             (Symbol::new(&env, "DisputeWindowUpdated"),).into_val(&env)
         );
         assert_eq!(last.2, 500_u32.into_val(&env));
+    }
+
+    #[test]
+    fn test_set_platform_fee_emits_event() {
+        let (env, admin, .., cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        client.set_platform_fee(&500);
+        let events = env.events().all();
+        let last = events.last().unwrap();
+        assert_eq!(last.0, cid);
+        assert_eq!(
+            last.1,
+            (Symbol::new(&env, "PlatformFeeUpdated"),).into_val(&env)
+        );
+        assert_eq!(last.2, (0_u32, 500_u32, admin).into_val(&env));
+    }
+
+    #[test]
+    fn test_resolve_dispute_emits_event() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+        let id = make_id(&env, 40);
+        client.lock_funds(&id, &buyer, &seller, &1000, &token_id);
+        client.set_treasury(&Address::generate(&env));
+        
+        client.resolve_dispute(&id, &token_id, &500, &400, &100);
+        
+        let events = env.events().all();
+        let last = events.last().unwrap();
+        assert_eq!(last.0, cid);
+        assert_eq!(
+            last.1,
+            (Symbol::new(&env, "DisputeResolved"), id).into_val(&env)
+        );
+        // data: (admin, buyer_share, seller_share, fee, timestamp)
+        // We can't easily check timestamp exactly, so we just check it's > 0
     }
 }

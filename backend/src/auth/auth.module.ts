@@ -10,6 +10,7 @@ import { AdminAccessGuard } from './admin-access.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { NonceProvider } from './providers/nonce.provider';
+import { PaginationModule } from '../common/pagination/pagination.module';
 
 import { AuditLog } from './entities/audit-log.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
@@ -20,6 +21,7 @@ import { Role } from '../users/entities/role.entity';
   imports: [
     ConfigModule,
     TypeOrmModule.forFeature([RefreshToken, AuditLog, User, Role]),
+    PaginationModule,
   ],
   controllers: [AuthController, AuditLogsController],
   providers: [

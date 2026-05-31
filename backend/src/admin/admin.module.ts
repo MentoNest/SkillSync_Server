@@ -6,9 +6,14 @@ import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { ProfileHistorySubscriber } from './profile-history.subscriber';
 import { AuthModule } from '../auth/auth.module';
+import { PaginationModule } from '../common/pagination/pagination.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, ProfileHistory]), AuthModule],
+  imports: [
+    TypeOrmModule.forFeature([User, ProfileHistory]),
+    AuthModule,
+    PaginationModule,
+  ],
   controllers: [AdminController],
   providers: [AdminService, ProfileHistorySubscriber],
 })

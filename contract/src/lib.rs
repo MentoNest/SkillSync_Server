@@ -147,8 +147,12 @@ impl EscrowContract {
         if new_fee_bps > 1000 {
             panic!("fee_bps must not exceed 1000");
         }
+        let old_fee_bps = env.storage().persistent().get(&DataKey::PlatformFee).unwrap_or(0_u32);
         env.storage().persistent().set(&DataKey::PlatformFee, &new_fee_bps);
-        env.events().publish((Symbol::new(&env, "PlatformFeeUpdated"),), new_fee_bps);
+        env.events().publish(
+            (Symbol::new(&env, "PlatformFeeUpdated"),),
+            (old_fee_bps, new_fee_bps, admin),
+        );
     }
 
     pub fn get_platform_fee(env: Env) -> u32 {
@@ -310,6 +314,8 @@ pub enum SkillSyncKey {
     Session(Bytes32),
     Admin,
     DisputeWindow,
+    PlatformFee,
+    Treasury,
 }
 
 /// Error codes for SkillSyncEscrow (#526)
@@ -321,6 +327,7 @@ pub enum EscrowError {
     SessionNotFound = 2,
     InvalidState = 3,
     Unauthorized = 4,
+    InvalidDistribution = 5,
 }
 
 const DEFAULT_DISPUTE_WINDOW: u32 = 1000;
@@ -341,6 +348,13 @@ impl SkillSyncEscrow {
             .persistent()
             .set(&SkillSyncKey::Session(id.clone()), session);
     }
+
+    fn get_admin(env: &Env) -> Address {
+        env.storage()
+            .persistent()
+            .get(&SkillSyncKey::Admin)
+            .expect("not initialized")
+    }
 }
 
 #[contractimpl]
@@ -350,6 +364,72 @@ impl SkillSyncEscrow {
             panic!("already initialized");
         }
         env.storage().persistent().set(&SkillSyncKey::Admin, &admin);
+        env.storage().persistent().set(&SkillSyncKey::PlatformFee, &0_u32);
+    }
+
+    pub fn set_treasury(env: Env, new_treasury: Address) {
+        Self::get_admin(&env).require_auth();
+        env.storage().persistent().set(&SkillSyncKey::Treasury, &new_treasury);
+    }
+
+    pub fn get_treasury(env: Env) -> Address {
+        env.storage().persistent().get(&SkillSyncKey::Treasury).expect("treasury not set")
+    }
+
+    pub fn set_platform_fee(env: Env, new_fee_bps: u32) {
+        let admin = Self::get_admin(&env);
+        admin.require_auth();
+        if new_fee_bps > 1000 {
+            panic!("fee_bps must not exceed 1000");
+        }
+        let old_fee_bps = env.storage().persistent().get(&SkillSyncKey::PlatformFee).unwrap_or(0_u32);
+        env.storage().persistent().set(&SkillSyncKey::PlatformFee, &new_fee_bps);
+        env.events().publish(
+            (Symbol::new(&env, "PlatformFeeUpdated"),),
+            (old_fee_bps, new_fee_bps, admin),
+        );
+    }
+
+    pub fn get_platform_fee(env: Env) -> u32 {
+        env.storage().persistent().get(&SkillSyncKey::PlatformFee).unwrap_or(0_u32)
+    }
+
+    pub fn resolve_dispute(
+        env: Env,
+        session_id: Bytes32,
+        token_id: Address,
+        buyer_share: i128,
+        seller_share: i128,
+        fee: i128,
+    ) {
+        let admin = Self::get_admin(&env);
+        admin.require_auth();
+
+        let mut session = Self::get_session_internal(&env, &session_id);
+        if session.amount != buyer_share + seller_share + fee {
+            panic!("InvalidDistribution");
+        }
+
+        let token = token::Client::new(&env, &token_id);
+        if buyer_share > 0 {
+            token.transfer(&env.current_contract_address(), &session.buyer, &buyer_share);
+        }
+        if seller_share > 0 {
+            token.transfer(&env.current_contract_address(), &session.seller, &seller_share);
+        }
+        if fee > 0 {
+            let treasury = Self::get_treasury(env);
+            token.transfer(&env.current_contract_address(), &treasury, &fee);
+        }
+
+        session.status = Status::Resolved;
+        session.dispute_resolved_at = env.ledger().timestamp();
+        Self::save_session_internal(&env, &session_id, &session);
+
+        env.events().publish(
+            (Symbol::new(&env, "DisputeResolved"), session_id),
+            (admin, buyer_share, seller_share, fee, env.ledger().timestamp()),
+        );
     }
 
     // ── #525: session storage helpers ────────────────────────────────────────
@@ -359,12 +439,7 @@ impl SkillSyncEscrow {
     }
 
     pub fn save_session(env: Env, id: Bytes32, session: SessionData) {
-        let admin: Address = env
-            .storage()
-            .persistent()
-            .get(&SkillSyncKey::Admin)
-            .expect("not initialized");
-        admin.require_auth();
+        Self::get_admin(&env).require_auth();
         Self::save_session_internal(&env, &id, &session);
     }
 

@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthRole } from '../auth/enums/auth-role.enum';
 import { Role } from './entities/role.entity';
 import { User } from './entities/user.entity';
+import { UserStatus } from './enums/user-status.enum';
 
 @Injectable()
 export class UsersService implements OnModuleInit {
@@ -20,7 +21,7 @@ export class UsersService implements OnModuleInit {
     let user = await this.userRepo.findOne({ where: { walletAddress } });
     if (!user) {
       const menteeRole = await this.roleRepo.findOne({ where: { name: AuthRole.MENTEE } });
-      user = this.userRepo.create({ walletAddress, roles: menteeRole ? [menteeRole] : [] });
+      user = this.userRepo.create({ walletAddress, roles: menteeRole ? [menteeRole] : [], status: UserStatus.ACTIVE });
       await this.userRepo.save(user);
     }
     return user;
@@ -28,6 +29,23 @@ export class UsersService implements OnModuleInit {
 
   async findById(id: string): Promise<User | null> {
     return this.userRepo.findOne({ where: { id } });
+  }
+
+  async findActiveById(id: string): Promise<User | null> {
+    return this.userRepo.findOne({ where: { id, status: UserStatus.ACTIVE } });
+  }
+
+  async updateStatus(userId: string, newStatus: UserStatus): Promise<User> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    if (user.status === UserStatus.DELETED && newStatus !== UserStatus.DELETED) {
+      throw new BadRequestException('Cannot reactivate a deleted user');
+    }
+
+    user.status = newStatus;
+    user.tokenVersion += 1;
+    return this.userRepo.save(user);
   }
 
   async assignRole(userId: string, roleName: string): Promise<User> {
