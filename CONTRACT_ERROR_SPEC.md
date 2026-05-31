@@ -21,9 +21,11 @@ This document defines the standard error codes used by the SkillSync smart contr
 | 13 | `TokenExpired` | Token has expired |
 | 14 | `TokenRevoked` | Token has been revoked |
 | 15 | `InvalidToken` | Token is invalid |
-| 21 | `InsufficientBalance` | Insufficient funds for operation |
-| 22 | `NegativeAmount` | Amount cannot be negative |
-| 23 | `Overflow` | Arithmetic overflow occurred |
+| 400 | `InvalidAmount` | Amount is zero or negative |
+| 401 | `InsufficientBalance` | Insufficient funds for operation |
+| 402 | `FeeTooHigh` | Fee exceeds maximum (1000 bps) |
+| 403 | `InvalidSplit` | Dispute split does not sum to amount |
+| 404 | `Overflow` | Arithmetic overflow occurred |
 | 24 | `InvalidAsset` | Asset is not supported |
 | 31 | `MentorNotFound` | Mentor profile not found |
 | 32 | `MenteeNotFound` | Mentee profile not found |
