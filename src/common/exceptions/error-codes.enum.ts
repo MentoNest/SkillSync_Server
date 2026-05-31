@@ -9,6 +9,11 @@ export enum ErrorCodes {
   DISPUTE_ALREADY_OPEN = 501, // Dispute already exists for session
   DISPUTE_NOT_OPEN = 502, // No open dispute to resolve
   RESOLUTION_NOT_ALLOWED = 503, // Session not eligible for resolution
+  INVALID_AMOUNT = 400, // Amount is zero or negative
+  INSUFFICIENT_BALANCE = 401, // Buyer has insufficient funds
+  FEE_TOO_HIGH = 402, // Fee exceeds maximum (1000 bps)
+  INVALID_SPLIT = 403, // Dispute split does not sum to amount
+  OVERFLOW = 404, // Arithmetic overflow detected
   FORBIDDEN = 'FORBIDDEN',
   BAD_REQUEST = 'BAD_REQUEST',
   INTERNAL_ERROR = 'INTERNAL_ERROR',
