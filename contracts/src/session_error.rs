@@ -26,6 +26,14 @@ pub enum SessionError {
     NoExtensionProposed = 309,
     /// Only the other party can accept the extension
     NotAuthorizedToAccept = 310,
+    /// Invalid signature format or length
+    InvalidSignature = 311,
+    /// Signature verification failed
+    SignatureVerificationFailed = 312,
+    /// Invalid nonce in signature
+    InvalidNonce = 313,
+    /// Replay attack detected
+    ReplayDetected = 314,
 }
 
 impl From<SessionError> for u32 {

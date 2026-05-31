@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes32, Env, Symbol, String};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Bytes32, BytesN, Env, Symbol, String};
 
 #[contract]
 pub struct EscrowContract;
@@ -28,6 +28,7 @@ pub enum DataKey {
     FeeBps,
     DisputeWindow,
     ExtensionProposal(Bytes32),
+    Nonce(Address),
 }
 
 const STATUS_LOCKED: u32 = 0;
