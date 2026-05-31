@@ -5,6 +5,11 @@ export enum ErrorCodes {
   NOT_ADMIN = 201, // Caller is not contract admin
   NOT_BUYER = 202, // Caller is not session buyer
   NOT_SELLER = 203, // Caller is not session seller
+  INVALID_AMOUNT = 400, // Amount is zero or negative
+  INSUFFICIENT_BALANCE = 401, // Buyer has insufficient funds
+  FEE_TOO_HIGH = 402, // Fee exceeds maximum (1000 bps)
+  INVALID_SPLIT = 403, // Dispute split does not sum to amount
+  OVERFLOW = 404, // Arithmetic overflow detected
   FORBIDDEN = 'FORBIDDEN',
   BAD_REQUEST = 'BAD_REQUEST',
   INTERNAL_ERROR = 'INTERNAL_ERROR',
