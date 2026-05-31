@@ -5,6 +5,10 @@ export enum ErrorCodes {
   NOT_ADMIN = 201, // Caller is not contract admin
   NOT_BUYER = 202, // Caller is not session buyer
   NOT_SELLER = 203, // Caller is not session seller
+  DISPUTE_WINDOW_NOT_ELAPSED = 500, // Cannot auto-refund yet
+  DISPUTE_ALREADY_OPEN = 501, // Dispute already exists for session
+  DISPUTE_NOT_OPEN = 502, // No open dispute to resolve
+  RESOLUTION_NOT_ALLOWED = 503, // Session not eligible for resolution
   INVALID_AMOUNT = 400, // Amount is zero or negative
   INSUFFICIENT_BALANCE = 401, // Buyer has insufficient funds
   FEE_TOO_HIGH = 402, // Fee exceeds maximum (1000 bps)
