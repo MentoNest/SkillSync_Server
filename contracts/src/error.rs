@@ -37,11 +37,15 @@ pub enum ContractError {
     InvalidToken = 15,
 
     /// Insufficient funds for operation
-    InsufficientBalance = 21,
-    /// Amount cannot be negative
-    NegativeAmount = 22,
-    /// Arithmetic overflow occurred
-    Overflow = 23,
+    InsufficientBalance = 401,
+    /// Amount is zero or negative
+    InvalidAmount = 400,
+    /// Fee exceeds maximum allowed (basis points)
+    FeeTooHigh = 402,
+    /// Dispute split does not sum to amount
+    InvalidSplit = 403,
+    /// Arithmetic overflow detected
+    Overflow = 404,
     /// Asset is not supported
     InvalidAsset = 24,
 
