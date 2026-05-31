@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { ProfileHistory } from '../users/entities/profile-history.entity';
+import { PaginationService } from '../common/pagination/pagination.service';
+import { PaginatedResponse } from '../common/pagination/interfaces/paginated-response.interface';
 import { SuspensionService } from '../auth/suspension.service';
 import { AuditLogService, RequestAudit } from '../auth/audit-log.service';
 import { AuditEventType } from '../auth/entities/audit-log.entity';
@@ -19,6 +21,7 @@ export class AdminService {
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(ProfileHistory) private readonly historyRepo: Repository<ProfileHistory>,
+    private readonly paginationService: PaginationService,
     @InjectRepository(Report) private readonly reportRepo: Repository<Report>,
     @InjectRepository(FlaggedContent) private readonly flaggedContentRepo: Repository<FlaggedContent>,
     @InjectRepository(Session) private readonly sessionRepo: Repository<Session>,
@@ -57,15 +60,16 @@ export class AdminService {
   async getProfileHistory(
     userId: string,
     limit = 50,
-    offset = 0,
-  ): Promise<{ items: ProfileHistory[]; total: number }> {
-    const [items, total] = await this.historyRepo.findAndCount({
-      where: { userId },
-      order: { changedAt: 'DESC' },
-      take: limit,
-      skip: offset,
+    page = 1,
+  ): Promise<PaginatedResponse<ProfileHistory>> {
+    const queryBuilder = this.historyRepo
+      .createQueryBuilder('history')
+      .where('history.userId = :userId', { userId })
+      .orderBy('history.changedAt', 'DESC');
+
+    return this.paginationService.paginate(queryBuilder, page, limit, {
+      route: `/admin/users/${userId}/profile-history`,
     });
-    return { items, total };
   }
 
   async suspendUser(

@@ -13,6 +13,7 @@ import {
 } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { Role } from './role.entity';
+import { UserStatus } from '../enums/user-status.enum';
 import { UserSuspension } from './user-suspension.entity';
 
 @Entity({ name: 'users' })
@@ -23,6 +24,13 @@ export class User {
   @Index({ unique: true })
   @Column({ name: 'wallet_address', type: 'varchar', length: 128 })
   walletAddress!: string;
+
+  @Column({
+    type: 'enum',
+    enum: UserStatus,
+    default: UserStatus.ACTIVE,
+  })
+  status!: UserStatus;
 
   @Column({ name: 'token_version', type: 'int', default: 0 })
   tokenVersion!: number;

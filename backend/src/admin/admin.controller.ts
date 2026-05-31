@@ -11,7 +11,9 @@ import {
   UseGuards,
   Patch,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
+import { ApiPaginationQuery } from '../common/pagination/decorators/api-pagination-query.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -28,6 +30,7 @@ import { AnalyticsQueryDto } from './dto/analytics-query.dto';
 import { Throttle } from '../auth/decorators/throttle.decorator';
 import { AuthRole as AuthRoleEnum } from '../auth/enums/auth-role.enum';
 
+@ApiTags('admin')
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(AuthRole.ADMIN)
@@ -271,15 +274,16 @@ export class AdminController {
   }
 
   @Get('users/:userId/profile-history')
+  @ApiPaginationQuery()
   getProfileHistory(
     @Param('userId') userId: string,
     @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
+    @Query('page') page?: string,
   ) {
     return this.adminService.getProfileHistory(
       userId,
       limit ? Math.min(parseInt(limit, 10) || 50, 500) : 50,
-      offset ? parseInt(offset, 10) || 0 : 0,
+      page ? parseInt(page, 10) || 1 : 1,
     );
   }
 

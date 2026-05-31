@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { UserStatus } from './enums/user-status.enum';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -340,5 +341,58 @@ describe('UsersService - Username Functionality', () => {
 
       expect(result).toBeNull();
     });
+  });
+});
+
+describe('UsersService - updateStatus', () => {
+  let service: UsersService;
+
+  const mockUserRepo = {
+    findOne: jest.fn(),
+    save: jest.fn(),
+  };
+
+  const mockRoleRepo = {
+    findOne: jest.fn(),
+  };
+
+  const mockAuditLogService = {
+    logEvent: jest.fn(),
+  };
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        UsersService,
+        { provide: getRepositoryToken(User), useValue: mockUserRepo },
+        { provide: getRepositoryToken(Role), useValue: mockRoleRepo },
+        { provide: AuditLogService, useValue: mockAuditLogService },
+      ],
+    }).compile();
+
+    service = module.get<UsersService>(UsersService);
+    jest.clearAllMocks();
+  });
+
+  it('should update user status', async () => {
+    const user = { id: '1', status: UserStatus.ACTIVE, tokenVersion: 0 } as User;
+    mockUserRepo.findOne.mockResolvedValue(user);
+    mockUserRepo.save.mockImplementation(async (u: User) => u);
+
+    const result = await service.updateStatus('1', UserStatus.SUSPENDED);
+
+    expect(result.status).toBe(UserStatus.SUSPENDED);
+    expect(result.tokenVersion).toBe(1);
+  });
+
+  it('should throw NotFoundException if user not found', async () => {
+    mockUserRepo.findOne.mockResolvedValue(null);
+    await expect(service.updateStatus('1', UserStatus.ACTIVE)).rejects.toThrow(NotFoundException);
+  });
+
+  it('should throw BadRequestException when reactivating a deleted user', async () => {
+    const user = { id: '1', status: UserStatus.DELETED, tokenVersion: 0 } as User;
+    mockUserRepo.findOne.mockResolvedValue(user);
+    await expect(service.updateStatus('1', UserStatus.ACTIVE)).rejects.toThrow(BadRequestException);
   });
 });

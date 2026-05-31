@@ -111,6 +111,7 @@ export class AuthService {
       sub: user.id,
       walletAddress: user.walletAddress,
       roles: user.roles.map((r) => r.name),
+      status: user.status,
       tokenVersion: user.tokenVersion,
     };
 
@@ -180,6 +181,7 @@ export class AuthService {
           const userClaims = {
             ...coreClaims,
             roles: user.roles.map((r) => r.name),
+            status: user.status,
             tokenVersion: user.tokenVersion,
             walletAddress: token.walletAddress,
           };

@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { AvailabilitySlot } from './entities/availability-slot.entity';
 import { AvailabilityException } from './entities/availability-exception.entity';
 import { CreateSlotDto, UpdateSlotDto, CreateExceptionDto } from './dto/availability.dto';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class AvailabilityService {
@@ -12,6 +13,7 @@ export class AvailabilityService {
     private readonly slotRepo: Repository<AvailabilitySlot>,
     @InjectRepository(AvailabilityException)
     private readonly exceptionRepo: Repository<AvailabilityException>,
+    private readonly usersService: UsersService,
   ) {}
 
   // ── Slots ──────────────────────────────────────────────────────────────────
@@ -69,6 +71,9 @@ export class AvailabilityService {
   // ── Availability check ─────────────────────────────────────────────────────
 
   async isAvailable(mentorId: string, dateTime: Date): Promise<boolean> {
+    const user = await this.usersService.findActiveById(mentorId);
+    if (!user) return false;
+
     const dateStr = dateTime.toISOString().slice(0, 10);
     const timeStr = dateTime.toISOString().slice(11, 16);
     const dayOfWeek = dateTime.getUTCDay();
@@ -86,6 +91,9 @@ export class AvailabilityService {
   }
 
   async getAvailableSlotsDays(mentorId: string): Promise<{ date: string; slots: AvailabilitySlot[] }[]> {
+    const user = await this.usersService.findActiveById(mentorId);
+    if (!user) return [];
+
     const slots = await this.slotRepo.find({ where: { mentorId } });
     const exceptions = await this.exceptionRepo.find({ where: { mentorId } });
     const exceptionDates = new Set(exceptions.filter((e) => !e.startTime).map((e) => e.exceptionDate));

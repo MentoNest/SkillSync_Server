@@ -1,10 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { NotFoundException } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { SuspensionService } from '../auth/suspension.service';
+import { AuditLogService } from '../auth/audit-log.service';
 import { User } from '../users/entities/user.entity';
 import { ProfileHistory } from '../users/entities/profile-history.entity';
+import { Report } from './entities/report.entity';
+import { FlaggedContent } from './entities/flagged-content.entity';
+import { Session } from './entities/session.entity';
+import { Role } from '../users/entities/role.entity';
+import { PaginationService } from '../common/pagination/pagination.service';
 
 const mockUser = (): User =>
   ({
@@ -27,7 +34,18 @@ describe('AdminService', () => {
   };
 
   const historyRepo = {
-    findAndCount: jest.fn(),
+    createQueryBuilder: jest.fn(),
+  };
+
+  const paginationService = {
+    paginate: jest.fn(),
+  };
+
+  const suspensionService = {
+    getActiveSuspension: jest.fn(),
+    suspendUser: jest.fn(),
+    unsuspendUser: jest.fn(),
+    listActiveSuspensions: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -36,7 +54,14 @@ describe('AdminService', () => {
         AdminService,
         { provide: getRepositoryToken(User), useValue: userRepo },
         { provide: getRepositoryToken(ProfileHistory), useValue: historyRepo },
-        { provide: SuspensionService, useValue: { getActiveSuspension: jest.fn(), suspendUser: jest.fn(), unsuspendUser: jest.fn(), listActiveSuspensions: jest.fn() } },
+        { provide: getRepositoryToken(Report), useValue: {} },
+        { provide: getRepositoryToken(FlaggedContent), useValue: {} },
+        { provide: getRepositoryToken(Session), useValue: {} },
+        { provide: getRepositoryToken(Role), useValue: {} },
+        { provide: PaginationService, useValue: paginationService },
+        { provide: SuspensionService, useValue: suspensionService },
+        { provide: AuditLogService, useValue: { logEvent: jest.fn() } },
+        { provide: DataSource, useValue: { transaction: jest.fn() } },
       ],
     }).compile();
 
@@ -86,18 +111,24 @@ describe('AdminService', () => {
   describe('getProfileHistory', () => {
     it('returns paginated history for a user', async () => {
       const items = [{ id: 'h1', userId: 'user-1', fieldName: 'isVerified' }];
-      historyRepo.findAndCount.mockResolvedValue([items, 1]);
-
-      const result = await service.getProfileHistory('user-1', 10, 0);
-
-      expect(result.items).toEqual(items);
-      expect(result.total).toBe(1);
-      expect(historyRepo.findAndCount).toHaveBeenCalledWith({
-        where: { userId: 'user-1' },
-        order: { changedAt: 'DESC' },
-        take: 10,
-        skip: 0,
+      const queryBuilder = { where: jest.fn().mockReturnThis(), orderBy: jest.fn().mockReturnThis() };
+      historyRepo.createQueryBuilder.mockReturnValue(queryBuilder);
+      paginationService.paginate.mockResolvedValue({
+        data: items,
+        meta: { page: 1, limit: 10, total: 1, totalPages: 1, hasNext: false, hasPrev: false },
       });
+
+      const result = await service.getProfileHistory('user-1', 10, 1);
+
+      expect(result.data).toEqual(items);
+      expect(result.meta.total).toBe(1);
+      expect(historyRepo.createQueryBuilder).toHaveBeenCalledWith('history');
+      expect(paginationService.paginate).toHaveBeenCalledWith(
+        queryBuilder,
+        1,
+        10,
+        { route: '/admin/users/user-1/profile-history' },
+      );
     });
   });
 });

@@ -10,6 +10,7 @@ import { AdminAccessGuard } from './admin-access.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { NonceProvider } from './providers/nonce.provider';
+import { PaginationModule } from '../common/pagination/pagination.module';
 import { SuspensionService } from './suspension.service';
 import { RedisModule } from '../redis/redis.module';
 
@@ -23,6 +24,7 @@ import { UserSuspension } from '../users/entities/user-suspension.entity';
   imports: [
     ConfigModule,
     TypeOrmModule.forFeature([AuditLog, RefreshToken, User, Role, UserSuspension]),
+    PaginationModule,
     RedisModule,
   ],
   controllers: [AuthController, AuditLogsController],

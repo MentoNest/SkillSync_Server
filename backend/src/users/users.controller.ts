@@ -17,7 +17,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { AuthRole } from '../auth/enums/auth-role.enum';
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { UsersService } from './users.service';
-import { UUIDParamDto } from '../common/dto/uuid-param.dto';
+import { UserStatus } from './enums/user-status.enum';
 import { AssignRoleParamDto } from '../admin/dto/admin.dto';
 import { UpdateUsernameDto } from './dto/update-username.dto';
 import { UpdateDisplayNameDto } from './dto/update-display-name.dto';
@@ -33,6 +33,12 @@ export class UsersController {
       throw new Error('User not found');
     }
     return this.usersService.findById(request.user.sub);
+  }
+
+  @Post(':id/status')
+  @Roles(AuthRole.ADMIN)
+  updateStatus(@Param('id') id: string, @Body('status') status: UserStatus) {
+    return this.usersService.updateStatus(id, status);
   }
 
   @Post(':id/roles/:role')

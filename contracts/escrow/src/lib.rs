@@ -227,11 +227,18 @@ impl EscrowContract {
         if new_fee_bps > 1000 {
             panic!("fee_bps must not exceed 1000");
         }
+        let old_fee_bps = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PlatformFee)
+            .unwrap_or(0_u32);
         env.storage()
             .persistent()
             .set(&DataKey::PlatformFee, &new_fee_bps);
-        env.events()
-            .publish((Symbol::new(&env, "PlatformFeeUpdated"),), new_fee_bps);
+        env.events().publish(
+            (Symbol::new(&env, "PlatformFeeUpdated"),),
+            (old_fee_bps, new_fee_bps, admin),
+        );
     }
 
     pub fn get_platform_fee(env: Env) -> u32 {
@@ -792,9 +799,11 @@ impl SkillSyncEscrow {
         session.dispute_resolved_at = env.ledger().timestamp();
         Self::save_session_internal(&env, &session_id, &session);
 
+        let fee: i128 = 0;
+        let timestamp = env.ledger().timestamp();
         env.events().publish(
             (Symbol::new(&env, "DisputeResolved"), session_id),
-            (admin, buyer_bps, buyer_amount, seller_amount),
+            (admin, buyer_amount, seller_amount, fee, timestamp),
         );
     }
 

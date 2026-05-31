@@ -2,12 +2,13 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
-  ForbiddenException,
   UnauthorizedException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
+import { UserStatus } from '../../users/enums/user-status.enum';
 import { SuspensionService } from '../suspension.service';
 import { RedisService } from '../../redis/redis.service';
 
@@ -35,13 +36,16 @@ export class JwtAuthGuard implements CanActivate {
     const token = authorization.slice(7).trim();
     const payload = this.verifyAccessToken(token);
 
-    // Check Redis blacklist — rejects tokens invalidated by logout
     if (payload.jti) {
       const blacklistKey = `${this.TOKEN_BLACKLIST_PREFIX}:${payload.jti}`;
       const isBlacklisted = await this.redisService.get(blacklistKey);
       if (isBlacklisted !== null) {
         throw new UnauthorizedException('Token has been revoked');
       }
+    }
+
+    if (payload.status && payload.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException('User status is not active');
     }
 
     const suspension = await this.suspensionService.getActiveSuspension(payload.sub);
