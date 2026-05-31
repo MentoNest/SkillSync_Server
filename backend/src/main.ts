@@ -9,6 +9,10 @@ import helmet from 'helmet';
 
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
+// Ensure request-id and logger/query monkeypatches are applied early
+import './common/utils/logger-patch';
+import './common/utils/query-patch';
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     // Disable NestJS built-in logger noise; our middleware handles request logs

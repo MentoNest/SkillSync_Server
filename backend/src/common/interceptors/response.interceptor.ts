@@ -7,6 +7,7 @@ import {
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { Request, Response } from 'express';
+import { getContextRequestId } from '../utils/request-id.util';
 
 export interface ResponseEnvelope<T> {
   success: boolean;
@@ -15,6 +16,7 @@ export interface ResponseEnvelope<T> {
   data: T;
   timestamp: string;
   path: string;
+  requestId?: string;
 }
 
 @Injectable()
@@ -32,6 +34,10 @@ export class ResponseInterceptor<T>
     const statusCode = response.statusCode;
     const path = request.originalUrl || request.url || '';
     const timestamp = new Date().toISOString();
+    const requestId =
+      getContextRequestId() ||
+      (request.headers['x-request-id'] as string) ||
+      response.getHeader('X-Request-Id') as string;
 
     return next.handle().pipe(
       map((data) => {
@@ -60,6 +66,7 @@ export class ResponseInterceptor<T>
           data: data !== undefined ? data : null,
           timestamp,
           path,
+          ...(requestId && { requestId }),
         };
       }),
     );
