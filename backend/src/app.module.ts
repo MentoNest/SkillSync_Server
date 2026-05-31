@@ -6,6 +6,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
 import { AppDataSource } from './database/data-source';
 import { HttpLoggerMiddleware } from './common/middleware/http-logger.middleware';
+import { VersionCompatibilityMiddleware } from './common/middleware/version-compatibility.middleware';
 import { AuthModule } from './auth/auth.module';
 import { RedisModule } from './redis/redis.module';
 import { HealthModule } from './health/health.module';
@@ -40,6 +41,6 @@ import { MetricsMiddleware } from './monitoring/metrics.middleware';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(HttpLoggerMiddleware, MetricsMiddleware).forRoutes('*');
+    consumer.apply(HttpLoggerMiddleware, MetricsMiddleware, VersionCompatibilityMiddleware).forRoutes('*');
   }
 }

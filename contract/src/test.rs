@@ -131,6 +131,42 @@ mod test_multi_session {
     }
 
     #[test]
+    fn test_initialize_sets_admin_and_treasury() {
+        let (env, _, _, treasury, _, admin) = setup();
+        let cid = env.register(EscrowContract, ());
+        let client = EscrowContractClient::new(&env, &cid);
+        client.initialize(&admin, &treasury, &604800);
+        
+        assert_eq!(client.get_treasury(), treasury);
+        
+        // Admin authorization is verified by checking if admin can successfully call an admin-only function
+        client.set_platform_fee(&100);
+        assert_eq!(client.get_platform_fee(), 100);
+    }
+
+    #[test]
+    #[should_panic(expected = "already initialized")]
+    fn test_initialize_twice_reverts() {
+        let (env, _, _, treasury, _, admin) = setup();
+        let cid = env.register(EscrowContract, ());
+        let client = EscrowContractClient::new(&env, &cid);
+        
+        client.initialize(&admin, &treasury, &604800);
+        client.initialize(&admin, &treasury, &604800);
+    }
+
+    #[test]
+    #[should_panic(expected = "not initialized")]
+    fn test_uninitialized_contract_reverts() {
+        let (env, _, _, _, _, _) = setup();
+        let cid = env.register(EscrowContract, ());
+        let client = EscrowContractClient::new(&env, &cid);
+        
+        // Attempting an admin action without initialization should revert
+        client.set_platform_fee(&100);
+    }
+
+    #[test]
     fn test_lock_funds_success() {
         let (env, buyer, seller, treasury, token_id, admin) = setup();
         let contract_id = env.register(EscrowContract, ());
