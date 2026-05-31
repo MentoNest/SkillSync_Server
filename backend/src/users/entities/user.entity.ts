@@ -4,14 +4,17 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  JoinColumn,
   JoinTable,
   ManyToMany,
+  OneToMany,
   PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { Role } from './role.entity';
 import { UserStatus } from '../enums/user-status.enum';
+import { UserSuspension } from './user-suspension.entity';
 
 @Entity({ name: 'users' })
 export class User {
@@ -52,11 +55,32 @@ export class User {
   @Column({ name: 'verification_notes', type: 'text', nullable: true })
   verificationNotes!: string | null;
 
+  @Index({ unique: true })
+  @Column({ name: 'username', type: 'varchar', length: 30, nullable: true })
+  username!: string | null;
+
+  @Column({ name: 'display_name', type: 'varchar', length: 50, nullable: true })
+  displayName!: string | null;
+
+  @Column({ name: 'username_changed_at', type: 'timestamptz', nullable: true })
+  usernameChangedAt!: Date | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt!: Date;
+
+  @Index()
+  @Column({ name: 'is_featured', type: 'boolean', default: false })
+  isFeatured!: boolean;
+
+  @Column({ name: 'featured_at', type: 'timestamptz', nullable: true })
+  featuredAt!: Date | null;
+
+  @Index()
+  @Column({ name: 'featured_order', type: 'int', nullable: true })
+  featuredOrder!: number | null;
 
   @ManyToMany(() => Role, (role) => role.users, { eager: true })
   @JoinTable({
@@ -65,6 +89,9 @@ export class User {
     inverseJoinColumn: { name: 'role_id', referencedColumnName: 'id' },
   })
   roles!: Role[];
+
+  @OneToMany(() => UserSuspension, (suspension) => suspension.user)
+  suspensions?: UserSuspension[];
 
   @BeforeInsert()
   setId(): void {

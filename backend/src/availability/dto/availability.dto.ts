@@ -1,6 +1,5 @@
-import { IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
-
-const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsTimeFormat, IsDateFormat, IsValidTimezone, IsAfterDate } from '../../common/validators/custom-validators';
 
 export class CreateSlotDto {
   @IsInt()
@@ -8,13 +7,15 @@ export class CreateSlotDto {
   @Max(6)
   dayOfWeek!: number;
 
-  @Matches(TIME_REGEX)
+  @IsTimeFormat()
   startTime!: string;
 
-  @Matches(TIME_REGEX)
+  @IsTimeFormat()
+  @IsAfterDate('startTime')
   endTime!: string;
 
   @IsOptional()
+  @IsValidTimezone()
   @IsString()
   timezone?: string;
 }
@@ -27,28 +28,31 @@ export class UpdateSlotDto {
   dayOfWeek?: number;
 
   @IsOptional()
-  @Matches(TIME_REGEX)
+  @IsTimeFormat()
   startTime?: string;
 
   @IsOptional()
-  @Matches(TIME_REGEX)
+  @IsTimeFormat()
+  @IsAfterDate('startTime')
   endTime?: string;
 
   @IsOptional()
+  @IsValidTimezone()
   @IsString()
   timezone?: string;
 }
 
 export class CreateExceptionDto {
-  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  @IsDateFormat()
   exceptionDate!: string;
 
   @IsOptional()
-  @Matches(TIME_REGEX)
+  @IsTimeFormat()
   startTime?: string;
 
   @IsOptional()
-  @Matches(TIME_REGEX)
+  @IsTimeFormat()
+  @IsAfterDate('startTime')
   endTime?: string;
 
   @IsOptional()

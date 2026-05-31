@@ -11,17 +11,21 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { NonceProvider } from './providers/nonce.provider';
 import { PaginationModule } from '../common/pagination/pagination.module';
+import { SuspensionService } from './suspension.service';
+import { RedisModule } from '../redis/redis.module';
 
 import { AuditLog } from './entities/audit-log.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { User } from '../users/entities/user.entity';
 import { Role } from '../users/entities/role.entity';
+import { UserSuspension } from '../users/entities/user-suspension.entity';
 
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([RefreshToken, AuditLog, User, Role]),
+    TypeOrmModule.forFeature([AuditLog, RefreshToken, User, Role, UserSuspension]),
     PaginationModule,
+    RedisModule,
   ],
   controllers: [AuthController, AuditLogsController],
   providers: [
@@ -31,7 +35,8 @@ import { Role } from '../users/entities/role.entity';
     JwtAuthGuard,
     RolesGuard,
     NonceProvider,
+    SuspensionService,
   ],
-  exports: [AuthService, JwtAuthGuard, RolesGuard],
+  exports: [AuthService, AuditLogService, JwtAuthGuard, RolesGuard, SuspensionService],
 })
 export class AuthModule {}

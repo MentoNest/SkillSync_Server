@@ -1,8 +1,9 @@
-import { IsEnum, IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
 import { PortfolioPlatform } from '../entities/portfolio-link.entity';
 
 export class CreatePortfolioLinkDto {
   @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsNotEmpty()
   url!: string;
 
   @IsOptional()

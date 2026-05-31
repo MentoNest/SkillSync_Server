@@ -1,9 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { NotFoundException } from '@nestjs/common';
 import { AdminService } from './admin.service';
+import { SuspensionService } from '../auth/suspension.service';
+import { AuditLogService } from '../auth/audit-log.service';
 import { User } from '../users/entities/user.entity';
 import { ProfileHistory } from '../users/entities/profile-history.entity';
+import { Report } from './entities/report.entity';
+import { FlaggedContent } from './entities/flagged-content.entity';
+import { Session } from './entities/session.entity';
+import { Role } from '../users/entities/role.entity';
 import { PaginationService } from '../common/pagination/pagination.service';
 
 const mockUser = (): User =>
@@ -34,13 +41,27 @@ describe('AdminService', () => {
     paginate: jest.fn(),
   };
 
+  const suspensionService = {
+    getActiveSuspension: jest.fn(),
+    suspendUser: jest.fn(),
+    unsuspendUser: jest.fn(),
+    listActiveSuspensions: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AdminService,
         { provide: getRepositoryToken(User), useValue: userRepo },
         { provide: getRepositoryToken(ProfileHistory), useValue: historyRepo },
+        { provide: getRepositoryToken(Report), useValue: {} },
+        { provide: getRepositoryToken(FlaggedContent), useValue: {} },
+        { provide: getRepositoryToken(Session), useValue: {} },
+        { provide: getRepositoryToken(Role), useValue: {} },
         { provide: PaginationService, useValue: paginationService },
+        { provide: SuspensionService, useValue: suspensionService },
+        { provide: AuditLogService, useValue: { logEvent: jest.fn() } },
+        { provide: DataSource, useValue: { transaction: jest.fn() } },
       ],
     }).compile();
 

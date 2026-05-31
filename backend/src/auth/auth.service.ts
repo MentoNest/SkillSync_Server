@@ -1,12 +1,14 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
-import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, IsNull, Not, Repository } from 'typeorm';
 import { AuditLogService, RequestAudit } from './audit-log.service';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { SuspensionService } from './suspension.service';
 import { User } from '../users/entities/user.entity';
 import { Role } from '../users/entities/role.entity';
+import { RedisService } from '../redis/redis.service';
 import * as StellarSDK from 'stellar-sdk';
 import { verify } from 'stellar-sdk';
 
@@ -33,12 +35,16 @@ const JWT_RESERVED_CLAIMS = new Set(['iat', 'exp', 'nbf', 'jti', 'typ']);
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
+  private readonly TOKEN_BLACKLIST_PREFIX = 'blacklist:token';
+
   constructor(
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
     private readonly auditLogService: AuditLogService,
+    private readonly suspensionService: SuspensionService,
+    private readonly redisService: RedisService,
   ) {}
 
   verifyStellarSignature(walletAddress: string, nonce: string, signature: string): boolean {
@@ -90,6 +96,17 @@ export class AuthService {
       user = await this.dataSource.manager.save(user);
     }
 
+    const activeSuspension = await this.suspensionService.getActiveSuspension(user.id);
+    if (activeSuspension) {
+      const untilText = activeSuspension.suspendedUntil
+        ? activeSuspension.suspendedUntil.toISOString()
+        : 'permanently';
+      await this.logLoginFailure(user.walletAddress, audit, 'Account suspended');
+      throw new ForbiddenException(
+        `Account suspended until ${untilText}: ${activeSuspension.reason}`,
+      );
+    }
+
     const claims = {
       sub: user.id,
       walletAddress: user.walletAddress,
@@ -98,7 +115,9 @@ export class AuthService {
       tokenVersion: user.tokenVersion,
     };
 
-    return this.issueTokenPair(claims, audit);
+    const tokenPair = await this.issueTokenPair(claims, audit);
+    await this.logLoginSuccess(user.id, user.walletAddress, audit);
+    return tokenPair;
   }
 
   async refresh(refreshToken: string, audit: RequestAudit): Promise<TokenPair> {
@@ -142,6 +161,16 @@ export class AuthService {
 
           if (!user) {
             throw new UnauthorizedException('User not found');
+          }
+
+          const activeSuspension = await this.suspensionService.getActiveSuspension(user.id);
+          if (activeSuspension) {
+            const untilText = activeSuspension.suspendedUntil
+              ? activeSuspension.suspendedUntil.toISOString()
+              : 'permanently';
+            throw new ForbiddenException(
+              `Account suspended until ${untilText}: ${activeSuspension.reason}`,
+            );
           }
 
           if (payload.tokenVersion !== user.tokenVersion) {
@@ -282,6 +311,109 @@ export class AuthService {
       assignedByUserId,
       audit,
     });
+  }
+
+  /**
+   * Logout current session:
+   * - Blacklists the access token JTI in Redis until natural expiration
+   * - Revokes all refresh tokens for the user in the database
+   * - Records logout event in audit log
+   */
+  async logoutUser(
+    accessToken: string,
+    userId: string,
+    audit: RequestAudit,
+  ): Promise<void> {
+    // Decode token to get jti and exp (no verify needed — guard already did that)
+    const parts = accessToken.split('.');
+    if (parts.length === 3) {
+      try {
+        const payload = JSON.parse(
+          Buffer.from(parts[1], 'base64url').toString('utf8'),
+        ) as { jti?: string; exp?: number };
+
+        if (payload.jti && payload.exp) {
+          const ttlSeconds = Math.max(
+            Math.ceil(payload.exp - Date.now() / 1000),
+            1,
+          );
+          await this.redisService.set(
+            `${this.TOKEN_BLACKLIST_PREFIX}:${payload.jti}`,
+            'blacklisted',
+            ttlSeconds,
+          );
+        }
+      } catch {
+        // Non-fatal — token will expire naturally
+        this.logger.warn(`Could not decode access token for blacklisting (userId: ${userId})`);
+      }
+    }
+
+    // Revoke all refresh tokens for this user
+    await this.refreshTokenRepository.update(
+      { userId, revokedAt: IsNull() },
+      { revokedAt: new Date() },
+    );
+
+    // Audit log
+    await this.auditLogService.logLogout({ userId, audit });
+
+    this.logger.log(`User logged out: ${userId}`);
+  }
+
+  /**
+   * Logout all sessions (token versioning):
+   * - Increments tokenVersion to immediately invalidate all existing JWTs
+   * - Revokes all refresh tokens in the database
+   * - Records audit event
+   */
+  async logoutAllSessions(
+    userId: string,
+    audit: RequestAudit,
+  ): Promise<{ message: string; revokedCount: number }> {
+    const user = await this.dataSource.manager.findOne(User, {
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Increment token version — invalidates all existing access tokens
+    user.tokenVersion += 1;
+    await this.dataSource.manager.save(User, user);
+
+    // Revoke all active refresh tokens
+    const result = await this.refreshTokenRepository
+      .createQueryBuilder()
+      .update()
+      .set({ revokedAt: new Date() })
+      .where('userId = :userId AND revokedAt IS NULL', { userId })
+      .execute();
+
+    const revokedCount = result.affected ?? 0;
+
+    // Audit log — treat as password-equivalent change
+    await this.auditLogService.logPasswordEquivalentChange(userId, audit, {
+      reason: 'logout_all_sessions',
+      revokedCount,
+      newTokenVersion: user.tokenVersion,
+    });
+
+    this.logger.log(`All sessions revoked for user: ${userId} (${revokedCount} tokens)`);
+
+    return { message: 'All sessions revoked successfully', revokedCount };
+  }
+
+  /**
+   * Check if an access token JTI is blacklisted in Redis.
+   * Used by the JWT guard.
+   */
+  async isTokenBlacklisted(jti: string): Promise<boolean> {
+    const value = await this.redisService.get(
+      `${this.TOKEN_BLACKLIST_PREFIX}:${jti}`,
+    );
+    return value !== null;
   }
 
   private async handleRefreshTokenReuse(
