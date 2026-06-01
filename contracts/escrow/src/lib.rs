@@ -32,6 +32,9 @@ macro_rules! only_once {
 /// Role-based access control (RBAC)
 pub mod rbac;
 
+/// Emergency pause / unpause
+pub mod pause;
+
 /// Issue: Non-reentrant guard (error 700)
 pub mod reentrancy;
 
@@ -61,6 +64,23 @@ macro_rules! only_role {
             soroban_sdk::BytesN::from_array($env, &$role),
             $account,
         );
+    }};
+}
+
+// ============================================================================
+// when_not_paused! — emergency pause guard macro
+// ============================================================================
+//
+// Usage:  when_not_paused!(&env);
+//
+// Behaviour:
+//   • Calls `pause::assert_not_paused`, which panics with "ContractPaused"
+//     if the contract has been paused by an admin.
+//   • Place at the top of every state-changing function.
+//   • View / getter functions intentionally omit this guard.
+macro_rules! when_not_paused {
+    ($env:expr) => {{
+        pause::assert_not_paused($env);
     }};
 }
 
@@ -643,6 +663,36 @@ impl SkillSyncEscrow {
         rbac::has_role(&env, role, &account)
     }
 
+    // ============================================================================
+    // Emergency pause — public entry points
+    // ============================================================================
+
+    /// Pause the contract, disabling all state-changing functions.
+    ///
+    /// Requires `DEFAULT_ADMIN_ROLE`. Emits `Paused(admin)`.
+    /// No-ops if already paused.
+    pub fn pause(env: Env, admin: Address) {
+        admin.require_auth();
+        only_role!(&env, rbac::DEFAULT_ADMIN_ROLE, &admin);
+        pause::pause(&env, &admin);
+    }
+
+    /// Unpause the contract, re-enabling all state-changing functions.
+    ///
+    /// Requires `DEFAULT_ADMIN_ROLE`. Emits `Unpaused(admin)`.
+    /// No-ops if not currently paused.
+    pub fn unpause(env: Env, admin: Address) {
+        admin.require_auth();
+        only_role!(&env, rbac::DEFAULT_ADMIN_ROLE, &admin);
+        pause::unpause(&env, &admin);
+    }
+
+    /// View function — returns `true` when the contract is paused.
+    /// Callable at any time, including while paused.
+    pub fn paused(env: Env) -> bool {
+        pause::is_paused(&env)
+    }
+
     // ── Session storage helpers ──────────────────────────────────────────────
 
     pub fn get_session(env: Env, id: Bytes32) -> SessionData {
@@ -672,6 +722,7 @@ impl SkillSyncEscrow {
         amount: i128,
         token_id: Address,
     ) {
+        when_not_paused!(&env);
         buyer.require_auth();
         assert!(amount > 0, "amount must be positive");
 
@@ -723,6 +774,7 @@ impl SkillSyncEscrow {
     /// Seller marks session as completed.
     /// Now also guards against expired sessions.
     pub fn complete_session(env: Env, session_id: Bytes32) {
+        when_not_paused!(&env);
         // ── Issue: Block if session has expired ──────────────────────────────
         expiry::assert_not_expired(&env, &session_id);
 
@@ -752,6 +804,7 @@ impl SkillSyncEscrow {
         opened_by: Address,
         reason: soroban_sdk::String,
     ) {
+        when_not_paused!(&env);
         let mut session = Self::get_session_internal(&env, &session_id);
 
         opened_by.require_auth();
@@ -780,6 +833,7 @@ impl SkillSyncEscrow {
     /// Issue: Token transfer is now wrapped in a reentrancy guard.
     /// Issue: Blocked if session has expired (expiry check).
     pub fn approve_session(env: Env, session_id: Bytes32, token_id: Address) {
+        when_not_paused!(&env);
         // ── Issue: Block if expired ──────────────────────────────────────────
         expiry::assert_not_expired(&env, &session_id);
 
@@ -823,6 +877,7 @@ impl SkillSyncEscrow {
     ///
     /// Issue: Token transfer is now wrapped in a reentrancy guard.
     pub fn refund_session(env: Env, session_id: Bytes32, token_id: Address) {
+        when_not_paused!(&env);
         let mut session = Self::get_session_internal(&env, &session_id);
         session.buyer.require_auth();
         if session.status == Status::Refunded {
@@ -870,6 +925,7 @@ impl SkillSyncEscrow {
         buyer_bps: u32,
         token_id: Address,
     ) {
+        when_not_paused!(&env);
         resolver.require_auth();
         only_role!(&env, rbac::DISPUTE_RESOLVER_ROLE, &resolver);
 
@@ -913,6 +969,7 @@ impl SkillSyncEscrow {
     // ── auto_refund ──────────────────────────────────────────────────────────
 
     pub fn auto_refund(env: Env, session_id: Bytes32, token_id: Address) {
+        when_not_paused!(&env);
         let mut session = Self::get_session_internal(&env, &session_id);
         assert!(
             session.status == Status::Completed,
@@ -958,6 +1015,7 @@ impl SkillSyncEscrow {
     ///
     /// Emits `SessionExpiredAndCancelled`.
     pub fn cancel_expired_session(env: Env, session_id: Bytes32, token_id: Address) {
+        when_not_paused!(&env);
         expiry::cancel_expired_session(env, session_id, token_id);
     }
 
@@ -969,6 +1027,7 @@ impl SkillSyncEscrow {
     /// - `max_sessions`   — max sessions per address per window
     /// - `window_ledgers` — window length in ledger sequences
     pub fn set_rate_limit(env: Env, admin: Address, max_sessions: u32, window_ledgers: u32) {
+        when_not_paused!(&env);
         admin.require_auth();
         Self::require_admin(&env, &admin);
         rate_limit::set_rate_limit(&env, max_sessions, window_ledgers);
@@ -976,6 +1035,7 @@ impl SkillSyncEscrow {
 
     /// Admin whitelists an address (bypasses rate limits).
     pub fn whitelist_address(env: Env, admin: Address, address: Address) {
+        when_not_paused!(&env);
         admin.require_auth();
         Self::require_admin(&env, &admin);
         rate_limit::whitelist_address(&env, &address);
@@ -983,6 +1043,7 @@ impl SkillSyncEscrow {
 
     /// Admin removes an address from the whitelist.
     pub fn remove_from_whitelist(env: Env, admin: Address, address: Address) {
+        when_not_paused!(&env);
         admin.require_auth();
         Self::require_admin(&env, &admin);
         rate_limit::remove_from_whitelist(&env, &address);
@@ -998,6 +1059,7 @@ impl SkillSyncEscrow {
     /// Admin configures the maximum session lifetime in ledgers.
     /// Default is 30_000 ledgers (~7 days on Stellar mainnet).
     pub fn set_max_session_duration(env: Env, admin: Address, max_duration_ledgers: u32) {
+        when_not_paused!(&env);
         admin.require_auth();
         Self::require_admin(&env, &admin);
         expiry::set_max_session_duration(&env, max_duration_ledgers);
@@ -1028,6 +1090,7 @@ impl SkillSyncEscrow {
         token_id: Address,
         milestones: Vec<(u32, soroban_sdk::String)>,
     ) {
+        when_not_paused!(&env);
         // Rate limit applies to milestone sessions too
         rate_limit::check_and_increment(&env, &buyer);
 
@@ -1049,11 +1112,13 @@ impl SkillSyncEscrow {
         buyer: Address,
         milestone_index: u32,
     ) {
+        when_not_paused!(&env);
         milestone::release_milestone(env, session_id, buyer, milestone_index);
     }
 
     /// Open a dispute on a milestone session (pauses further milestone releases).
     pub fn dispute_milestone_session(env: Env, session_id: Bytes32, opened_by: Address) {
+        when_not_paused!(&env);
         milestone::dispute_milestone_session(env, session_id, opened_by);
     }
 
@@ -1064,6 +1129,7 @@ impl SkillSyncEscrow {
         resolver: Address,
         buyer_bps: u32,
     ) {
+        when_not_paused!(&env);
         resolver.require_auth();
         only_role!(&env, rbac::DISPUTE_RESOLVER_ROLE, &resolver);
         milestone::resolve_milestone_dispute(env, session_id, resolver, buyer_bps);
@@ -1086,6 +1152,7 @@ impl SkillSyncEscrow {
 
     /// Update the dispute window. Requires `DEFAULT_ADMIN_ROLE`.
     pub fn set_dispute_window(env: Env, admin: Address, window_ledgers: u32) {
+        when_not_paused!(&env);
         admin.require_auth();
         only_role!(&env, rbac::DEFAULT_ADMIN_ROLE, &admin);
         env.storage()
@@ -1108,6 +1175,7 @@ impl SkillSyncEscrow {
 
     /// Upgrade the contract WASM. Requires `UPGRADER_ROLE`.
     pub fn upgrade(env: Env, upgrader: Address, new_wasm_hash: Bytes32) {
+        when_not_paused!(&env);
         upgrader.require_auth();
         only_role!(&env, rbac::UPGRADER_ROLE, &upgrader);
 
