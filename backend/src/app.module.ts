@@ -6,6 +6,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AppDataSource } from './database/data-source';
 import { HttpLoggerMiddleware } from './common/middleware/http-logger.middleware';
 import { AuthModule } from './auth/auth.module';
+import { ThrottlingModule } from './auth/throttling.module';
 import { RedisModule } from './redis/redis.module';
 import { HealthModule } from './health/health.module';
 import { UsersModule } from './users/users.module';
@@ -18,6 +19,7 @@ import { UsersModule } from './users/users.module';
       retryAttempts: 5,
     }),
     AuthModule,
+    ThrottlingModule,
     UsersModule,
     RedisModule,
     HealthModule,

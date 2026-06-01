@@ -1,9 +1,10 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { validate } from 'class-validator';
 import { AuthRole } from '../auth/enums/auth-role.enum';
 import { AuditEventType } from '../auth/entities/audit-log.entity';
 import { UsersService } from './users.service';
 import { CreateProfileDto } from './dto/create-profile.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 describe('UsersService', () => {
   describe('CreateProfileDto validation', () => {
@@ -64,6 +65,38 @@ describe('UsersService', () => {
         logEvent: jest.fn().mockResolvedValue({ id: 'audit-id' }),
       };
       service = new UsersService(userRepo, roleRepo, mentorRepo, menteeRepo, auditLogService);
+    });
+
+    describe('updateProfile', () => {
+      it('throws forbidden for mentor updates by a non-mentor non-admin', async () => {
+        user.roles = [{ name: AuthRole.MENTEE }];
+        const dto = new UpdateProfileDto();
+        dto.bio = 'New bio';
+        await expect(service.updateProfile(user.id, AuthRole.MENTOR, dto, { ipAddress: null, userAgent: null })).rejects.toThrow(ForbiddenException);
+      });
+
+      it('updates a mentor profile partially and logs the changed fields', async () => {
+        user.roles = [{ name: AuthRole.MENTOR }];
+        userRepo.findOne.mockResolvedValue(user);
+        mentorRepo.findOne.mockResolvedValue({ id: 'mentor-1', user, bio: 'Old bio', expertise: ['frontend'], yearsOfExperience: 5, profileVersion: 1 });
+        mentorRepo.save.mockResolvedValue({ id: 'mentor-1', user, bio: 'New bio', expertise: ['frontend'], yearsOfExperience: 5, profileVersion: 2 });
+
+        const dto = new UpdateProfileDto();
+        dto.bio = 'New bio';
+
+        const result = await service.updateProfile(user.id, AuthRole.MENTOR, dto, { ipAddress: '127.0.0.1', userAgent: 'jest' });
+
+        expect(result).toMatchObject({ id: 'mentor-1', bio: 'New bio', profileVersion: 2 });
+        expect(auditLogService.logEvent).toHaveBeenCalledWith(expect.objectContaining({
+          userId: user.id,
+          eventType: AuditEventType.PROFILE_UPDATED,
+          details: expect.objectContaining({
+            profileType: AuthRole.MENTOR,
+            profileId: 'mentor-1',
+            changes: expect.any(Array),
+          }),
+        }));
+      });
     });
 
     it('throws conflict when mentor profile already exists', async () => {

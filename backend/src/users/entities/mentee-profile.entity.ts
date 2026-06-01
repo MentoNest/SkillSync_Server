@@ -41,6 +41,9 @@ export class MenteeProfile {
   @Column('simple-array', { nullable: true })
   portfolioLinks?: string[];
 
+  @Column({ name: 'profile_version', type: 'int', default: 1 })
+  profileVersion!: number;
+
   @OneToOne(() => User, (user) => user.menteeProfile, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user!: User;

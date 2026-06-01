@@ -32,6 +32,9 @@ export class MentorProfile {
   @Column({ type: 'text', nullable: true })
   availabilityDetails?: string;
 
+  @Column({ name: 'profile_version', type: 'int', default: 1 })
+  profileVersion!: number;
+
   @OneToOne(() => User, (user) => user.mentorProfile, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user!: User;
