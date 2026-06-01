@@ -21,20 +21,31 @@
     "typeorm": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js",
     "migration:generate": "npm run typeorm -- migration:generate -d src/database/data-source.ts",
     "migration:run": "npm run typeorm -- migration:run -d src/database/data-source.ts",
-    "migration:revert": "npm run typeorm -- migration:revert -d src/database/data-source.ts"
+    "migration:revert": "npm run typeorm -- migration:revert -d src/database/data-source.ts",
+    "seed:demo": "SEED_DEMO_DATA=true ts-node -r tsconfig-paths/register src/database/seeds/demo-seed.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
-    "@nestjs/typeorm": "^11.0.1",
-    "pg": "^8.21.0",
     "@nestjs/swagger": "^8.1.0",
     "@nestjs/terminus": "^11.1.1",
+    "@nestjs/typeorm": "^11.0.0",
+    "helmet": "^8.1.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
     "ioredis": "^5.11.0",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/passport": "^11.0.0",
+    "passport": "^0.6.0",
+    "passport-jwt": "^4.0.1",
+    "jsonwebtoken": "^9.0.0",
+    "multer": "^1.4.5-lts.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "sharp": "^0.33.5",
+    "stellar-sdk": "^13.3.0",
     "typeorm": "^1.0.0"
   },
   "devDependencies": {
@@ -46,6 +57,7 @@
     "@types/express": "^5.0.0",
     "@types/ioredis": "^4.28.10",
     "@types/jest": "^30.0.0",
+    "@types/multer": "^1.4.12",
     "@types/node": "^22.10.7",
     "@types/supertest": "^6.0.2",
     "eslint": "^9.18.0",
@@ -61,6 +73,7 @@
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.7.3",
+    "@types/jsonwebtoken": "^9.0.0",
     "typescript-eslint": "^8.20.0"
   },
   "jest": {
