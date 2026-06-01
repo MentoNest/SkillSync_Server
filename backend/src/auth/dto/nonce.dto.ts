@@ -1,6 +1,8 @@
-import { IsEthereumAddress } from 'class-validator';
+import { IsNotEmpty } from 'class-validator';
+import { IsStellarAddress } from '../../common/validators/custom-validators';
 
 export class NonceDto {
-  @IsEthereumAddress()
+  @IsStellarAddress()
+  @IsNotEmpty()
   walletAddress: string;
 }

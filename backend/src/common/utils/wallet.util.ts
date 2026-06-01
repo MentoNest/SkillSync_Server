@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { StrKey } from '@stellar/stellar-sdk';
+import { StrKey } from 'stellar-sdk';
 
 /**
  * Normalises a Stellar wallet address for consistent storage and comparison.

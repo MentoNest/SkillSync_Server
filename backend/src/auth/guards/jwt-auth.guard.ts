@@ -3,16 +3,26 @@ import {
   ExecutionContext,
   Injectable,
   UnauthorizedException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
+import { UserStatus } from '../../users/enums/user-status.enum';
+import { SuspensionService } from '../suspension.service';
+import { RedisService } from '../../redis/redis.service';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private readonly configService: ConfigService) {}
+  private readonly TOKEN_BLACKLIST_PREFIX = 'blacklist:token';
 
-  canActivate(context: ExecutionContext): boolean {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly suspensionService: SuspensionService,
+    private readonly redisService: RedisService,
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<{
       headers: Record<string, string | undefined>;
       user?: JwtPayload;
@@ -24,7 +34,31 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     const token = authorization.slice(7).trim();
-    request.user = this.verifyAccessToken(token);
+    const payload = this.verifyAccessToken(token);
+
+    if (payload.jti) {
+      const blacklistKey = `${this.TOKEN_BLACKLIST_PREFIX}:${payload.jti}`;
+      const isBlacklisted = await this.redisService.get(blacklistKey);
+      if (isBlacklisted !== null) {
+        throw new UnauthorizedException('Token has been revoked');
+      }
+    }
+
+    if (payload.status && payload.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException('User status is not active');
+    }
+
+    const suspension = await this.suspensionService.getActiveSuspension(payload.sub);
+    if (suspension) {
+      const untilText = suspension.suspendedUntil
+        ? suspension.suspendedUntil.toISOString()
+        : 'permanently';
+      throw new ForbiddenException(
+        `Account suspended until ${untilText}: ${suspension.reason}`,
+      );
+    }
+
+    request.user = payload;
     return true;
   }
 

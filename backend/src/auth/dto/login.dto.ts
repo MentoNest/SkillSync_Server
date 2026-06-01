@@ -1,20 +1,16 @@
-import { IsString } from 'class-validator';
-import { isValidStellarAddress } from '../validators/stellar-wallet.validator';
-import { Validate } from 'class-validator';
-
-class StellarAddressValidator {
-  validate(value: any): boolean {
-    return typeof value === 'string' && isValidStellarAddress(value);
-  }
-}
+import { IsNotEmpty, IsString } from 'class-validator';
+import { IsStellarAddress, IsStellarSignature } from '../../common/validators/custom-validators';
 
 export class LoginDto {
-  @Validate(StellarAddressValidator)
+  @IsStellarAddress()
+  @IsNotEmpty()
   walletAddress: string;
 
-  @IsString()
+  @IsStellarSignature()
+  @IsNotEmpty()
   signature: string;
 
   @IsString()
-  message: string;
+  @IsNotEmpty()
+  nonce: string;
 }
