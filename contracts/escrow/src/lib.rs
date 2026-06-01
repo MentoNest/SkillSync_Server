@@ -286,6 +286,8 @@ impl EscrowContract {
                 amount,
                 state: SessionState::Locked,
                 completed_at: 0,
+                dispute_opened_at: 0,
+                deadline: 0,
             },
         );
         env.events()
@@ -460,6 +462,7 @@ pub struct SessionData {
     pub buyer: Address,
     pub seller: Address,
     pub amount: i128,
+    pub token_id: Address,
     pub status: Status,
     pub created_at: u64,
     pub completed_at: u64,
@@ -606,6 +609,7 @@ impl SkillSyncEscrow {
             buyer: buyer.clone(),
             seller,
             amount,
+            token_id: token_id.clone(),
             status: Status::Locked,
             created_at: env.ledger().sequence() as u64,
             completed_at: 0,
