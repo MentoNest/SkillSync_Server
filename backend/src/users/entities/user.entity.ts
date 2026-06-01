@@ -7,12 +7,15 @@ import {
   JoinColumn,
   JoinTable,
   ManyToMany,
+  OneToOne,
   OneToMany,
   PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { Role } from './role.entity';
+import { MentorProfile } from './mentor-profile.entity';
+import { MenteeProfile } from './mentee-profile.entity';
 import { UserStatus } from '../enums/user-status.enum';
 import { UserSuspension } from './user-suspension.entity';
 
@@ -35,6 +38,11 @@ export class User {
   @Column({ name: 'token_version', type: 'int', default: 0 })
   tokenVersion!: number;
 
+  @Column({ name: 'display_name', type: 'varchar', length: 255, nullable: true })
+  displayName?: string;
+
+  @Column({ name: 'avatar_url', type: 'text', nullable: true })
+  avatarUrl?: string;
   @Column({ name: 'timezone', type: 'varchar', length: 64, default: 'UTC' })
   timezone!: string;
 
@@ -90,6 +98,11 @@ export class User {
   })
   roles!: Role[];
 
+  @OneToOne(() => MentorProfile, (mentorProfile) => mentorProfile.user)
+  mentorProfile?: MentorProfile;
+
+  @OneToOne(() => MenteeProfile, (menteeProfile) => menteeProfile.user)
+  menteeProfile?: MenteeProfile;
   @OneToMany(() => UserSuspension, (suspension) => suspension.user)
   suspensions?: UserSuspension[];
 
