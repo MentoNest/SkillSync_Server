@@ -23,6 +23,10 @@ pub mod expiry;
 
 /// Issue: Webhook / event relay module (#566)
 pub mod webhook;
+/// Issue: Time-locked release / vesting module (#567)
+pub mod vesting;
+/// Issue: Batch operations module (#568)
+pub mod batch;
 
 // ============================================================================
 // Single Session Escrow Contract (Contract)
