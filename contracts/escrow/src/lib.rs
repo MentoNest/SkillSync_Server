@@ -23,6 +23,14 @@ pub mod expiry;
 
 /// Issue: Oracle integration / price feed module (#563)
 pub mod oracle;
+/// Issue: Metadata storage module (#565)
+pub mod metadata;
+/// Issue: Webhook / event relay module (#566)
+pub mod webhook;
+/// Issue: Time-locked release / vesting module (#567)
+pub mod vesting;
+/// Issue: Batch operations module (#568)
+pub mod batch;
 
 // ============================================================================
 // Single Session Escrow Contract (Contract)
@@ -280,6 +288,8 @@ impl EscrowContract {
                 amount,
                 state: SessionState::Locked,
                 completed_at: 0,
+                dispute_opened_at: 0,
+                deadline: 0,
             },
         );
         env.events()
