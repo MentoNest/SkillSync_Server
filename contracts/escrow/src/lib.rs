@@ -3,9 +3,37 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Bytes,
     Bytes32, BytesN, Env, IntoVal, String, Symbol, Vec,
 };
+
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Bytes32, BytesN, Env, Symbol, String};
+
 // ============================================================================
-// New feature modules
+// only_once! — initialization guard macro
 // ============================================================================
+//
+// Usage:  only_once!(&env, StorageKey::Initialized);
+//
+// Behaviour:
+//   • On first call: writes `true` to persistent storage under the given key.
+//   • On any subsequent call: panics with "AlreadyInitialized".
+//
+// This is the canonical `only_once` modifier for Soroban contracts.
+macro_rules! only_once {
+    ($env:expr, $key:expr) => {{
+        if $env.storage().persistent().has(&$key) {
+            panic!("AlreadyInitialized");
+        }
+        $env.storage().persistent().set(&$key, &true);
+    }};
+}
+// ============================================================================
+// Feature modules
+// ============================================================================
+
+/// Role-based access control (RBAC)
+pub mod rbac;
+
+/// Emergency pause / unpause
+pub mod pause;
 
 /// Issue: Non-reentrant guard (error 700)
 pub mod reentrancy;
@@ -29,6 +57,43 @@ pub mod webhook;
 pub mod vesting;
 /// Issue: Batch operations module (#568)
 pub mod batch;
+
+// ============================================================================
+// only_role! — RBAC guard macro
+// ============================================================================
+//
+// Usage:  only_role!(&env, rbac::FEE_MANAGER_ROLE, &caller);
+//
+// Behaviour:
+//   • Converts the raw [u8; 32] role constant to BytesN<32>.
+//   • Calls `rbac::require_role`, which panics with
+//     "AccessControl: account does not have role" if the check fails.
+macro_rules! only_role {
+    ($env:expr, $role:expr, $account:expr) => {{
+        rbac::require_role(
+            $env,
+            soroban_sdk::BytesN::from_array($env, &$role),
+            $account,
+        );
+    }};
+}
+
+// ============================================================================
+// when_not_paused! — emergency pause guard macro
+// ============================================================================
+//
+// Usage:  when_not_paused!(&env);
+//
+// Behaviour:
+//   • Calls `pause::assert_not_paused`, which panics with "ContractPaused"
+//     if the contract has been paused by an admin.
+//   • Place at the top of every state-changing function.
+//   • View / getter functions intentionally omit this guard.
+macro_rules! when_not_paused {
+    ($env:expr) => {{
+        pause::assert_not_paused($env);
+    }};
+}
 
 // ============================================================================
 // Single Session Escrow Contract (Contract)
@@ -197,7 +262,6 @@ impl EscrowContract {
             (admin, treasury, dispute_window),
         );
     }
-
     pub fn set_treasury(env: Env, new_treasury: Address) {
         let admin: Address = env
             .storage()
@@ -473,10 +537,12 @@ pub struct SessionData {
 pub enum SkillSyncKey {
     Session(Bytes32),
     Admin,
+    Treasury,
     DisputeWindow,
     ExtensionProposal(Bytes32),
     Nonce(Address),
     WasmHash,
+    Initialized,
 }
 
 /// Error codes for SkillSyncEscrow
@@ -540,6 +606,9 @@ impl SkillSyncEscrow {
             .set(&SkillSyncKey::Session(id.clone()), session);
     }
 
+    /// Verify caller holds `DEFAULT_ADMIN_ROLE` via RBAC.
+    fn require_admin(env: &Env, caller: &Address) {
+        only_role!(env, rbac::DEFAULT_ADMIN_ROLE, caller);
     /// Verify caller is the stored admin.
     fn require_admin(env: &Env, caller: &Address) -> Result<(), EscrowError> {
         let admin: Address = env
@@ -558,6 +627,113 @@ const MAX_EXTENSION_LEDGERS: u64 = 10_000;
 
 #[contractimpl]
 impl SkillSyncEscrow {
+    /// Initialize the contract with an admin and treasury address.
+    ///
+    /// Protected by an `only_once` guard: reverts with `AlreadyInitialized`
+    /// if called more than once. Both addresses are stored in persistent
+    /// storage and an `Initialized` event is emitted.
+    ///
+    /// The `admin` is automatically granted `DEFAULT_ADMIN_ROLE` so they can
+    /// immediately call `grant_role` / `revoke_role`.
+    ///
+    /// # Arguments
+    /// * `admin`    – Address that will hold the admin role.
+    /// * `treasury` – Address that will receive platform fees.
+    pub fn initialize(env: Env, admin: Address, treasury: Address) {
+        // only_once guard — reverts if the contract has already been initialized
+        only_once!(&env, SkillSyncKey::Initialized);
+
+        // Persist admin role
+        env.storage()
+            .persistent()
+            .set(&SkillSyncKey::Admin, &admin);
+
+        // Persist treasury address
+        env.storage()
+            .persistent()
+            .set(&SkillSyncKey::Treasury, &treasury);
+
+        // Bootstrap DEFAULT_ADMIN_ROLE for the deployer via RBAC
+        rbac::bootstrap_admin(&env, &admin);
+
+        // Emit Initialized event with admin and treasury
+        env.events().publish(
+            (Symbol::new(&env, "Initialized"),),
+            (admin.clone(), treasury.clone()),
+        );
+    }
+
+    /// Returns the stored admin address.
+    pub fn get_admin(env: Env) -> Address {
+        env.storage()
+            .persistent()
+            .get(&SkillSyncKey::Admin)
+            .expect("not initialized")
+    }
+
+    /// Returns the stored treasury address.
+    pub fn get_treasury(env: Env) -> Address {
+        env.storage()
+            .persistent()
+            .get(&SkillSyncKey::Treasury)
+            .expect("not initialized")
+    }
+
+    // ============================================================================
+    // RBAC — public entry points
+    // ============================================================================
+
+    /// Grant `role` to `account`.
+    ///
+    /// Caller must hold `DEFAULT_ADMIN_ROLE`.
+    /// Emits `RoleGranted(role, account, caller)`.
+    pub fn grant_role(env: Env, caller: Address, role: BytesN<32>, account: Address) {
+        caller.require_auth();
+        rbac::grant_role(&env, &caller, role, &account);
+    }
+
+    /// Revoke `role` from `account`.
+    ///
+    /// Caller must hold `DEFAULT_ADMIN_ROLE`.
+    /// Emits `RoleRevoked(role, account, caller)`.
+    pub fn revoke_role(env: Env, caller: Address, role: BytesN<32>, account: Address) {
+        caller.require_auth();
+        rbac::revoke_role(&env, &caller, role, &account);
+    }
+
+    /// Returns `true` if `account` currently holds `role`.
+    pub fn has_role(env: Env, role: BytesN<32>, account: Address) -> bool {
+        rbac::has_role(&env, role, &account)
+    }
+
+    // ============================================================================
+    // Emergency pause — public entry points
+    // ============================================================================
+
+    /// Pause the contract, disabling all state-changing functions.
+    ///
+    /// Requires `DEFAULT_ADMIN_ROLE`. Emits `Paused(admin)`.
+    /// No-ops if already paused.
+    pub fn pause(env: Env, admin: Address) {
+        admin.require_auth();
+        only_role!(&env, rbac::DEFAULT_ADMIN_ROLE, &admin);
+        pause::pause(&env, &admin);
+    }
+
+    /// Unpause the contract, re-enabling all state-changing functions.
+    ///
+    /// Requires `DEFAULT_ADMIN_ROLE`. Emits `Unpaused(admin)`.
+    /// No-ops if not currently paused.
+    pub fn unpause(env: Env, admin: Address) {
+        admin.require_auth();
+        only_role!(&env, rbac::DEFAULT_ADMIN_ROLE, &admin);
+        pause::unpause(&env, &admin);
+    }
+
+    /// View function — returns `true` when the contract is paused.
+    /// Callable at any time, including while paused.
+    pub fn paused(env: Env) -> bool {
+        pause::is_paused(&env)
     pub fn initialize(env: Env, admin: Address) -> Result<(), EscrowError> {
         if env.storage().persistent().has(&SkillSyncKey::Admin) {
             return Err(EscrowError::AlreadyInitialized);
@@ -574,6 +750,7 @@ impl SkillSyncEscrow {
         Self::get_session_internal(&env, &id)
     }
 
+    pub fn save_session(env: Env, admin: Address, id: Bytes32, session: SessionData) {
     pub fn save_session(env: Env, id: Bytes32, session: SessionData) -> Result<(), EscrowError> {
         let admin: Address = env
             .storage()
@@ -581,6 +758,7 @@ impl SkillSyncEscrow {
             .get(&SkillSyncKey::Admin)
             .ok_or(EscrowError::SessionNotFound)?;
         admin.require_auth();
+        only_role!(&env, rbac::DEFAULT_ADMIN_ROLE, &admin);
         Self::save_session_internal(&env, &id, &session);
         Ok(())
     }
@@ -601,6 +779,8 @@ impl SkillSyncEscrow {
         seller: Address,
         amount: i128,
         token_id: Address,
+    ) {
+        when_not_paused!(&env);
     ) -> Result<(), EscrowError> {
         buyer.require_auth();
 
@@ -656,6 +836,8 @@ impl SkillSyncEscrow {
 
     /// Seller marks session as completed.
     /// Now also guards against expired sessions.
+    pub fn complete_session(env: Env, session_id: Bytes32) {
+        when_not_paused!(&env);
     pub fn complete_session(env: Env, session_id: Bytes32) -> Result<(), EscrowError> {
         // ── Issue: Block if session has expired ──────────────────────────────
         expiry::assert_not_expired(&env, &session_id);
@@ -712,6 +894,8 @@ impl SkillSyncEscrow {
     ///
     /// Issue: Token transfer is now wrapped in a reentrancy guard.
     /// Issue: Blocked if session has expired (expiry check).
+    pub fn approve_session(env: Env, session_id: Bytes32, token_id: Address) {
+        when_not_paused!(&env);
     pub fn approve_session(env: Env, session_id: Bytes32, token_id: Address) -> Result<(), EscrowError> {
         // ── Issue: Block if expired ──────────────────────────────────────────
         expiry::assert_not_expired(&env, &session_id);
@@ -790,18 +974,22 @@ impl SkillSyncEscrow {
 
     /// Admin resolves a disputed session, splitting funds between buyer and seller.
     ///
-    /// Issue: Both token transfers (buyer + seller portions) are wrapped in
-    /// a single reentrancy guard block.
+    /// Resolve a disputed session. Requires `DISPUTE_RESOLVER_ROLE`.
     ///
     /// # Parameters
+    /// - `resolver`  — address holding `DISPUTE_RESOLVER_ROLE`.
     /// - `buyer_bps` — percentage of session amount (BPS) sent to buyer;
     ///                 remainder goes to seller.
     pub fn resolve_dispute(
         env: Env,
         session_id: Bytes32,
-        admin: Address,
+        resolver: Address,
         buyer_bps: u32,
         token_id: Address,
+    ) {
+        when_not_paused!(&env);
+        resolver.require_auth();
+        only_role!(&env, rbac::DISPUTE_RESOLVER_ROLE, &resolver);
     ) -> Result<(), EscrowError> {
         admin.require_auth();
         Self::require_admin(&env, &admin)?;
@@ -840,7 +1028,7 @@ impl SkillSyncEscrow {
         let timestamp = env.ledger().timestamp();
         env.events().publish(
             (Symbol::new(&env, "DisputeResolved"), session_id),
-            (admin, buyer_amount, seller_amount, fee, timestamp),
+            (resolver, buyer_amount, seller_amount, fee, timestamp),
         );
         Ok(())
     }
@@ -892,6 +1080,7 @@ impl SkillSyncEscrow {
     ///
     /// Emits `SessionExpiredAndCancelled`.
     pub fn cancel_expired_session(env: Env, session_id: Bytes32, token_id: Address) {
+        when_not_paused!(&env);
         expiry::cancel_expired_session(env, session_id, token_id);
     }
 
@@ -966,6 +1155,7 @@ impl SkillSyncEscrow {
         token_id: Address,
         milestones: Vec<(u32, soroban_sdk::String)>,
     ) {
+        when_not_paused!(&env);
         // Rate limit applies to milestone sessions too
         rate_limit::check_and_increment(&env, &buyer);
 
@@ -987,19 +1177,21 @@ impl SkillSyncEscrow {
         buyer: Address,
         milestone_index: u32,
     ) {
+        when_not_paused!(&env);
         milestone::release_milestone(env, session_id, buyer, milestone_index);
     }
 
     /// Open a dispute on a milestone session (pauses further milestone releases).
     pub fn dispute_milestone_session(env: Env, session_id: Bytes32, opened_by: Address) {
+        when_not_paused!(&env);
         milestone::dispute_milestone_session(env, session_id, opened_by);
     }
 
-    /// Admin resolves a disputed milestone session.
+    /// Resolve a disputed milestone session. Requires `DISPUTE_RESOLVER_ROLE`.
     pub fn resolve_milestone_dispute(
         env: Env,
         session_id: Bytes32,
-        admin: Address,
+        resolver: Address,
         buyer_bps: u32,
     ) -> Result<(), EscrowError> {
         admin.require_auth();
@@ -1030,6 +1222,7 @@ impl SkillSyncEscrow {
             .get(&SkillSyncKey::Admin)
             .ok_or(EscrowError::SessionNotFound)?;
         admin.require_auth();
+        only_role!(&env, rbac::DEFAULT_ADMIN_ROLE, &admin);
         env.storage()
             .persistent()
             .set(&SkillSyncKey::DisputeWindow, &window_ledgers);
@@ -1078,7 +1271,7 @@ impl SkillSyncEscrow {
         let event = ContractUpgraded {
             old_wasm_hash,
             new_wasm_hash,
-            upgraded_by: admin,
+            upgraded_by: upgrader,
             timestamp: env.ledger().timestamp(),
         };
 
