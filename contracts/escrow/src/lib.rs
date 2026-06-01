@@ -504,6 +504,10 @@ pub enum EscrowError {
     ReentrancyDetected = 700,
     /// Rate limit exceeded
     RateLimitExceeded = 800,
+    SessionExpired = 900,
+    // Upgrade errors (Issue #561)
+    InvalidWasmHash = 600,
+    UpgradeFailed = 601,
     /// Dispute window not passed
     DisputeWindowNotPassed = 501,
 }
