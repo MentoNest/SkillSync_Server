@@ -79,6 +79,7 @@ import { UserSuspension } from '../users/entities/user-suspension.entity';
     NonceProvider,
     SuspensionService,
   ],
+  exports: [AuthService, AuditLogService, JwtAuthGuard, RolesGuard],
   exports: [AuthService, AuditLogService, JwtAuthGuard, RolesGuard, SuspensionService],
 })
 export class AuthModule {}

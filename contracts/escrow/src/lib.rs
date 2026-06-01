@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, IntoVal,
-    String, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Bytes,
+    Bytes32, BytesN, Env, IntoVal, String, Symbol, Vec,
 };
 
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Bytes32, BytesN, Env, Symbol, String};
@@ -46,6 +46,17 @@ pub mod rate_limit;
 
 /// Issue: Session expiry / auto-cancellation
 pub mod expiry;
+
+/// Issue: Oracle integration / price feed module (#563)
+pub mod oracle;
+/// Issue: Metadata storage module (#565)
+pub mod metadata;
+/// Issue: Webhook / event relay module (#566)
+pub mod webhook;
+/// Issue: Time-locked release / vesting module (#567)
+pub mod vesting;
+/// Issue: Batch operations module (#568)
+pub mod batch;
 
 // ============================================================================
 // only_role! — RBAC guard macro
@@ -339,6 +350,8 @@ impl EscrowContract {
                 amount,
                 state: SessionState::Locked,
                 completed_at: 0,
+                dispute_opened_at: 0,
+                deadline: 0,
             },
         );
         env.events()
@@ -513,6 +526,7 @@ pub struct SessionData {
     pub buyer: Address,
     pub seller: Address,
     pub amount: i128,
+    pub token_id: Address,
     pub status: Status,
     pub created_at: u64,
     pub completed_at: u64,
@@ -532,18 +546,36 @@ pub enum SkillSyncKey {
 }
 
 /// Error codes for SkillSyncEscrow
-#[contracttype]
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum EscrowError {
+    /// Session ID already exists
     DuplicateSessionId = 1,
+    /// Session ID not found
     SessionNotFound = 2,
+    /// Invalid session state for the operation
     InvalidState = 3,
+    /// Caller is not authorized
     Unauthorized = 4,
-    // New error codes added for feature issues:
+    /// Contract already initialized
+    AlreadyInitialized = 5,
+    /// Amount must be positive
+    InvalidAmount = 6,
+    /// Buyer/seller not authorized
+    NotBuyerOrSeller = 7,
+    /// Session expired
+    SessionExpired = 900,
+    /// Reentrancy detected
     ReentrancyDetected = 700,
+    /// Rate limit exceeded
     RateLimitExceeded = 800,
     SessionExpired = 900,
+    // Upgrade errors (Issue #561)
+    InvalidWasmHash = 600,
+    UpgradeFailed = 601,
+    /// Dispute window not passed
+    DisputeWindowNotPassed = 501,
 }
 
 #[contracttype]
@@ -561,11 +593,11 @@ const DEFAULT_DISPUTE_WINDOW: u32 = 1000;
 pub struct SkillSyncEscrow;
 
 impl SkillSyncEscrow {
-    fn get_session_internal(env: &Env, id: &Bytes32) -> SessionData {
+    fn get_session_internal(env: &Env, id: &Bytes32) -> Result<SessionData, EscrowError> {
         env.storage()
             .persistent()
             .get(&SkillSyncKey::Session(id.clone()))
-            .expect("session not found")
+            .ok_or(EscrowError::SessionNotFound)
     }
 
     fn save_session_internal(env: &Env, id: &Bytes32, session: &SessionData) {
@@ -577,6 +609,17 @@ impl SkillSyncEscrow {
     /// Verify caller holds `DEFAULT_ADMIN_ROLE` via RBAC.
     fn require_admin(env: &Env, caller: &Address) {
         only_role!(env, rbac::DEFAULT_ADMIN_ROLE, caller);
+    /// Verify caller is the stored admin.
+    fn require_admin(env: &Env, caller: &Address) -> Result<(), EscrowError> {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&SkillSyncKey::Admin)
+            .ok_or(EscrowError::SessionNotFound)?;
+        if caller != &admin {
+            return Err(EscrowError::Unauthorized);
+        }
+        Ok(())
     }
 }
 
@@ -691,18 +734,33 @@ impl SkillSyncEscrow {
     /// Callable at any time, including while paused.
     pub fn paused(env: Env) -> bool {
         pause::is_paused(&env)
+    pub fn initialize(env: Env, admin: Address) -> Result<(), EscrowError> {
+        if env.storage().persistent().has(&SkillSyncKey::Admin) {
+            return Err(EscrowError::AlreadyInitialized);
+        }
+        env.storage()
+            .persistent()
+            .set(&SkillSyncKey::Admin, &admin);
+        Ok(())
     }
 
     // ── Session storage helpers ──────────────────────────────────────────────
 
-    pub fn get_session(env: Env, id: Bytes32) -> SessionData {
+    pub fn get_session(env: Env, id: Bytes32) -> Result<SessionData, EscrowError> {
         Self::get_session_internal(&env, &id)
     }
 
     pub fn save_session(env: Env, admin: Address, id: Bytes32, session: SessionData) {
+    pub fn save_session(env: Env, id: Bytes32, session: SessionData) -> Result<(), EscrowError> {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&SkillSyncKey::Admin)
+            .ok_or(EscrowError::SessionNotFound)?;
         admin.require_auth();
         only_role!(&env, rbac::DEFAULT_ADMIN_ROLE, &admin);
         Self::save_session_internal(&env, &id, &session);
+        Ok(())
     }
 
     // ── lock_funds (integrated: rate limit + reentrancy guard + expiry) ──────
@@ -723,11 +781,14 @@ impl SkillSyncEscrow {
         token_id: Address,
     ) {
         when_not_paused!(&env);
+    ) -> Result<(), EscrowError> {
         buyer.require_auth();
-        assert!(amount > 0, "amount must be positive");
+
+        if amount <= 0 {
+            return Err(EscrowError::InvalidAmount);
+        }
 
         // ── Issue: Rate limit check ──────────────────────────────────────────
-        // Panics with `RateLimitExceeded` + emits `RateLimitHit` if exceeded.
         rate_limit::check_and_increment(&env, &buyer);
 
         if env
@@ -735,7 +796,7 @@ impl SkillSyncEscrow {
             .persistent()
             .has(&SkillSyncKey::Session(session_id.clone()))
         {
-            panic!("DuplicateSessionId");
+            return Err(EscrowError::DuplicateSessionId);
         }
 
         // ── Issue: Reentrancy-guarded token transfer ─────────────────────────
@@ -751,6 +812,7 @@ impl SkillSyncEscrow {
             buyer: buyer.clone(),
             seller,
             amount,
+            token_id: token_id.clone(),
             status: Status::Locked,
             created_at: env.ledger().sequence() as u64,
             completed_at: 0,
@@ -767,6 +829,7 @@ impl SkillSyncEscrow {
             (Symbol::new(&env, "FundsLocked"), session_id),
             amount,
         );
+        Ok(())
     }
 
     // ── complete_session ─────────────────────────────────────────────────────
@@ -775,18 +838,18 @@ impl SkillSyncEscrow {
     /// Now also guards against expired sessions.
     pub fn complete_session(env: Env, session_id: Bytes32) {
         when_not_paused!(&env);
+    pub fn complete_session(env: Env, session_id: Bytes32) -> Result<(), EscrowError> {
         // ── Issue: Block if session has expired ──────────────────────────────
         expiry::assert_not_expired(&env, &session_id);
 
-        let mut session = Self::get_session_internal(&env, &session_id);
+        let mut session = Self::get_session_internal(&env, &session_id)?;
         session.seller.require_auth();
         if session.status == Status::Completed {
-            panic!("DuplicateSessionId");
+            return Err(EscrowError::DuplicateSessionId);
         }
-        assert!(
-            session.status == Status::Locked,
-            "InvalidState: session must be Locked"
-        );
+        if session.status != Status::Locked {
+            return Err(EscrowError::InvalidState);
+        }
         session.status = Status::Completed;
         session.completed_at = env.ledger().timestamp();
         Self::save_session_internal(&env, &session_id, &session);
@@ -794,6 +857,7 @@ impl SkillSyncEscrow {
             (Symbol::new(&env, "SessionCompleted"), session_id),
             (session.seller.clone(), session.completed_at),
         );
+        Ok(())
     }
 
     // ── dispute_session ──────────────────────────────────────────────────────
@@ -803,19 +867,16 @@ impl SkillSyncEscrow {
         session_id: Bytes32,
         opened_by: Address,
         reason: soroban_sdk::String,
-    ) {
-        when_not_paused!(&env);
-        let mut session = Self::get_session_internal(&env, &session_id);
+    ) -> Result<(), EscrowError> {
+        let mut session = Self::get_session_internal(&env, &session_id)?;
 
         opened_by.require_auth();
-        assert!(
-            opened_by == session.buyer || opened_by == session.seller,
-            "Unauthorized: must be buyer or seller"
-        );
-        assert!(
-            session.status == Status::Locked || session.status == Status::Completed,
-            "InvalidState: session must be Locked or Completed"
-        );
+        if opened_by != session.buyer && opened_by != session.seller {
+            return Err(EscrowError::NotBuyerOrSeller);
+        }
+        if session.status != Status::Locked && session.status != Status::Completed {
+            return Err(EscrowError::InvalidState);
+        }
 
         session.status = Status::Disputed;
         Self::save_session_internal(&env, &session_id, &session);
@@ -824,6 +885,7 @@ impl SkillSyncEscrow {
             (Symbol::new(&env, "DisputeOpened"), session_id.clone()),
             (opened_by, reason, env.ledger().timestamp()),
         );
+        Ok(())
     }
 
     // ── approve_session (reentrancy-guarded) ─────────────────────────────────
@@ -834,15 +896,15 @@ impl SkillSyncEscrow {
     /// Issue: Blocked if session has expired (expiry check).
     pub fn approve_session(env: Env, session_id: Bytes32, token_id: Address) {
         when_not_paused!(&env);
+    pub fn approve_session(env: Env, session_id: Bytes32, token_id: Address) -> Result<(), EscrowError> {
         // ── Issue: Block if expired ──────────────────────────────────────────
         expiry::assert_not_expired(&env, &session_id);
 
-        let mut session = Self::get_session_internal(&env, &session_id);
+        let mut session = Self::get_session_internal(&env, &session_id)?;
         session.buyer.require_auth();
-        assert!(
-            session.status == Status::Completed,
-            "InvalidState: session must be Completed"
-        );
+        if session.status != Status::Completed {
+            return Err(EscrowError::InvalidState);
+        }
 
         let amount = session.amount;
         let seller = session.seller.clone();
@@ -865,10 +927,11 @@ impl SkillSyncEscrow {
                 buyer,
                 seller,
                 amount,
-                0_i128, // fee = 0 in SkillSyncEscrow
+                0_i128,
                 env.ledger().timestamp(),
             ),
         );
+        Ok(())
     }
 
     // ── refund_session (reentrancy-guarded) ──────────────────────────────────
@@ -876,17 +939,15 @@ impl SkillSyncEscrow {
     /// Buyer requests refund. Session must be Locked.
     ///
     /// Issue: Token transfer is now wrapped in a reentrancy guard.
-    pub fn refund_session(env: Env, session_id: Bytes32, token_id: Address) {
-        when_not_paused!(&env);
-        let mut session = Self::get_session_internal(&env, &session_id);
+    pub fn refund_session(env: Env, session_id: Bytes32, token_id: Address) -> Result<(), EscrowError> {
+        let mut session = Self::get_session_internal(&env, &session_id)?;
         session.buyer.require_auth();
         if session.status == Status::Refunded {
-            panic!("DuplicateSessionId");
+            return Err(EscrowError::DuplicateSessionId);
         }
-        assert!(
-            session.status == Status::Locked,
-            "InvalidState: session must be Locked"
-        );
+        if session.status != Status::Locked {
+            return Err(EscrowError::InvalidState);
+        }
 
         let amount = session.amount;
         let buyer = session.buyer.clone();
@@ -906,6 +967,7 @@ impl SkillSyncEscrow {
             (Symbol::new(&env, "SessionRefunded"), session_id),
             (buyer, amount, env.ledger().timestamp()),
         );
+        Ok(())
     }
 
     // ── resolve_dispute (reentrancy-guarded) ─────────────────────────────────
@@ -928,14 +990,18 @@ impl SkillSyncEscrow {
         when_not_paused!(&env);
         resolver.require_auth();
         only_role!(&env, rbac::DISPUTE_RESOLVER_ROLE, &resolver);
+    ) -> Result<(), EscrowError> {
+        admin.require_auth();
+        Self::require_admin(&env, &admin)?;
 
-        assert!(buyer_bps <= 10_000, "buyer_bps cannot exceed 10000");
+        if buyer_bps > 10_000 {
+            return Err(EscrowError::InvalidState);
+        }
 
-        let mut session = Self::get_session_internal(&env, &session_id);
-        assert!(
-            session.status == Status::Disputed,
-            "InvalidState: session must be Disputed"
-        );
+        let mut session = Self::get_session_internal(&env, &session_id)?;
+        if session.status != Status::Disputed {
+            return Err(EscrowError::InvalidState);
+        }
 
         let buyer_amount = session.amount * buyer_bps as i128 / 10_000;
         let seller_amount = session.amount - buyer_amount;
@@ -964,24 +1030,22 @@ impl SkillSyncEscrow {
             (Symbol::new(&env, "DisputeResolved"), session_id),
             (resolver, buyer_amount, seller_amount, fee, timestamp),
         );
+        Ok(())
     }
 
     // ── auto_refund ──────────────────────────────────────────────────────────
 
-    pub fn auto_refund(env: Env, session_id: Bytes32, token_id: Address) {
-        when_not_paused!(&env);
-        let mut session = Self::get_session_internal(&env, &session_id);
-        assert!(
-            session.status == Status::Completed,
-            "InvalidState: session must be Completed"
-        );
+    pub fn auto_refund(env: Env, session_id: Bytes32, token_id: Address) -> Result<(), EscrowError> {
+        let mut session = Self::get_session_internal(&env, &session_id)?;
+        if session.status != Status::Completed {
+            return Err(EscrowError::InvalidState);
+        }
 
         let dispute_window = Self::get_dispute_window(env.clone());
         let current_timestamp = env.ledger().timestamp();
-        assert!(
-            current_timestamp >= session.completed_at + dispute_window as u64,
-            "DisputeWindowNotPassed: refund window has not expired"
-        );
+        if current_timestamp < session.completed_at + dispute_window as u64 {
+            return Err(EscrowError::DisputeWindowNotPassed);
+        }
 
         let buyer = session.buyer.clone();
         let amount = session.amount;
@@ -1006,6 +1070,7 @@ impl SkillSyncEscrow {
             ),
             (amount, session.completed_at, current_timestamp),
         );
+        Ok(())
     }
 
     // ── Issue: cancel_expired_session (anyone can call) ──────────────────────
@@ -1026,27 +1091,27 @@ impl SkillSyncEscrow {
     /// # Parameters
     /// - `max_sessions`   — max sessions per address per window
     /// - `window_ledgers` — window length in ledger sequences
-    pub fn set_rate_limit(env: Env, admin: Address, max_sessions: u32, window_ledgers: u32) {
-        when_not_paused!(&env);
+    pub fn set_rate_limit(env: Env, admin: Address, max_sessions: u32, window_ledgers: u32) -> Result<(), EscrowError> {
         admin.require_auth();
-        Self::require_admin(&env, &admin);
+        Self::require_admin(&env, &admin)?;
         rate_limit::set_rate_limit(&env, max_sessions, window_ledgers);
+        Ok(())
     }
 
     /// Admin whitelists an address (bypasses rate limits).
-    pub fn whitelist_address(env: Env, admin: Address, address: Address) {
-        when_not_paused!(&env);
+    pub fn whitelist_address(env: Env, admin: Address, address: Address) -> Result<(), EscrowError> {
         admin.require_auth();
-        Self::require_admin(&env, &admin);
+        Self::require_admin(&env, &admin)?;
         rate_limit::whitelist_address(&env, &address);
+        Ok(())
     }
 
     /// Admin removes an address from the whitelist.
-    pub fn remove_from_whitelist(env: Env, admin: Address, address: Address) {
-        when_not_paused!(&env);
+    pub fn remove_from_whitelist(env: Env, admin: Address, address: Address) -> Result<(), EscrowError> {
         admin.require_auth();
-        Self::require_admin(&env, &admin);
+        Self::require_admin(&env, &admin)?;
         rate_limit::remove_from_whitelist(&env, &address);
+        Ok(())
     }
 
     /// Returns the current session count for an address in the active window.
@@ -1058,11 +1123,11 @@ impl SkillSyncEscrow {
 
     /// Admin configures the maximum session lifetime in ledgers.
     /// Default is 30_000 ledgers (~7 days on Stellar mainnet).
-    pub fn set_max_session_duration(env: Env, admin: Address, max_duration_ledgers: u32) {
-        when_not_paused!(&env);
+    pub fn set_max_session_duration(env: Env, admin: Address, max_duration_ledgers: u32) -> Result<(), EscrowError> {
         admin.require_auth();
-        Self::require_admin(&env, &admin);
+        Self::require_admin(&env, &admin)?;
         expiry::set_max_session_duration(&env, max_duration_ledgers);
+        Ok(())
     }
 
     /// Returns the ledger at which a session expires (0 if not recorded).
@@ -1128,11 +1193,11 @@ impl SkillSyncEscrow {
         session_id: Bytes32,
         resolver: Address,
         buyer_bps: u32,
-    ) {
-        when_not_paused!(&env);
-        resolver.require_auth();
-        only_role!(&env, rbac::DISPUTE_RESOLVER_ROLE, &resolver);
-        milestone::resolve_milestone_dispute(env, session_id, resolver, buyer_bps);
+    ) -> Result<(), EscrowError> {
+        admin.require_auth();
+        Self::require_admin(&env, &admin)?;
+        milestone::resolve_milestone_dispute(env, session_id, admin, buyer_bps);
+        Ok(())
     }
 
     /// Returns milestone session data.
@@ -1150,9 +1215,12 @@ impl SkillSyncEscrow {
 
     // ── dispute window ───────────────────────────────────────────────────────
 
-    /// Update the dispute window. Requires `DEFAULT_ADMIN_ROLE`.
-    pub fn set_dispute_window(env: Env, admin: Address, window_ledgers: u32) {
-        when_not_paused!(&env);
+    pub fn set_dispute_window(env: Env, window_ledgers: u32) -> Result<(), EscrowError> {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&SkillSyncKey::Admin)
+            .ok_or(EscrowError::SessionNotFound)?;
         admin.require_auth();
         only_role!(&env, rbac::DEFAULT_ADMIN_ROLE, &admin);
         env.storage()
@@ -1162,6 +1230,7 @@ impl SkillSyncEscrow {
             (Symbol::new(&env, "DisputeWindowUpdated"),),
             window_ledgers,
         );
+        Ok(())
     }
 
     pub fn get_dispute_window(env: Env) -> u32 {
@@ -1173,17 +1242,24 @@ impl SkillSyncEscrow {
 
     // ── upgrade ──────────────────────────────────────────────────────────────
 
-    /// Upgrade the contract WASM. Requires `UPGRADER_ROLE`.
-    pub fn upgrade(env: Env, upgrader: Address, new_wasm_hash: Bytes32) {
-        when_not_paused!(&env);
-        upgrader.require_auth();
-        only_role!(&env, rbac::UPGRADER_ROLE, &upgrader);
+    pub fn upgrade(env: Env, new_wasm_hash: Bytes32) -> Result<(), EscrowError> {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&SkillSyncKey::Admin)
+            .ok_or(EscrowError::SessionNotFound)?;
+        admin.require_auth();
+
+        let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
+        if new_wasm_hash == zero_hash {
+            return Err(EscrowError::InvalidWasmHash);
+        }
 
         let old_wasm_hash = env
             .storage()
             .persistent()
             .get::<_, Bytes32>(&SkillSyncKey::WasmHash)
-            .unwrap_or_else(|| BytesN::from_array(&env, &[0; 32]));
+            .unwrap_or_else(|| zero_hash.clone());
 
         env.storage()
             .persistent()
@@ -1201,6 +1277,7 @@ impl SkillSyncEscrow {
 
         env.events()
             .publish((Symbol::new(&env, "ContractUpgraded"),), event);
+        Ok(())
     }
 
     pub fn propose_extension(e: Env, session_id: Bytes32, additional_ledgers: u64) {

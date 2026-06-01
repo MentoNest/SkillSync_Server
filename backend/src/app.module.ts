@@ -9,6 +9,7 @@ import { AppDataSource } from './database/data-source';
 import { HttpLoggerMiddleware } from './common/middleware/http-logger.middleware';
 import { VersionCompatibilityMiddleware } from './common/middleware/version-compatibility.middleware';
 import { AuthModule } from './auth/auth.module';
+import { ThrottlingModule } from './auth/throttling.module';
 import { RedisModule } from './redis/redis.module';
 import { HealthModule } from './health/health.module';
 import { UsersModule } from './users/users.module';
@@ -28,6 +29,7 @@ import { MetricsMiddleware } from './monitoring/metrics.middleware';
       retryAttempts: 5,
     }),
     AuthModule,
+    ThrottlingModule,
     UsersModule,
     AdminModule,
     RedisModule,
