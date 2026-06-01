@@ -21,6 +21,9 @@ pub mod rate_limit;
 /// Issue: Session expiry / auto-cancellation
 pub mod expiry;
 
+/// Issue: Batch operations module (#568)
+pub mod batch;
+
 // ============================================================================
 // Single Session Escrow Contract (Contract)
 // ============================================================================
