@@ -41,6 +41,9 @@ export class MenteeProfile {
   @Column('simple-array', { nullable: true })
   portfolioLinks?: string[];
 
+  @Column({ name: 'profile_completeness', type: 'int', default: 0 })
+  profileCompleteness: number = 0;
+
   @Column({ name: 'profile_version', type: 'int', default: 1 })
   profileVersion!: number;
 

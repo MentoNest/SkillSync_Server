@@ -11,6 +11,7 @@ import { Repository } from 'typeorm';
 import { AuthRole } from '../auth/enums/auth-role.enum';
 import { AuditEventType } from '../auth/entities/audit-log.entity';
 import { AuditLogService, RequestAudit } from '../auth/audit-log.service';
+import { RedisService } from '../redis/redis.service';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { Role } from './entities/role.entity';
@@ -20,6 +21,8 @@ import { MenteeProfile } from './entities/mentee-profile.entity';
 
 @Injectable()
 export class UsersService implements OnModuleInit {
+  private readonly PROFILE_CACHE_PREFIX = 'public:profile:';
+
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(Role) private readonly roleRepo: Repository<Role>,
@@ -28,6 +31,7 @@ export class UsersService implements OnModuleInit {
     @InjectRepository(MenteeProfile)
     private readonly menteeProfileRepo: Repository<MenteeProfile>,
     private readonly auditLogService: AuditLogService,
+    private readonly redisService: RedisService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -79,6 +83,8 @@ export class UsersService implements OnModuleInit {
           profileId: savedProfile.id,
         },
       });
+      // Invalidate cache
+      await this.invalidateProfileCache(userId);
       return savedProfile;
     }
 
@@ -112,6 +118,8 @@ export class UsersService implements OnModuleInit {
           profileId: savedProfile.id,
         },
       });
+      // Invalidate cache
+      await this.invalidateProfileCache(userId);
       return savedProfile;
     }
 
@@ -136,7 +144,7 @@ export class UsersService implements OnModuleInit {
 
     const repository = profileType === AuthRole.MENTOR ? this.mentorProfileRepo : this.menteeProfileRepo;
     const userIdToUpdate = targetUserId ?? requesterId;
-    const profile = await repository.findOne({ where: { user: { id: userIdToUpdate } }, relations: { user: true } });
+    const profile = await (repository as any).findOne({ where: { user: { id: userIdToUpdate } }, relations: { user: true } });
     if (!profile) {
       throw new NotFoundException(`${profileType} profile not found`);
     }
@@ -169,7 +177,7 @@ export class UsersService implements OnModuleInit {
       (profile as any).profileVersion += 1;
     }
 
-    const savedProfile = await repository.save(profile);
+    const savedProfile = await (repository as any).save(profile);
     await this.auditLogService.logEvent({
       userId: user.id,
       eventType: AuditEventType.PROFILE_UPDATED,
@@ -180,6 +188,8 @@ export class UsersService implements OnModuleInit {
         changes,
       },
     });
+    // Invalidate cache
+    await this.invalidateProfileCache(userIdToUpdate);
     return savedProfile;
   }
 
@@ -265,6 +275,19 @@ export class UsersService implements OnModuleInit {
 
   async incrementTokenVersion(userId: string): Promise<void> {
     await this.userRepo.increment({ id: userId }, 'tokenVersion', 1);
+  }
+
+  /**
+   * Invalidate cached public profile in Redis
+   */
+  private async invalidateProfileCache(userId: string): Promise<void> {
+    try {
+      const cacheKey = `${this.PROFILE_CACHE_PREFIX}${userId}`;
+      await this.redisService.del(cacheKey);
+    } catch (error) {
+      // Cache errors should not break profile operations
+      console.error(`Error invalidating profile cache for ${userId}:`, error);
+    }
   }
 
   private async seedRoles(): Promise<void> {

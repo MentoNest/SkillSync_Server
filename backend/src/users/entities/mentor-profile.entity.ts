@@ -32,6 +32,21 @@ export class MentorProfile {
   @Column({ type: 'text', nullable: true })
   availabilityDetails?: string;
 
+  @Column({ name: 'hourly_rate', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  hourlyRate?: number;
+
+  @Column({ name: 'average_rating', type: 'decimal', precision: 3, scale: 2, default: 0 })
+  averageRating: number = 0;
+
+  @Column({ name: 'total_sessions', type: 'int', default: 0 })
+  totalSessions: number = 0;
+
+  @Column({ name: 'is_verified', type: 'boolean', default: false })
+  isVerified: boolean = false;
+
+  @Column({ name: 'profile_completeness', type: 'int', default: 0 })
+  profileCompleteness: number = 0;
+
   @Column({ name: 'profile_version', type: 'int', default: 1 })
   profileVersion!: number;
 
