@@ -21,6 +21,9 @@ pub mod rate_limit;
 /// Issue: Session expiry / auto-cancellation
 pub mod expiry;
 
+/// Issue: Webhook / event relay module (#566)
+pub mod webhook;
+
 // ============================================================================
 // Single Session Escrow Contract (Contract)
 // ============================================================================
