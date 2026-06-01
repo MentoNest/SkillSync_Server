@@ -5,6 +5,26 @@ use soroban_sdk::{
 };
 
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Bytes32, BytesN, Env, Symbol, String};
+
+// ============================================================================
+// only_once! — initialization guard macro
+// ============================================================================
+//
+// Usage:  only_once!(&env, StorageKey::Initialized);
+//
+// Behaviour:
+//   • On first call: writes `true` to persistent storage under the given key.
+//   • On any subsequent call: panics with "AlreadyInitialized".
+//
+// This is the canonical `only_once` modifier for Soroban contracts.
+macro_rules! only_once {
+    ($env:expr, $key:expr) => {{
+        if $env.storage().persistent().has(&$key) {
+            panic!("AlreadyInitialized");
+        }
+        $env.storage().persistent().set(&$key, &true);
+    }};
+}
 // ============================================================================
 // New feature modules
 // ============================================================================
@@ -188,7 +208,6 @@ impl EscrowContract {
             (admin, treasury, dispute_window),
         );
     }
-
     pub fn set_treasury(env: Env, new_treasury: Address) {
         let admin: Address = env
             .storage()
@@ -461,10 +480,12 @@ pub struct SessionData {
 pub enum SkillSyncKey {
     Session(Bytes32),
     Admin,
+    Treasury,
     DisputeWindow,
     ExtensionProposal(Bytes32),
     Nonce(Address),
     WasmHash,
+    Initialized,
 }
 
 /// Error codes for SkillSyncEscrow
@@ -527,13 +548,50 @@ const MAX_EXTENSION_LEDGERS: u64 = 10_000;
 
 #[contractimpl]
 impl SkillSyncEscrow {
-    pub fn initialize(env: Env, admin: Address) {
-        if env.storage().persistent().has(&SkillSyncKey::Admin) {
-            panic!("already initialized");
-        }
+    /// Initialize the contract with an admin and treasury address.
+    ///
+    /// Protected by an `only_once` guard: reverts with `AlreadyInitialized`
+    /// if called more than once. Both addresses are stored in persistent
+    /// storage and an `Initialized` event is emitted.
+    ///
+    /// # Arguments
+    /// * `admin`    – Address that will hold the admin role.
+    /// * `treasury` – Address that will receive platform fees.
+    pub fn initialize(env: Env, admin: Address, treasury: Address) {
+        // only_once guard — reverts if the contract has already been initialized
+        only_once!(&env, SkillSyncKey::Initialized);
+
+        // Persist admin role
         env.storage()
             .persistent()
             .set(&SkillSyncKey::Admin, &admin);
+
+        // Persist treasury address
+        env.storage()
+            .persistent()
+            .set(&SkillSyncKey::Treasury, &treasury);
+
+        // Emit Initialized event with admin and treasury
+        env.events().publish(
+            (Symbol::new(&env, "Initialized"),),
+            (admin.clone(), treasury.clone()),
+        );
+    }
+
+    /// Returns the stored admin address.
+    pub fn get_admin(env: Env) -> Address {
+        env.storage()
+            .persistent()
+            .get(&SkillSyncKey::Admin)
+            .expect("not initialized")
+    }
+
+    /// Returns the stored treasury address.
+    pub fn get_treasury(env: Env) -> Address {
+        env.storage()
+            .persistent()
+            .get(&SkillSyncKey::Treasury)
+            .expect("not initialized")
     }
 
     // ── Session storage helpers ──────────────────────────────────────────────
