@@ -21,6 +21,9 @@ pub mod rate_limit;
 /// Issue: Session expiry / auto-cancellation
 pub mod expiry;
 
+/// Issue: Metadata storage module (#565)
+pub mod metadata;
+
 // ============================================================================
 // Single Session Escrow Contract (Contract)
 // ============================================================================
