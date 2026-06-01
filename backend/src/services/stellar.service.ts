@@ -1,6 +1,6 @@
-import { Transaction, Server } from 'stellar-sdk';
+import { Transaction, Horizon } from 'stellar-sdk';
 
-const server = new Server('https://horizon-testnet.stellar.org');
+const server = new Horizon.Server('https://horizon-testnet.stellar.org');
 
 /**
  * Simulates a Stellar transaction without submitting it to the network.
@@ -10,7 +10,7 @@ const server = new Server('https://horizon-testnet.stellar.org');
  * @throws {Error} If the transaction is malformed or the network is unreachable.
  */
 export async function simulateTransaction(transaction: Transaction): Promise<unknown> {
-  return server.checkMemo(transaction);
+  return server.operations().forTransaction(transaction.hash().toString('hex')).call();
 }
 
 /**

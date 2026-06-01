@@ -1,3 +1,28 @@
+import { Body, Controller, Post } from '@nestjs/common';
+import { JwtAuthService } from './jwt.service';
+
+class IssueTokenDto {
+  userId: string;
+  wallet: string;
+  roles?: string[];
+  permissions?: string[];
+}
+
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly jwtService: JwtAuthService) {}
+
+  @Post('token')
+  async issue(@Body() dto: IssueTokenDto) {
+    const { accessToken, expiresIn, jti } =
+      await this.jwtService.generateAccessToken({
+        userId: dto.userId,
+        wallet: dto.wallet,
+        roles: dto.roles,
+        permissions: dto.permissions,
+      });
+
+    return { accessToken, expiresIn, jti };
 import {
   Body,
   Controller,
@@ -5,13 +30,18 @@ import {
   Post,
   Req,
   UnauthorizedException,
+  Get,
+  Param,
+  UseGuards,
 } from '@nestjs/common';
-import { Request } from 'express';
+import type { Request } from 'express';
 import { AuthService } from './auth.service';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LoginDto } from './dto/login.dto';
-import { Get, Param } from '@nestjs/common';
 import { NonceProvider } from './providers/nonce.provider';
+import { NonceParamDto } from './dto/nonce-param.dto';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { JwtPayload } from './interfaces/jwt-payload.interface';
 
 @Controller('auth')
 export class AuthController {
@@ -21,20 +51,43 @@ export class AuthController {
   ) {}
 
   @Get('nonce/:walletAddress')
-  async generateNonce(@Param('walletAddress') walletAddress: string) {
-    return this.nonceProvider.generate(walletAddress);
+  async generateNonce(@Param() params: NonceParamDto) {
+    return this.nonceProvider.generate(params.walletAddress);
   }
 
   @Post('login')
   @HttpCode(200)
   async login(@Body() body: LoginDto, @Req() request: Request) {
-    // TODO: Implement Stellar signature verification
-    // For now, we'll trust the wallet address from the request
-    return this.authService.login(body.walletAddress, {
-      ipAddress: this.getIpAddress(request),
-      userAgent: request.headers['user-agent'] ?? null,
-      deviceFingerprint: this.getDeviceFingerprint(request),
-    });
+    await this.nonceProvider.enforceLoginRateLimit(body.walletAddress);
+
+    const nonceValid = await this.nonceProvider.verifyAndConsume(
+      body.walletAddress,
+      body.nonce,
+    );
+
+    if (!nonceValid) {
+      await this.authService.logLoginFailure(
+        body.walletAddress,
+        {
+          ipAddress: this.getIpAddress(request),
+          userAgent: request.headers['user-agent'] ?? null,
+          deviceFingerprint: this.getDeviceFingerprint(request),
+        },
+        'Invalid or expired nonce',
+      );
+      throw new UnauthorizedException('Invalid or expired nonce');
+    }
+
+    return this.authService.loginWithSignature(
+      body.walletAddress,
+      body.nonce,
+      body.signature,
+      {
+        ipAddress: this.getIpAddress(request),
+        userAgent: request.headers['user-agent'] ?? null,
+        deviceFingerprint: this.getDeviceFingerprint(request),
+      },
+    );
   }
 
   @Post('refresh')
@@ -45,6 +98,48 @@ export class AuthController {
     }
 
     return this.authService.refresh(body.refreshToken, {
+      ipAddress: this.getIpAddress(request),
+      userAgent: request.headers['user-agent'] ?? null,
+      deviceFingerprint: this.getDeviceFingerprint(request),
+    });
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
+  async logout(@Req() request: Request) {
+    const authHeader = request.headers['authorization'];
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      throw new UnauthorizedException('Missing Bearer token');
+    }
+
+    const accessToken = authHeader.slice(7);
+    const user = (request as Request & { user?: JwtPayload }).user;
+
+    if (!user?.sub) {
+      throw new UnauthorizedException('Invalid token payload');
+    }
+
+    await this.authService.logoutUser(accessToken, user.sub, {
+      ipAddress: this.getIpAddress(request),
+      userAgent: request.headers['user-agent'] ?? null,
+      deviceFingerprint: this.getDeviceFingerprint(request),
+    });
+
+    return { message: 'Logout successful' };
+  }
+
+  @Post('logout-all')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
+  async logoutAll(@Req() request: Request) {
+    const user = (request as Request & { user?: JwtPayload }).user;
+
+    if (!user?.sub) {
+      throw new UnauthorizedException('Invalid token payload');
+    }
+
+    return this.authService.logoutAllSessions(user.sub, {
       ipAddress: this.getIpAddress(request),
       userAgent: request.headers['user-agent'] ?? null,
       deviceFingerprint: this.getDeviceFingerprint(request),

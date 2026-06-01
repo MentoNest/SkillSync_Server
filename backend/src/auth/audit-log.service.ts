@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository, SelectQueryBuilder } from 'typeorm';
 import { AuditEventType, AuditLog } from './entities/audit-log.entity';
+import { PaginationService } from '../common/pagination/pagination.service';
+import { PaginatedResponse } from '../common/pagination/interfaces/paginated-response.interface';
 
 export type RequestAudit = {
   ipAddress: string | null;
@@ -26,7 +28,7 @@ type ListAuditLogsFilters = {
   start?: Date;
   end?: Date;
   limit: number;
-  offset: number;
+  page: number;
 };
 
 @Injectable()
@@ -39,6 +41,7 @@ export class AuditLogService implements OnModuleInit, OnModuleDestroy {
     private readonly auditLogRepository: Repository<AuditLog>,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
+    private readonly paginationService: PaginationService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -177,16 +180,47 @@ export class AuditLogService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async listLogs(filters: ListAuditLogsFilters): Promise<{ items: AuditLog[]; total: number }> {
+  async logUserSuspension(input: {
+    userId: string;
+    suspendedBy: string;
+    reason: string;
+    suspendedUntil: string | null;
+    audit: RequestAudit;
+  }): Promise<void> {
+    await this.logEvent({
+      userId: input.userId,
+      eventType: AuditEventType.SUSPEND_USER,
+      audit: input.audit,
+      details: {
+        suspendedBy: input.suspendedBy,
+        reason: input.reason,
+        suspendedUntil: input.suspendedUntil,
+      },
+    });
+  }
+
+  async logUserUnsuspension(input: {
+    userId: string;
+    liftedBy: string;
+    audit: RequestAudit;
+  }): Promise<void> {
+    await this.logEvent({
+      userId: input.userId,
+      eventType: AuditEventType.UNSUSPEND_USER,
+      audit: input.audit,
+      details: {
+        liftedBy: input.liftedBy,
+      },
+    });
+  }
+
+  async listLogs(filters: ListAuditLogsFilters): Promise<PaginatedResponse<AuditLog>> {
     const query = this.applyFilters(this.auditLogRepository.createQueryBuilder('audit_log'), filters);
-    query.orderBy('audit_log.timestamp', 'DESC').limit(filters.limit).offset(filters.offset);
+    query.orderBy('audit_log.timestamp', 'DESC');
 
-    const [items, total] = await Promise.all([
-      query.getMany(),
-      this.applyFilters(this.auditLogRepository.createQueryBuilder('audit_log'), filters).getCount(),
-    ]);
-
-    return { items, total };
+    return this.paginationService.paginate(query, filters.page, filters.limit, {
+      route: '/auth/audit-logs',
+    });
   }
 
   async runRetentionCleanup(): Promise<number> {
