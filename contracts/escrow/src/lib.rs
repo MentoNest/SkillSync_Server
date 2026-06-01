@@ -21,6 +21,8 @@ pub mod rate_limit;
 /// Issue: Session expiry / auto-cancellation
 pub mod expiry;
 
+/// Issue: Oracle integration / price feed module (#563)
+pub mod oracle;
 /// Issue: Metadata storage module (#565)
 pub mod metadata;
 /// Issue: Webhook / event relay module (#566)
