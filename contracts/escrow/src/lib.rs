@@ -26,8 +26,11 @@ macro_rules! only_once {
     }};
 }
 // ============================================================================
-// New feature modules
+// Feature modules
 // ============================================================================
+
+/// Role-based access control (RBAC)
+pub mod rbac;
 
 /// Issue: Non-reentrant guard (error 700)
 pub mod reentrancy;
@@ -40,6 +43,26 @@ pub mod rate_limit;
 
 /// Issue: Session expiry / auto-cancellation
 pub mod expiry;
+
+// ============================================================================
+// only_role! — RBAC guard macro
+// ============================================================================
+//
+// Usage:  only_role!(&env, rbac::FEE_MANAGER_ROLE, &caller);
+//
+// Behaviour:
+//   • Converts the raw [u8; 32] role constant to BytesN<32>.
+//   • Calls `rbac::require_role`, which panics with
+//     "AccessControl: account does not have role" if the check fails.
+macro_rules! only_role {
+    ($env:expr, $role:expr, $account:expr) => {{
+        rbac::require_role(
+            $env,
+            soroban_sdk::BytesN::from_array($env, &$role),
+            $account,
+        );
+    }};
+}
 
 // ============================================================================
 // Single Session Escrow Contract (Contract)
@@ -531,16 +554,9 @@ impl SkillSyncEscrow {
             .set(&SkillSyncKey::Session(id.clone()), session);
     }
 
-    /// Verify caller is the stored admin.
+    /// Verify caller holds `DEFAULT_ADMIN_ROLE` via RBAC.
     fn require_admin(env: &Env, caller: &Address) {
-        let admin: Address = env
-            .storage()
-            .persistent()
-            .get(&SkillSyncKey::Admin)
-            .expect("not initialized");
-        if caller != &admin {
-            panic!("Unauthorized: caller is not admin");
-        }
+        only_role!(env, rbac::DEFAULT_ADMIN_ROLE, caller);
     }
 }
 
@@ -553,6 +569,9 @@ impl SkillSyncEscrow {
     /// Protected by an `only_once` guard: reverts with `AlreadyInitialized`
     /// if called more than once. Both addresses are stored in persistent
     /// storage and an `Initialized` event is emitted.
+    ///
+    /// The `admin` is automatically granted `DEFAULT_ADMIN_ROLE` so they can
+    /// immediately call `grant_role` / `revoke_role`.
     ///
     /// # Arguments
     /// * `admin`    – Address that will hold the admin role.
@@ -570,6 +589,9 @@ impl SkillSyncEscrow {
         env.storage()
             .persistent()
             .set(&SkillSyncKey::Treasury, &treasury);
+
+        // Bootstrap DEFAULT_ADMIN_ROLE for the deployer via RBAC
+        rbac::bootstrap_admin(&env, &admin);
 
         // Emit Initialized event with admin and treasury
         env.events().publish(
@@ -594,19 +616,42 @@ impl SkillSyncEscrow {
             .expect("not initialized")
     }
 
+    // ============================================================================
+    // RBAC — public entry points
+    // ============================================================================
+
+    /// Grant `role` to `account`.
+    ///
+    /// Caller must hold `DEFAULT_ADMIN_ROLE`.
+    /// Emits `RoleGranted(role, account, caller)`.
+    pub fn grant_role(env: Env, caller: Address, role: BytesN<32>, account: Address) {
+        caller.require_auth();
+        rbac::grant_role(&env, &caller, role, &account);
+    }
+
+    /// Revoke `role` from `account`.
+    ///
+    /// Caller must hold `DEFAULT_ADMIN_ROLE`.
+    /// Emits `RoleRevoked(role, account, caller)`.
+    pub fn revoke_role(env: Env, caller: Address, role: BytesN<32>, account: Address) {
+        caller.require_auth();
+        rbac::revoke_role(&env, &caller, role, &account);
+    }
+
+    /// Returns `true` if `account` currently holds `role`.
+    pub fn has_role(env: Env, role: BytesN<32>, account: Address) -> bool {
+        rbac::has_role(&env, role, &account)
+    }
+
     // ── Session storage helpers ──────────────────────────────────────────────
 
     pub fn get_session(env: Env, id: Bytes32) -> SessionData {
         Self::get_session_internal(&env, &id)
     }
 
-    pub fn save_session(env: Env, id: Bytes32, session: SessionData) {
-        let admin: Address = env
-            .storage()
-            .persistent()
-            .get(&SkillSyncKey::Admin)
-            .expect("not initialized");
+    pub fn save_session(env: Env, admin: Address, id: Bytes32, session: SessionData) {
         admin.require_auth();
+        only_role!(&env, rbac::DEFAULT_ADMIN_ROLE, &admin);
         Self::save_session_internal(&env, &id, &session);
     }
 
@@ -812,21 +857,21 @@ impl SkillSyncEscrow {
 
     /// Admin resolves a disputed session, splitting funds between buyer and seller.
     ///
-    /// Issue: Both token transfers (buyer + seller portions) are wrapped in
-    /// a single reentrancy guard block.
+    /// Resolve a disputed session. Requires `DISPUTE_RESOLVER_ROLE`.
     ///
     /// # Parameters
+    /// - `resolver`  — address holding `DISPUTE_RESOLVER_ROLE`.
     /// - `buyer_bps` — percentage of session amount (BPS) sent to buyer;
     ///                 remainder goes to seller.
     pub fn resolve_dispute(
         env: Env,
         session_id: Bytes32,
-        admin: Address,
+        resolver: Address,
         buyer_bps: u32,
         token_id: Address,
     ) {
-        admin.require_auth();
-        Self::require_admin(&env, &admin);
+        resolver.require_auth();
+        only_role!(&env, rbac::DISPUTE_RESOLVER_ROLE, &resolver);
 
         assert!(buyer_bps <= 10_000, "buyer_bps cannot exceed 10000");
 
@@ -861,7 +906,7 @@ impl SkillSyncEscrow {
         let timestamp = env.ledger().timestamp();
         env.events().publish(
             (Symbol::new(&env, "DisputeResolved"), session_id),
-            (admin, buyer_amount, seller_amount, fee, timestamp),
+            (resolver, buyer_amount, seller_amount, fee, timestamp),
         );
     }
 
@@ -1012,16 +1057,16 @@ impl SkillSyncEscrow {
         milestone::dispute_milestone_session(env, session_id, opened_by);
     }
 
-    /// Admin resolves a disputed milestone session.
+    /// Resolve a disputed milestone session. Requires `DISPUTE_RESOLVER_ROLE`.
     pub fn resolve_milestone_dispute(
         env: Env,
         session_id: Bytes32,
-        admin: Address,
+        resolver: Address,
         buyer_bps: u32,
     ) {
-        admin.require_auth();
-        Self::require_admin(&env, &admin);
-        milestone::resolve_milestone_dispute(env, session_id, admin, buyer_bps);
+        resolver.require_auth();
+        only_role!(&env, rbac::DISPUTE_RESOLVER_ROLE, &resolver);
+        milestone::resolve_milestone_dispute(env, session_id, resolver, buyer_bps);
     }
 
     /// Returns milestone session data.
@@ -1039,13 +1084,10 @@ impl SkillSyncEscrow {
 
     // ── dispute window ───────────────────────────────────────────────────────
 
-    pub fn set_dispute_window(env: Env, window_ledgers: u32) {
-        let admin: Address = env
-            .storage()
-            .persistent()
-            .get(&SkillSyncKey::Admin)
-            .expect("not initialized");
+    /// Update the dispute window. Requires `DEFAULT_ADMIN_ROLE`.
+    pub fn set_dispute_window(env: Env, admin: Address, window_ledgers: u32) {
         admin.require_auth();
+        only_role!(&env, rbac::DEFAULT_ADMIN_ROLE, &admin);
         env.storage()
             .persistent()
             .set(&SkillSyncKey::DisputeWindow, &window_ledgers);
@@ -1064,13 +1106,10 @@ impl SkillSyncEscrow {
 
     // ── upgrade ──────────────────────────────────────────────────────────────
 
-    pub fn upgrade(env: Env, new_wasm_hash: Bytes32) {
-        let admin: Address = env
-            .storage()
-            .persistent()
-            .get(&SkillSyncKey::Admin)
-            .expect("not initialized");
-        admin.require_auth();
+    /// Upgrade the contract WASM. Requires `UPGRADER_ROLE`.
+    pub fn upgrade(env: Env, upgrader: Address, new_wasm_hash: Bytes32) {
+        upgrader.require_auth();
+        only_role!(&env, rbac::UPGRADER_ROLE, &upgrader);
 
         let old_wasm_hash = env
             .storage()
@@ -1088,7 +1127,7 @@ impl SkillSyncEscrow {
         let event = ContractUpgraded {
             old_wasm_hash,
             new_wasm_hash,
-            upgraded_by: admin,
+            upgraded_by: upgrader,
             timestamp: env.ledger().timestamp(),
         };
 
