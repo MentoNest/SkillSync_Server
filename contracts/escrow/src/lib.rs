@@ -21,6 +21,9 @@ pub mod rate_limit;
 /// Issue: Session expiry / auto-cancellation
 pub mod expiry;
 
+/// Issue: Oracle integration / price feed module (#563)
+pub mod oracle;
+
 // ============================================================================
 // Single Session Escrow Contract (Contract)
 // ============================================================================
@@ -451,6 +454,7 @@ pub struct SessionData {
     pub buyer: Address,
     pub seller: Address,
     pub amount: i128,
+    pub token_id: Address,
     pub status: Status,
     pub created_at: u64,
     pub completed_at: u64,
@@ -597,6 +601,7 @@ impl SkillSyncEscrow {
             buyer: buyer.clone(),
             seller,
             amount,
+            token_id: token_id.clone(),
             status: Status::Locked,
             created_at: env.ledger().sequence() as u64,
             completed_at: 0,
