@@ -38,6 +38,11 @@ export class User {
   @Column({ name: 'token_version', type: 'int', default: 0 })
   tokenVersion!: number;
 
+  @Column({ name: 'display_name', type: 'varchar', length: 255, nullable: true })
+  displayName?: string;
+
+  @Column({ name: 'avatar_url', type: 'text', nullable: true })
+  avatarUrl?: string;
   @Column({ name: 'timezone', type: 'varchar', length: 64, default: 'UTC' })
   timezone!: string;
 

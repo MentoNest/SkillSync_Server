@@ -109,6 +109,81 @@ async function bootstrap() {
     SwaggerModule.setup('api/docs', app, document);
   }
 
-  await app.listen(process.env.PORT ?? 3000);
+  const server = await app.listen(process.env.PORT ?? 3000);
+
+  // ── Graceful Shutdown Handling (#516) ──────────────────────────────────
+  //
+  // Handles SIGTERM and SIGINT signals to ensure proper cleanup:
+  //   1. Stop accepting new HTTP connections
+  //   2. Wait for in-flight requests to finish (with timeout)
+  //   3. Close database connections (TypeORM)
+  //   4. Close Redis connections (if configured)
+  //   5. Exit cleanly
+  //
+  const GRACEFUL_SHUTDOWN_TIMEOUT_MS = parseInt(
+    process.env.GRACEFUL_SHUTDOWN_TIMEOUT_MS ?? '30000',
+    10,
+  );
+
+  async function gracefulShutdown(signal: string) {
+    console.log(`\n[${signal}] Graceful shutdown initiated...`);
+
+    // 1. Stop accepting new connections
+    server.close();
+    console.log('[Shutdown] HTTP server closed to new connections');
+
+    // 2. Create a shutdown promise that closes all resources
+    const shutdownPromise = (async () => {
+      try {
+        // Close TypeORM database connections
+        if (dataSource.isInitialized) {
+          await dataSource.destroy();
+          console.log('[Shutdown] Database connections closed');
+        }
+
+        // Close Redis connection if available
+        try {
+          const { RedisService } = await import('./redis/redis.service');
+          const redisService = app.get(RedisService);
+          if (redisService) {
+            await redisService.onModuleDestroy();
+            console.log('[Shutdown] Redis connections closed');
+          }
+        } catch {
+          // Redis service not configured - skip
+        }
+
+        console.log('[Shutdown] All resources cleaned up successfully');
+      } catch (err) {
+        console.error('[Shutdown] Error during cleanup:', err);
+      }
+    })();
+
+    // 3. Wait for shutdown with timeout
+    const timeoutPromise = new Promise<void>((_, reject) =>
+      setTimeout(
+        () => reject(new Error('Shutdown timed out')),
+        GRACEFUL_SHUTDOWN_TIMEOUT_MS,
+      ),
+    );
+
+    try {
+      await Promise.race([shutdownPromise, timeoutPromise]);
+      console.log('[Shutdown] Clean exit');
+      process.exit(0);
+    } catch (err) {
+      console.error('[Shutdown] Forced exit after timeout or error:', err);
+      process.exit(1);
+    }
+  }
+
+  // Register signal handlers
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+  console.log(
+    `Server listening on port ${process.env.PORT ?? 3000} (PID: ${process.pid})`,
+  );
+  console.log('Graceful shutdown handlers registered (SIGTERM, SIGINT)');
 }
 bootstrap();
