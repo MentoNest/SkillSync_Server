@@ -480,6 +480,9 @@ pub enum EscrowError {
     ReentrancyDetected = 700,
     RateLimitExceeded = 800,
     SessionExpired = 900,
+    // Upgrade errors (Issue #561)
+    InvalidWasmHash = 600,
+    UpgradeFailed = 601,
 }
 
 #[contracttype]
@@ -1006,6 +1009,12 @@ impl SkillSyncEscrow {
 
     // ── upgrade ──────────────────────────────────────────────────────────────
 
+    /// Upgrade the contract to a new WASM bytecode.
+    ///
+    /// # Errors
+    /// - `InvalidWasmHash (600)` — The provided WASM hash is zero or invalid.
+    /// - `UpgradeFailed (601)` — The low-level upgrade operation failed.
+    /// - `Unauthorized (4)` — Caller is not the contract admin.
     pub fn upgrade(env: Env, new_wasm_hash: Bytes32) {
         let admin: Address = env
             .storage()
@@ -1014,11 +1023,17 @@ impl SkillSyncEscrow {
             .expect("not initialized");
         admin.require_auth();
 
+        // Validate WASM hash is not zero (error code 600)
+        let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
+        if new_wasm_hash == zero_hash {
+            panic!("EscrowError[600]: InvalidWasmHash");
+        }
+
         let old_wasm_hash = env
             .storage()
             .persistent()
             .get::<_, Bytes32>(&SkillSyncKey::WasmHash)
-            .unwrap_or_else(|| BytesN::from_array(&env, &[0; 32]));
+            .unwrap_or_else(|| zero_hash.clone());
 
         env.storage()
             .persistent()
