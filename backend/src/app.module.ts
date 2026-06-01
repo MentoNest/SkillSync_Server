@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
+import { AuthModule } from './auth/auth.module';
 import { AppDataSource } from './database/data-source';
 import { HttpLoggerMiddleware } from './common/middleware/http-logger.middleware';
 import { VersionCompatibilityMiddleware } from './common/middleware/version-compatibility.middleware';
@@ -30,6 +31,7 @@ import { MetricsMiddleware } from './monitoring/metrics.middleware';
     UsersModule,
     AdminModule,
     RedisModule,
+    AuthModule,
     HealthModule,
     PortfolioModule,
     AvailabilityModule,
