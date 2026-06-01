@@ -21,6 +21,9 @@ pub mod rate_limit;
 /// Issue: Session expiry / auto-cancellation
 pub mod expiry;
 
+/// Issue: Time-locked release / vesting module (#567)
+pub mod vesting;
+
 // ============================================================================
 // Single Session Escrow Contract (Contract)
 // ============================================================================
