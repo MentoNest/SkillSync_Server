@@ -25,6 +25,9 @@ import { AuditLogService } from '../auth/audit-log.service';
 import { FeaturedMentorCron } from './cron/featured-mentor.cron';
 
 @Module({
+  imports: [TypeOrmModule.forFeature([User, Role, MentorProfile, MenteeProfile]), AuthModule],
+  controllers: [UsersController],
+  providers: [UsersService],
   imports: [TypeOrmModule.forFeature([User, Role]), AuthModule],
   controllers: [UsersController, MentorsController],
   providers: [UsersService, AuditLogService, FeaturedMentorCron],
