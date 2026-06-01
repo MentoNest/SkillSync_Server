@@ -11,9 +11,9 @@ import { Request, Response } from 'express';
 
 import { SlidingWindowProvider } from '../providers/sliding-window.provider';
 
-import { THROTTLE_OPTIONS } from '../constants/throttling.constants';
+import { THROTTLE_OPTIONS } from '../../common/throttling/constants/throttling.constants';
 
-import { buildThrottleKey } from '../utils/throttle-key.util';
+import { buildThrottleKey } from '../../utils/throttle-key.util';
 
 @Injectable()
 export class RedisThrottlerGuard
