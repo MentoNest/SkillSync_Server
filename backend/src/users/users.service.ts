@@ -1,3 +1,4 @@
+import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import {
   BadRequestException,
   ConflictException,
@@ -11,6 +12,7 @@ import { Repository } from 'typeorm';
 import { AuthRole } from '../auth/enums/auth-role.enum';
 import { AuditEventType } from '../auth/entities/audit-log.entity';
 import { AuditLogService, RequestAudit } from '../auth/audit-log.service';
+import { CreateProfileDto } from './dto/create-profile.dto';
 import { RedisService } from '../redis/redis.service';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';

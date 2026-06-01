@@ -90,6 +90,20 @@ export class UsersController {
     );
   }
 
+  @Post('profile')
+  @HttpCode(HttpStatus.CREATED)
+  async createProfile(
+    @Req() request: Request & { user?: JwtPayload },
+    @Body() dto: CreateProfileDto,
+  ) {
+    if (!request.user) {
+      throw new Error('User not found');
+    }
+
+    return this.usersService.createProfile(request.user.sub, dto, {
+      ipAddress: request.ip ?? null,
+      userAgent: request.headers['user-agent'] ?? null,
+    });
   @Post(':id/status')
   @Roles(AuthRole.ADMIN)
   updateStatus(@Param('id') id: string, @Body('status') status: UserStatus) {

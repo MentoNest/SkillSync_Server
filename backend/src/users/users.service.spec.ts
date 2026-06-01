@@ -1,3 +1,4 @@
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { validate } from 'class-validator';
 import { AuthRole } from '../auth/enums/auth-role.enum';
@@ -152,6 +153,8 @@ describe('UsersService', () => {
 
       await expect(service.createProfile('bad-user', dto, { ipAddress: null, userAgent: null })).rejects.toThrow(NotFoundException);
     });
+  });
+});
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { UserStatus } from './enums/user-status.enum';
 import { Test, TestingModule } from '@nestjs/testing';

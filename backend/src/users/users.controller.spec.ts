@@ -3,6 +3,8 @@ import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { AuthRole } from '../auth/enums/auth-role.enum';
 import { CreateProfileDto } from './dto/create-profile.dto';
+import { ConflictException, NotFoundException } from '@nestjs/common';
+import { Request } from 'express';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Request } from 'express';
@@ -54,6 +56,24 @@ describe('UsersController', () => {
     updatedAt: new Date(),
   };
 
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [UsersController],
+      providers: [
+        {
+          provide: UsersService,
+          useValue: {
+            findById: jest.fn(),
+            createProfile: jest.fn(),
+            assignRole: jest.fn(),
+            revokeRole: jest.fn(),
+          },
+        },
+      ],
+    }).compile();
+
+    controller = module.get<UsersController>(UsersController);
+    service = module.get<UsersService>(UsersService);
   beforeEach(() => {
     const usersServiceMock = {
       findById: jest.fn(),
