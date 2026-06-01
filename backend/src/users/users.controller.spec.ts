@@ -5,6 +5,12 @@ import { AuthRole } from '../auth/enums/auth-role.enum';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Request } from 'express';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ConflictException, NotFoundException } from '@nestjs/common';
+import { Request } from 'express';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { RedisThrottlerGuard } from '../auth/guards/redis-throttler.guard';
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -68,6 +74,17 @@ describe('UsersController', () => {
 
     controller = module.get<UsersController>(UsersController);
     service = module.get<UsersService>(UsersService);
+  beforeEach(() => {
+    const usersServiceMock = {
+      findById: jest.fn(),
+      createProfile: jest.fn(),
+      assignRole: jest.fn(),
+      revokeRole: jest.fn(),
+      updateProfile: jest.fn(),
+    } as unknown as UsersService;
+
+    controller = new UsersController(usersServiceMock);
+    service = usersServiceMock as unknown as UsersService;
   });
 
   describe('getMe', () => {
@@ -169,6 +186,33 @@ describe('UsersController', () => {
           ipAddress: '127.0.0.1',
           userAgent: 'Mozilla/5.0',
         }),
+      );
+    });
+  });
+
+  describe('updateProfile', () => {
+    it('should update a mentor profile', async () => {
+      const dto = new UpdateProfileDto();
+      dto.bio = 'Updated bio';
+
+      jest.spyOn(service, 'updateProfile').mockResolvedValue({
+        id: 'mentor-1',
+        bio: 'Updated bio',
+        profileVersion: 2,
+      });
+
+      const result = await controller.updateProfile(mockRequest, AuthRole.MENTOR, dto);
+
+      expect(result).toEqual({ id: 'mentor-1', bio: 'Updated bio', profileVersion: 2 });
+      expect(service.updateProfile).toHaveBeenCalledWith(
+        'user-id-123',
+        AuthRole.MENTOR,
+        dto,
+        {
+          ipAddress: '127.0.0.1',
+          userAgent: 'Mozilla/5.0',
+        },
+        undefined,
       );
     });
   });
