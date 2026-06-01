@@ -1,6 +1,6 @@
 import { SetMetadata } from '@nestjs/common';
 
-import { THROTTLE_OPTIONS } from '../constants/throttling.constants';
+import { THROTTLE_OPTIONS } from '../../common/throttling/constants/throttling.constants';
 
 export const Throttle = (
   limit: number,
