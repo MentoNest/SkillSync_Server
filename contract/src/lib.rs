@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractevent, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env};
 
 // ── Storage Keys ──────────────────────────────────────────────────────────────
 
@@ -13,29 +13,6 @@ pub enum DataKey {
     Initialized,
 }
 
-// ── Events ────────────────────────────────────────────────────────────────────
-
-#[contractevent]
-pub struct Initialized {
-    pub admin: Address,
-    pub treasury: Address,
-}
-
-#[contractevent]
-pub struct PlatformFeeUpdated {
-    pub new_fee_bps: u32,
-}
-
-#[contractevent]
-pub struct TreasuryUpdated {
-    pub new_treasury: Address,
-}
-
-#[contractevent]
-pub struct DisputeWindowUpdated {
-    pub window_ledgers: u32,
-}
-
 // ── Contract ──────────────────────────────────────────────────────────────────
 
 #[contract]
@@ -45,23 +22,23 @@ pub struct SkillSyncContract;
 impl SkillSyncContract {
     // ── Issue #748: initialize ────────────────────────────────────────────────
 
-    /// Sets up the initial contract state. Can only be called once.
+    /// Sets up initial contract state. Can only be called once.
     pub fn initialize(env: Env, admin: Address, treasury: Address) {
         if env.storage().persistent().has(&DataKey::Initialized) {
             panic!("already initialized");
         }
-
         admin.require_auth();
 
         env.storage().persistent().set(&DataKey::Admin, &admin);
         env.storage().persistent().set(&DataKey::Treasury, &treasury);
         env.storage().persistent().set(&DataKey::PlatformFeeBps, &0u32);
-        env.storage()
-            .persistent()
-            .set(&DataKey::DisputeWindow, &1000u32);
+        env.storage().persistent().set(&DataKey::DisputeWindow, &1000u32);
         env.storage().persistent().set(&DataKey::Initialized, &true);
 
-        env.events().publish(("SkillSync",), Initialized { admin, treasury });
+        env.events().publish(
+            (symbol_short!("init"),),
+            (admin, treasury),
+        );
     }
 
     // ── Issue #749: platform fee ──────────────────────────────────────────────
@@ -70,11 +47,11 @@ impl SkillSyncContract {
     pub fn set_platform_fee(env: Env, new_fee_bps: u32) {
         Self::require_admin(&env);
         assert!(new_fee_bps <= 1000, "fee exceeds 10%");
-        env.storage()
-            .persistent()
-            .set(&DataKey::PlatformFeeBps, &new_fee_bps);
-        env.events()
-            .publish(("SkillSync",), PlatformFeeUpdated { new_fee_bps });
+        env.storage().persistent().set(&DataKey::PlatformFeeBps, &new_fee_bps);
+        env.events().publish(
+            (symbol_short!("fee_upd"),),
+            new_fee_bps,
+        );
     }
 
     /// Returns the current platform fee in basis points.
@@ -90,11 +67,11 @@ impl SkillSyncContract {
     /// Updates the treasury wallet address. Admin only.
     pub fn set_treasury(env: Env, new_treasury: Address) {
         Self::require_admin(&env);
-        env.storage()
-            .persistent()
-            .set(&DataKey::Treasury, &new_treasury);
-        env.events()
-            .publish(("SkillSync",), TreasuryUpdated { new_treasury });
+        env.storage().persistent().set(&DataKey::Treasury, &new_treasury);
+        env.events().publish(
+            (symbol_short!("treas"),),
+            new_treasury,
+        );
     }
 
     /// Returns the current treasury wallet address.
@@ -110,11 +87,11 @@ impl SkillSyncContract {
     /// Sets the dispute resolution window in ledgers. Admin only.
     pub fn set_dispute_window(env: Env, window_ledgers: u32) {
         Self::require_admin(&env);
-        env.storage()
-            .persistent()
-            .set(&DataKey::DisputeWindow, &window_ledgers);
-        env.events()
-            .publish(("SkillSync",), DisputeWindowUpdated { window_ledgers });
+        env.storage().persistent().set(&DataKey::DisputeWindow, &window_ledgers);
+        env.events().publish(
+            (symbol_short!("disp_win"),),
+            window_ledgers,
+        );
     }
 
     /// Returns the current dispute window in ledgers (default: 1000).
