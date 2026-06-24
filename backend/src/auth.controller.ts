@@ -1,10 +1,21 @@
-import { Controller, Get, HttpException, HttpStatus, Param } from '@nestjs/common';
+import { Body, Controller, Get, HttpException, HttpStatus, Param, Post } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { RedisService } from './redis/redis.service';
+import { AuthService } from './auth.service';
+
+interface IssueTokenDto {
+  userId: string;
+  wallet: string;
+  roles: string[];
+  permissions: string[];
+}
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly redisService: RedisService) {}
+  constructor(
+    private readonly redisService: RedisService,
+    private readonly authService: AuthService,
+  ) {}
 
   @Get('nonce/:walletAddress')
   async getNonce(@Param('walletAddress') walletAddress: string) {
@@ -20,6 +31,22 @@ export class AuthController {
     await this.redisService.set(walletAddress, nonce, 300, 'nonce');
 
     return { nonce, expiresAt };
+  }
+
+  @Post('token')
+  async issueToken(@Body() body: IssueTokenDto) {
+    if (!body.userId || !body.wallet || !Array.isArray(body.roles) || !Array.isArray(body.permissions)) {
+      throw new HttpException('Missing token payload fields', HttpStatus.BAD_REQUEST);
+    }
+
+    return {
+      accessToken: await this.authService.issueAccessToken(
+        body.userId,
+        body.wallet,
+        body.roles,
+        body.permissions,
+      ),
+    };
   }
 
   private isValidStellarAddress(address: string): boolean {
