@@ -47,11 +47,27 @@ export class AuthService {
 
   async incrementTokenVersion(userId: string): Promise<number> {
     const client = this.redisService.getClient();
-    return client.incr(`tokenVersion:${userId}`);
+    const version = await client.incr(`tokenVersion:${userId}`);
+    await client.set(`tokenVersionUpdatedAt:${userId}`, Math.floor(Date.now() / 1000).toString());
+    return version;
+  }
+
+  async getTokenVersionUpdatedAt(userId: string): Promise<number> {
+    const timestamp = await this.redisService.get(`tokenVersionUpdatedAt:${userId}`);
+    return timestamp ? Number(timestamp) : 0;
   }
 
   async validateTokenVersion(payload: JwtAccessTokenPayload): Promise<boolean> {
     const currentVersion = await this.getTokenVersion(payload.sub);
-    return payload.ver === currentVersion;
+    if (payload.ver !== currentVersion) {
+      return false;
+    }
+
+    const versionUpdatedAt = await this.getTokenVersionUpdatedAt(payload.sub);
+    if (versionUpdatedAt && payload.iat && payload.iat < versionUpdatedAt) {
+      return false;
+    }
+
+    return true;
   }
 }
