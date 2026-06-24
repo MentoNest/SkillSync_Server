@@ -1,5 +1,5 @@
 import { Controller, Get, Req, UseGuards } from '@nestjs/common';
-import { Request } from 'express';
+import type { Request } from 'express';
 import { AppService } from './app.service';
 import { RedisService } from './redis/redis.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -29,6 +29,6 @@ export class AppController {
   @Get('protected')
   @UseGuards(JwtAuthGuard)
   getProtected(@Req() req: Request) {
-    return { status: 'ok', user: req.user };
+ return { status: 'ok', user: (req as any).user };
   }
 }

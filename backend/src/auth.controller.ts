@@ -1,12 +1,14 @@
-import { Body, Controller, Get, HttpException, HttpStatus, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Req } from '@nestjs/common';
 import { randomBytes } from 'crypto';
-import { Keypair, Networks, StrKey } from 'stellar-sdk';
+import { Keypair, StrKey } from 'stellar-sdk';
 import { RedisService } from './redis/redis.service';
 import { AuthService } from './auth.service';
 import { LoginDto } from './auth/login.dto';
+import { RefreshTokenDto } from './auth/refresh-token.dto';
 import { UserService } from './auth/user.service';
 import { LoginAttemptService } from './auth/login-attempt.service';
 import { AuditLogService } from './auth/audit-log.service';
+import { RefreshTokenService } from './refresh-token/refresh-token.service';
 
 @Controller('auth')
 export class AuthController {
@@ -16,6 +18,7 @@ export class AuthController {
     private readonly userService: UserService,
     private readonly loginAttemptService: LoginAttemptService,
     private readonly auditLogService: AuditLogService,
+    private readonly refreshTokenService: RefreshTokenService,
   ) {}
 
   @Get('nonce/:walletAddress')
@@ -75,6 +78,15 @@ export class AuthController {
     const accessToken = await this.authService.issueAccessToken(user.id, user.wallet, user.roles, user.permissions);
     const refreshToken = await this.authService.issueRefreshToken(user.id);
 
+    const jti = this.extractJtiFromToken(refreshToken);
+    await this.refreshTokenService.createRefreshToken(
+      user,
+      jti,
+      undefined,
+      undefined,
+      undefined,
+    );
+
     return {
       accessToken,
       refreshToken,
@@ -85,6 +97,66 @@ export class AuthController {
         permissions: user.permissions,
       },
     };
+  }
+
+  @Post('refresh')
+  async refresh(@Body() body: RefreshTokenDto, @Req() req: any) {
+    const { refreshToken } = body;
+
+    if (!refreshToken) {
+      throw new HttpException('Refresh token is required', HttpStatus.BAD_REQUEST);
+    }
+
+    const refreshTokenEntity = await this.refreshTokenService.validateRefreshToken(refreshToken);
+    
+    if (refreshTokenEntity.expiresAt < new Date()) {
+      throw new HttpException('Refresh token expired', HttpStatus.UNAUTHORIZED);
+    }
+
+    const user = refreshTokenEntity.user;
+    const userAgent = req.headers['user-agent'] || undefined;
+    const ipAddress = req.ip || req.connection?.remoteAddress || undefined;
+    
+    try {
+      await this.refreshTokenService.rotateRefreshToken(
+        refreshToken,
+        user,
+        undefined,
+        userAgent,
+        ipAddress,
+      );
+
+      const accessToken = await this.authService.issueAccessToken(
+        user.id,
+        user.wallet,
+        user.roles,
+        user.permissions,
+      );
+
+      const newRefreshTokenString = await this.authService.issueRefreshToken(user.id);
+
+      return {
+        accessToken,
+        refreshToken: newRefreshTokenString,
+        user: {
+          id: user.id,
+          wallet: user.wallet,
+          roles: user.roles,
+          permissions: user.permissions,
+        },
+      };
+    } catch (error) {
+      if (error.message?.includes('already used')) {
+        await this.auditLogService.logAttempt(
+          user.id,
+          'failure',
+          'refresh_token_reuse_detected',
+          user.id,
+        );
+        throw new HttpException('Security alert: Token reuse detected', HttpStatus.UNAUTHORIZED);
+      }
+      throw new HttpException(error.message || 'Failed to refresh token', HttpStatus.UNAUTHORIZED);
+    }
   }
 
   private deleteNonce(wallet: string) {
@@ -112,6 +184,17 @@ export class AuthController {
 
     if (currentCount > 5) {
       throw new HttpException('Rate limit exceeded', HttpStatus.TOO_MANY_REQUESTS);
+    }
+  }
+
+  private extractJtiFromToken(token: string): string {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) return 'unknown';
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+      return payload.jti || 'unknown';
+    } catch {
+      return 'unknown';
     }
   }
 }

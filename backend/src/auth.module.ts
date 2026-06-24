@@ -8,15 +8,17 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { RedisModule } from './redis/redis.module';
 import { User } from './entities/user.entity';
+import { RefreshToken } from './entities/refresh-token.entity';
 import { UserService } from './auth/user.service';
 import { LoginAttemptService } from './auth/login-attempt.service';
 import { AuditLogService } from './auth/audit-log.service';
+import { RefreshTokenService } from './refresh-token/refresh-token.service';
 
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
     RedisModule,
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, RefreshToken]),
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
@@ -39,7 +41,14 @@ import { AuditLogService } from './auth/audit-log.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, UserService, LoginAttemptService, AuditLogService],
-  exports: [AuthService],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    UserService,
+    LoginAttemptService,
+    AuditLogService,
+    RefreshTokenService,
+  ],
+  exports: [AuthService, RefreshTokenService],
 })
 export class AuthModule {}
