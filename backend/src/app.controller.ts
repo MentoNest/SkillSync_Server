@@ -25,4 +25,10 @@ export class AppController {
       return { status: 'error', message: e.message };
     }
   }
+
+  @Get('protected')
+  @UseGuards(JwtAuthGuard)
+  getProtected(@Req() req: Request) {
+    return { status: 'ok', user: req.user };
+  }
 }
