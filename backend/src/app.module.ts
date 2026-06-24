@@ -3,10 +3,10 @@ import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { AuthController } from './auth.controller';
 import typeormConfig from './config/typeorm.config';
 
 import { RedisModule } from './redis/redis.module';
+import { AuthModule } from './auth.module';
 
 import { CacheModule } from '@nestjs/cache-manager';
 import cacheConfig from './config/cache.config';
@@ -17,8 +17,9 @@ import cacheConfig from './config/cache.config';
     TypeOrmModule.forRoot(typeormConfig),
     CacheModule.register(cacheConfig),
     RedisModule,
+    AuthModule,
   ],
-  controllers: [AppController, AuthController],
+  controllers: [AppController],
   providers: [AppService],
 })
 export class AppModule {}
