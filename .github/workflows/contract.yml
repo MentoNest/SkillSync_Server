@@ -1,0 +1,39 @@
+name: Soroban Contract CI
+
+on:
+  push:
+    paths:
+      - "contract/**"
+  pull_request:
+    paths:
+      - "contract/**"
+
+jobs:
+  test:
+    name: Build & Test Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contract/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contract/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Run tests
+        working-directory: contract
+        run: cargo test
+
+      - name: Build WASM
+        working-directory: contract
+        run: cargo build --target wasm32-unknown-unknown --release
