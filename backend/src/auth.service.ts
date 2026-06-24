@@ -25,8 +25,28 @@ export class AuthService {
       ver: version,
     };
 
+    return this.signToken(payload, jti, this.configService.get('JWT_ACCESS_EXPIRATION', '15m'));
+  }
+
+  async issueRefreshToken(userId: string): Promise<string> {
+    const version = await this.getTokenVersion(userId);
+    const jti = uuidv4();
+    const payload = {
+      sub: userId,
+      tokenType: 'refresh',
+      jti,
+      ver: version,
+    };
+
+    return this.signToken(payload, jti, this.configService.get('JWT_REFRESH_EXPIRATION', '7d'));
+  }
+
+  private async signToken(payload: Record<string, unknown>, jti: string, expiresIn: string): Promise<string> {
     const algorithm = this.configService.get<string>('JWT_ALGORITHM') || (this.configService.get('JWT_PRIVATE_KEY') ? 'RS256' : 'HS256');
-    const signOptions: Record<string, unknown> = { jwtid: jti };
+    const signOptions: Record<string, unknown> = {
+      jwtid: jti,
+      expiresIn,
+    };
 
     if (algorithm === 'RS256') {
       const privateKey = this.configService.get<string>('JWT_PRIVATE_KEY');
