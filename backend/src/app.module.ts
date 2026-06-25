@@ -10,6 +10,7 @@ import { AuthModule } from './auth.module';
 
 import { CacheModule } from '@nestjs/cache-manager';
 import cacheConfig from './config/cache.config';
+import { ShutdownService } from './shutdown/shutdown.service';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import cacheConfig from './config/cache.config';
     AuthModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, ShutdownService],
+  exports: [ShutdownService],
 })
 export class AppModule {}
