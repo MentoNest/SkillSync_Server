@@ -14,6 +14,8 @@ pub enum DataKey {
     DisputeWindow,
     Initialized,
     Session(Bytes), // Issue #754: sessions mapping keyed by session_id
+    TokenSession(Bytes), // Issue #793: multi-token sessions
+    ExtensionProposal(Bytes), // Issue #801: pending extension proposals
 }
 
 // ── Issue #754: Session status enum ──────────────────────────────────────────
@@ -41,7 +43,32 @@ pub struct Session {
     pub created_at: u32,
     pub completed_at: u32,
     pub dispute_resolved_at: u32,
+    pub deadline: u32, // Issue #801: session deadline in ledgers
 }
+
+// ── Issue #793: TokenSession struct ──────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone)]
+pub struct TokenSession {
+    pub buyer: Address,
+    pub seller: Address,
+    pub amount: i128,
+    pub token: Address,
+    pub status: SessionStatus,
+    pub created_at: u32,
+}
+
+// ── Issue #801: ExtensionProposal struct ──────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone)]
+pub struct ExtensionProposal {
+    pub proposed_by: Address,
+    pub additional_ledgers: u32,
+}
+
+const MAX_EXTENSION_LEDGERS: u32 = 10_000;
 
 // ── Contract ──────────────────────────────────────────────────────────────────
 
@@ -173,6 +200,7 @@ impl SkillSyncContract {
             created_at: env.ledger().sequence(),
             completed_at: 0,
             dispute_resolved_at: 0,
+            deadline: 0,
         };
 
         Self::save_session(&env, session_id.clone(), session);
@@ -196,6 +224,148 @@ impl SkillSyncContract {
             (symbol_short!("upgraded"),),
             hash,
         );
+    }
+
+    // ── Issue #801: Session extension ─────────────────────────────────────────
+
+    /// Propose a session deadline extension. Either buyer or seller may call.
+    pub fn propose_extension(env: Env, session_id: Bytes, additional_ledgers: u32) {
+        assert!(additional_ledgers > 0 && additional_ledgers <= MAX_EXTENSION_LEDGERS, "invalid extension");
+
+        let session: Session = env.storage().persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+
+        let caller = env.current_contract_address();
+        // The proposer must be buyer or seller
+        assert!(
+            caller == session.buyer || caller == session.seller,
+            "not a party"
+        );
+
+        let proposal = ExtensionProposal {
+            proposed_by: caller.clone(),
+            additional_ledgers,
+        };
+        env.storage().persistent().set(&DataKey::ExtensionProposal(session_id.clone()), &proposal);
+
+        env.events().publish(
+            (symbol_short!("ExtProp"),),
+            (session_id, caller, additional_ledgers),
+        );
+    }
+
+    /// Accept a pending extension proposal. Must be the other party.
+    pub fn accept_extension(env: Env, session_id: Bytes) {
+        let session: Session = env.storage().persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+
+        let proposal: ExtensionProposal = env.storage().persistent()
+            .get(&DataKey::ExtensionProposal(session_id.clone()))
+            .expect("no pending extension");
+
+        let caller = env.current_contract_address();
+        // Must be the other party (not the proposer)
+        assert!(
+            (caller == session.buyer || caller == session.seller) && caller != proposal.proposed_by,
+            "not the other party"
+        );
+
+        let new_deadline = session.deadline.saturating_add(proposal.additional_ledgers);
+        let mut updated = session;
+        updated.deadline = new_deadline;
+        env.storage().persistent().set(&DataKey::Session(session_id.clone()), &updated);
+        env.storage().persistent().remove(&DataKey::ExtensionProposal(session_id.clone()));
+
+        env.events().publish(
+            (symbol_short!("ExtAccpt"),),
+            (session_id, new_deadline),
+        );
+    }
+
+    // ── Issue #793: Multi-token support ──────────────────────────────────────
+
+    /// Locks funds using a Soroban token contract via transfer_from.
+    pub fn lock_funds_with_token(
+        env: Env,
+        session_id: Bytes,
+        buyer: Address,
+        seller: Address,
+        amount: i128,
+        token_address: Address,
+    ) {
+        assert!(amount > 0, "amount must be > 0");
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::TokenSession(session_id.clone()))
+        {
+            panic!("DuplicateSessionId");
+        }
+        buyer.require_auth();
+        let token = token::TokenClient::new(&env, &token_address);
+        token.transfer_from(
+            &env.current_contract_address(),
+            &buyer,
+            &env.current_contract_address(),
+            &amount,
+        );
+        let session = TokenSession {
+            buyer: buyer.clone(),
+            seller,
+            amount,
+            token: token_address,
+            status: SessionStatus::Locked,
+            created_at: env.ledger().sequence(),
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::TokenSession(session_id.clone()), &session);
+        env.events()
+            .publish((symbol_short!("TokLock"),), (buyer, session_id, amount));
+    }
+
+    /// Approves a token session: pays seller, fee to treasury.
+    pub fn approve_token_session(env: Env, session_id: Bytes) {
+        let mut session: TokenSession = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TokenSession(session_id.clone()))
+            .expect("token session not found");
+        assert!(session.status == SessionStatus::Locked, "not locked");
+        session.buyer.require_auth();
+        let fee_bps: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PlatformFeeBps)
+            .unwrap_or(0);
+        let fee = session.amount * fee_bps as i128 / 10_000;
+        let payout = session.amount - fee;
+        let token = token::TokenClient::new(&env, &session.token);
+        token.transfer(&env.current_contract_address(), &session.seller, &payout);
+        if fee > 0 {
+            let treasury: Address = env
+                .storage()
+                .persistent()
+                .get(&DataKey::Treasury)
+                .expect("treasury not set");
+            token.transfer(&env.current_contract_address(), &treasury, &fee);
+        }
+        session.status = SessionStatus::Approved;
+        env.storage()
+            .persistent()
+            .set(&DataKey::TokenSession(session_id.clone()), &session);
+        env.events()
+            .publish((symbol_short!("TokApprv"),), session_id);
+    }
+
+    /// Returns a token session by ID.
+    pub fn get_token_session(env: Env, session_id: Bytes) -> TokenSession {
+        env.storage()
+            .persistent()
+            .get(&DataKey::TokenSession(session_id))
+            .expect("token session not found")
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -328,5 +498,61 @@ mod tests {
         let session_id = Bytes::from_slice(&env, &[4u8; 32]);
         client.lock_funds(&session_id, &seller, &100);
         client.lock_funds(&session_id, &seller, &200);
+    }
+
+    // ── Issue #793 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_lock_funds_with_token_stores_session() {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[10u8; 32]);
+        let token_address = Address::generate(&env);
+        client.lock_funds_with_token(&session_id, &buyer, &seller, &1000, &token_address);
+        let ts = client.get_token_session(&session_id);
+        assert_eq!(ts.amount, 1000);
+        assert_eq!(ts.buyer, buyer);
+        assert_eq!(ts.seller, seller);
+        assert_eq!(ts.token, token_address);
+        assert_eq!(ts.status, SessionStatus::Locked);
+    }
+
+    #[test]
+    #[should_panic(expected = "DuplicateSessionId")]
+    fn test_lock_funds_with_token_duplicate() {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[11u8; 32]);
+        let token_address = Address::generate(&env);
+        client.lock_funds_with_token(&session_id, &buyer, &seller, &500, &token_address);
+        client.lock_funds_with_token(&session_id, &buyer, &seller, &500, &token_address);
+    }
+
+    // ── Issue #801 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_session_has_deadline_field() {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        let seller = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[10u8; 32]);
+        client.lock_funds(&session_id, &seller, &1000);
+        let s = client.get_session(&session_id);
+        assert_eq!(s.deadline, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid extension")]
+    fn test_extension_exceeds_max() {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        let seller = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[11u8; 32]);
+        client.lock_funds(&session_id, &seller, &1000);
+        client.propose_extension(&session_id, &10_001);
     }
 }
