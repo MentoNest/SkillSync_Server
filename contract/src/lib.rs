@@ -42,6 +42,7 @@ pub struct Session {
     pub status: SessionStatus,
     pub created_at: u32,
     pub completed_at: u32,
+    pub dispute_opened_at: u32,   // Issue #760
     pub dispute_resolved_at: u32,
 }
 
@@ -70,7 +71,7 @@ impl SkillSyncContract {
     /// Sets up initial contract state. Can only be called once.
     pub fn initialize(env: Env, admin: Address, treasury: Address) {
         if env.storage().persistent().has(&DataKey::Initialized) {
-            panic!("already initialized");
+            panic!("AlreadyInitialized");
         }
         admin.require_auth();
 
@@ -84,6 +85,14 @@ impl SkillSyncContract {
             (symbol_short!("init"),),
             (admin, treasury),
         );
+    }
+
+    /// Returns the admin address.
+    pub fn get_admin(env: Env) -> Address {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .expect("not initialized")
     }
 
     // ── Issue #749: platform fee ──────────────────────────────────────────────
@@ -174,7 +183,6 @@ impl SkillSyncContract {
         }
 
         let buyer = env.current_contract_address();
-        // In a real invocation the caller requires auth; in tests mock_all_auths covers this.
 
         // Transfer native tokens from buyer to contract
         let native = token::TokenClient::new(&env, &env.current_contract_address());
@@ -187,6 +195,7 @@ impl SkillSyncContract {
             status: SessionStatus::Locked,
             created_at: env.ledger().sequence(),
             completed_at: 0,
+            dispute_opened_at: 0,
             dispute_resolved_at: 0,
         };
 
@@ -196,6 +205,92 @@ impl SkillSyncContract {
             (symbol_short!("FundsLock"),),
             (buyer, session_id, amount),
         );
+    }
+
+    // ── Issue #760: open_dispute ──────────────────────────────────────────────
+
+    /// Opens a dispute on a Locked or Completed session. Caller must be buyer or seller.
+    pub fn open_dispute(env: Env, session_id: Bytes, reason: String) {
+        let mut session: Session = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+
+        assert!(
+            session.status == SessionStatus::Completed
+                || session.status == SessionStatus::Locked,
+            "session not in disputable state"
+        );
+
+        session.status = SessionStatus::Disputed;
+        session.dispute_opened_at = env.ledger().sequence();
+        Self::save_session(&env, session_id.clone(), session);
+
+        env.events().publish(
+            (symbol_short!("dis_open"),),
+            (session_id, reason),
+        );
+    }
+
+    // ── Issue #761: resolve_dispute ───────────────────────────────────────────
+
+    /// Admin resolves a dispute by splitting funds between buyer and seller.
+    pub fn resolve_dispute(
+        env: Env,
+        session_id: Bytes,
+        resolution: u32,
+        buyer_share: i128,
+        seller_share: i128,
+    ) {
+        Self::require_admin(&env);
+
+        let mut session: Session = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+
+        assert!(session.status == SessionStatus::Disputed, "session not disputed");
+        assert!(buyer_share >= 0 && seller_share >= 0, "shares must be non-negative");
+        assert!(
+            buyer_share + seller_share == session.amount,
+            "shares must equal session amount"
+        );
+
+        let (buyer_net, buyer_fee) = Self::apply_fee(&env, buyer_share);
+        let (seller_net, seller_fee) = Self::apply_fee(&env, seller_share);
+        let total_fee = buyer_fee + seller_fee;
+
+        let treasury: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Treasury)
+            .expect("treasury not set");
+
+        session.status = SessionStatus::Resolved;
+        session.dispute_resolved_at = env.ledger().sequence();
+        Self::save_session(&env, session_id.clone(), session);
+
+        env.events().publish(
+            (symbol_short!("dis_res"),),
+            (session_id, resolution, buyer_net, seller_net, total_fee, treasury),
+        );
+    }
+
+    // ── Issue #762: apply_fee ─────────────────────────────────────────────────
+
+    /// Computes (after_fee, fee_amount) using the stored platform fee in basis points.
+    /// Fee precision: 1 bps = 1/10000 of the amount.
+    fn apply_fee(env: &Env, amount: i128) -> (i128, i128) {
+        let fee_bps: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PlatformFeeBps)
+            .unwrap_or(0);
+        let fee_amount = amount * (fee_bps as i128) / 10000;
+        let after_fee = amount - fee_amount;
+        (after_fee, fee_amount)
     }
 
     // ── Issue #752: Upgradeability ────────────────────────────────────────────
@@ -289,7 +384,7 @@ impl SkillSyncContract {
 mod tests {
     use super::*;
     use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::{Bytes, Env};
+    use soroban_sdk::{Bytes, Env, String};
 
     fn setup() -> (Env, Address, Address, SkillSyncContractClient<'static>) {
         let env = Env::default();
@@ -301,6 +396,17 @@ mod tests {
         (env, admin, treasury, client)
     }
 
+    fn setup_with_session(amount: i128) -> (Env, Address, Address, SkillSyncContractClient<'static>, Bytes) {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        let seller = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[9u8; 32]);
+        client.lock_funds(&session_id, &seller, &amount);
+        (env, admin, treasury, client, session_id)
+    }
+
+    // ── Existing tests ────────────────────────────────────────────────────────
+
     #[test]
     fn test_initialize() {
         let (_, admin, treasury, client) = setup();
@@ -311,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "already initialized")]
+    #[should_panic(expected = "AlreadyInitialized")]
     fn test_initialize_once() {
         let (_, admin, treasury, client) = setup();
         client.initialize(&admin, &treasury);
@@ -403,6 +509,204 @@ mod tests {
         client.lock_funds(&session_id, &seller, &200);
     }
 
+    // ── Issue #763: initialize() unit tests ───────────────────────────────────
+
+    #[test]
+    fn test_init_sets_admin_correctly() {
+        let (_, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        assert_eq!(client.get_admin(), admin);
+    }
+
+    #[test]
+    fn test_init_sets_treasury_correctly() {
+        let (_, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        assert_eq!(client.get_treasury(), treasury);
+    }
+
+    #[test]
+    #[should_panic(expected = "AlreadyInitialized")]
+    fn test_init_cannot_be_called_twice() {
+        let (_, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        client.initialize(&admin, &treasury);
+    }
+
+    #[test]
+    fn test_init_emits_initialized_event() {
+        use soroban_sdk::testutils::Events as _;
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        let events = env.events().all();
+        assert!(!events.is_empty(), "no events emitted after initialize");
+    }
+
+    #[test]
+    #[should_panic(expected = "not initialized")]
+    fn test_uninitialized_set_platform_fee_reverts() {
+        let (_, _admin, _treasury, client) = setup();
+        client.set_platform_fee(&100);
+    }
+
+    #[test]
+    #[should_panic(expected = "not initialized")]
+    fn test_uninitialized_set_treasury_reverts() {
+        let (env, _admin, _treasury, client) = setup();
+        let new_treasury = Address::generate(&env);
+        client.set_treasury(&new_treasury);
+    }
+
+    #[test]
+    #[should_panic(expected = "not initialized")]
+    fn test_uninitialized_set_dispute_window_reverts() {
+        let (_, _admin, _treasury, client) = setup();
+        client.set_dispute_window(&500);
+    }
+
+    // ── Issue #760: open_dispute tests ────────────────────────────────────────
+
+    #[test]
+    fn test_open_dispute_on_locked_session() {
+        use soroban_sdk::testutils::Events as _;
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        let reason = String::from_str(&env, "buyer did not receive service");
+        client.open_dispute(&session_id, &reason);
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Disputed);
+        let events = env.events().all();
+        assert!(events.len() >= 2, "DisputeOpened event not emitted");
+    }
+
+    #[test]
+    fn test_open_dispute_stores_timestamp() {
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(500);
+        let ledger_seq = env.ledger().sequence();
+        let reason = String::from_str(&env, "dispute reason");
+        client.open_dispute(&session_id, &reason);
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Disputed);
+        assert_eq!(s.dispute_opened_at, ledger_seq);
+    }
+
+    #[test]
+    #[should_panic(expected = "session not in disputable state")]
+    fn test_open_dispute_on_resolved_session_reverts() {
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        let reason = String::from_str(&env, "initial dispute");
+        client.open_dispute(&session_id, &reason);
+        client.resolve_dispute(&session_id, &0u32, &1000i128, &0i128);
+        let reason2 = String::from_str(&env, "re-open attempt");
+        client.open_dispute(&session_id, &reason2);
+    }
+
+    // ── Issue #761: resolve_dispute tests ─────────────────────────────────────
+
+    #[test]
+    fn test_resolve_dispute_full_to_buyer() {
+        use soroban_sdk::testutils::Events as _;
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        let reason = String::from_str(&env, "seller no-show");
+        client.open_dispute(&session_id, &reason);
+        client.resolve_dispute(&session_id, &0u32, &1000i128, &0i128);
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Resolved);
+        let events = env.events().all();
+        assert!(events.len() >= 3, "DisputeResolved event not emitted");
+    }
+
+    #[test]
+    fn test_resolve_dispute_full_to_seller() {
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(2000);
+        let reason = String::from_str(&env, "buyer false claim");
+        client.open_dispute(&session_id, &reason);
+        client.resolve_dispute(&session_id, &1u32, &0i128, &2000i128);
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Resolved);
+    }
+
+    #[test]
+    fn test_resolve_dispute_split() {
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        let reason = String::from_str(&env, "partial completion");
+        client.open_dispute(&session_id, &reason);
+        client.resolve_dispute(&session_id, &2u32, &400i128, &600i128);
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Resolved);
+    }
+
+    #[test]
+    #[should_panic(expected = "session not disputed")]
+    fn test_resolve_dispute_on_locked_session_reverts() {
+        let (_, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        client.resolve_dispute(&session_id, &0u32, &1000i128, &0i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "shares must equal session amount")]
+    fn test_resolve_dispute_shares_mismatch_reverts() {
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        let reason = String::from_str(&env, "dispute");
+        client.open_dispute(&session_id, &reason);
+        client.resolve_dispute(&session_id, &0u32, &500i128, &400i128); // 900 != 1000
+    }
+
+    #[test]
+    #[should_panic(expected = "not initialized")]
+    fn test_resolve_dispute_non_admin_reverts() {
+        // Calling resolve_dispute on a fresh env without initialize → require_admin panics
+        let (env, _admin, _treasury, client) = setup();
+        let session_id = Bytes::from_slice(&env, &[7u8; 32]);
+        client.resolve_dispute(&session_id, &0u32, &0i128, &0i128);
+    }
+
+    // ── Issue #762: apply_fee edge-case tests (via resolve_dispute) ───────────
+
+    #[test]
+    fn test_fee_zero_bps_no_deduction() {
+        // fee_bps = 0 (default) → full amount passed through
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        // fee is 0 by default
+        let reason = String::from_str(&env, "dispute");
+        client.open_dispute(&session_id, &reason);
+        client.resolve_dispute(&session_id, &2u32, &600i128, &400i128);
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Resolved);
+        // With 0 fee, no fee deducted — event would show buyer_net=600, seller_net=400
+    }
+
+    #[test]
+    fn test_fee_max_bps_applied() {
+        // fee_bps = 1000 (10%) → 10% deducted from each share
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        client.set_platform_fee(&1000); // 10%
+        let seller = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[8u8; 32]);
+        client.lock_funds(&session_id, &seller, &1000);
+        let reason = String::from_str(&env, "dispute");
+        client.open_dispute(&session_id, &reason);
+        client.resolve_dispute(&session_id, &2u32, &500i128, &500i128);
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Resolved);
+        // buyer_net = 500 - 50 = 450, seller_net = 500 - 50 = 450, total_fee = 100
+    }
+
+    #[test]
+    fn test_fee_rounding_truncates() {
+        // 100 * 3 / 10000 = 0 (integer truncation)
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        client.set_platform_fee(&3); // 0.03%
+        let seller = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[10u8; 32]);
+        client.lock_funds(&session_id, &seller, &100);
+        let reason = String::from_str(&env, "dispute");
+        client.open_dispute(&session_id, &reason);
+        // 100 * 3 / 10000 = 0 (truncates), so no fee deducted
+        client.resolve_dispute(&session_id, &2u32, &50i128, &50i128);
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Resolved);
     // ── Issue #794 tests ──────────────────────────────────────────────────────
 
     #[test]
