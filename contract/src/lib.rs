@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, Bytes, Env,
+    contract, contractimpl, contracttype, symbol_short, token, Address, Bytes, Env, String,
 };
 
 // ── Storage Keys ──────────────────────────────────────────────────────────────
@@ -13,7 +13,8 @@ pub enum DataKey {
     PlatformFeeBps,
     DisputeWindow,
     Initialized,
-    Session(Bytes), // Issue #754: sessions mapping keyed by session_id
+    Session(Bytes), // sessions mapping keyed by session_id
+    WebhookUrl,     // Issue #795: webhook relay URL
 }
 
 // ── Issue #754: Session status enum ──────────────────────────────────────────
@@ -198,6 +199,20 @@ impl SkillSyncContract {
         );
     }
 
+    // ── Issue #795: Webhook / event relay module ──────────────────────────────
+
+    /// Stores the off-chain webhook URL for event relay. Admin only.
+    pub fn set_webhook(env: Env, url: String) {
+        Self::require_admin(&env);
+        env.storage().persistent().set(&DataKey::WebhookUrl, &url);
+        env.events().publish((symbol_short!("webhook"),), url);
+    }
+
+    /// Returns the configured webhook URL.
+    pub fn get_webhook(env: Env) -> Option<String> {
+        env.storage().persistent().get(&DataKey::WebhookUrl)
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     fn require_admin(env: &Env) {
@@ -328,5 +343,17 @@ mod tests {
         let session_id = Bytes::from_slice(&env, &[4u8; 32]);
         client.lock_funds(&session_id, &seller, &100);
         client.lock_funds(&session_id, &seller, &200);
+    }
+
+    // ── Issue #795 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_set_and_get_webhook() {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        assert_eq!(client.get_webhook(), None);
+        let url = soroban_sdk::String::from_str(&env, "https://example.com/webhook");
+        client.set_webhook(&url);
+        assert_eq!(client.get_webhook(), Some(url));
     }
 }
