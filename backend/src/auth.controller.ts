@@ -1,4 +1,11 @@
 import { Body, Controller, Get, HttpException, HttpStatus, Param, Post } from '@nestjs/common';
+import {
+  ApiBody,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { randomBytes } from 'crypto';
 import { Keypair, Networks, StrKey } from 'stellar-sdk';
 import { RedisService } from './redis/redis.service';
@@ -8,6 +15,7 @@ import { UserService } from './auth/user.service';
 import { LoginAttemptService } from './auth/login-attempt.service';
 import { AuditLogService } from './auth/audit-log.service';
 
+@ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -19,6 +27,27 @@ export class AuthController {
   ) {}
 
   @Get('nonce/:walletAddress')
+  @ApiOperation({
+    summary: 'Request a sign-in nonce',
+    description:
+      'Generates a one-time nonce for the given Stellar wallet address. ' +
+      'The wallet owner must sign the nonce with their private key within 5 minutes.',
+  })
+  @ApiParam({ name: 'walletAddress', description: 'Stellar ED25519 public key (56 chars, starts with G)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Nonce generated successfully',
+    schema: {
+      type: 'object',
+      required: ['nonce', 'expiresAt'],
+      properties: {
+        nonce: { type: 'string', example: 'a3f8...', description: '64-char hex nonce' },
+        expiresAt: { type: 'string', format: 'date-time', description: 'ISO-8601 expiry timestamp' },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Invalid Stellar wallet address' })
+  @ApiResponse({ status: 429, description: 'Rate limit exceeded (5 requests/min)' })
   async getNonce(@Param('walletAddress') walletAddress: string) {
     if (!StrKey.isValidEd25519PublicKey(walletAddress)) {
       throw new HttpException('Invalid Stellar wallet address', HttpStatus.BAD_REQUEST);
@@ -35,6 +64,37 @@ export class AuthController {
   }
 
   @Post('login')
+  @ApiOperation({
+    summary: 'Authenticate with Stellar wallet signature',
+    description:
+      'Verifies the Stellar signature over the nonce and issues JWT access and refresh tokens.',
+  })
+  @ApiBody({ type: LoginDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Authentication successful',
+    schema: {
+      type: 'object',
+      required: ['accessToken', 'refreshToken', 'user'],
+      properties: {
+        accessToken: { type: 'string', description: 'Short-lived JWT access token (15 min)' },
+        refreshToken: { type: 'string', description: 'Long-lived JWT refresh token (7 days)' },
+        user: {
+          type: 'object',
+          required: ['id', 'wallet', 'roles', 'permissions'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            wallet: { type: 'string', description: 'Stellar public key' },
+            roles: { type: 'array', items: { type: 'string' } },
+            permissions: { type: 'array', items: { type: 'string' } },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Invalid wallet address or network' })
+  @ApiResponse({ status: 401, description: 'Nonce expired or invalid signature' })
+  @ApiResponse({ status: 429, description: 'Too many login attempts' })
   async login(@Body() dto: LoginDto) {
     if (!StrKey.isValidEd25519PublicKey(dto.wallet)) {
       throw new HttpException('Invalid Stellar wallet address', HttpStatus.BAD_REQUEST);
