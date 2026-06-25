@@ -14,6 +14,7 @@ pub enum DataKey {
     DisputeWindow,
     Initialized,
     Session(Bytes), // Issue #754: sessions mapping keyed by session_id
+    Role(Bytes, Address), // Issue #798: RBAC role storage
 }
 
 // ── Issue #754: Session status enum ──────────────────────────────────────────
@@ -41,6 +42,21 @@ pub struct Session {
     pub created_at: u32,
     pub completed_at: u32,
     pub dispute_resolved_at: u32,
+}
+
+// ── Issue #798: Role constants ────────────────────────────────────────────────
+
+pub fn default_admin_role(env: &Env) -> Bytes {
+    Bytes::from_slice(env, b"DEFAULT_ADMIN_ROLE")
+}
+pub fn fee_manager_role(env: &Env) -> Bytes {
+    Bytes::from_slice(env, b"FEE_MANAGER_ROLE")
+}
+pub fn dispute_resolver_role(env: &Env) -> Bytes {
+    Bytes::from_slice(env, b"DISPUTE_RESOLVER_ROLE")
+}
+pub fn upgrader_role(env: &Env) -> Bytes {
+    Bytes::from_slice(env, b"UPGRADER_ROLE")
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────────
@@ -198,6 +214,30 @@ impl SkillSyncContract {
         );
     }
 
+    // ── Issue #798: RBAC module ───────────────────────────────────────────────
+
+    /// Grants a role to an account. Admin only.
+    pub fn grant_role(env: Env, role: Bytes, account: Address) {
+        Self::require_admin(&env);
+        env.storage().persistent().set(&DataKey::Role(role.clone(), account.clone()), &true);
+        env.events().publish((symbol_short!("RoleGrant"),), (role, account));
+    }
+
+    /// Revokes a role from an account. Admin only.
+    pub fn revoke_role(env: Env, role: Bytes, account: Address) {
+        Self::require_admin(&env);
+        env.storage().persistent().set(&DataKey::Role(role.clone(), account.clone()), &false);
+        env.events().publish((symbol_short!("RoleRevok"),), (role, account));
+    }
+
+    /// Returns true if account has the given role.
+    pub fn has_role(env: Env, role: Bytes, account: Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Role(role, account))
+            .unwrap_or(false)
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     fn require_admin(env: &Env) {
@@ -328,5 +368,39 @@ mod tests {
         let session_id = Bytes::from_slice(&env, &[4u8; 32]);
         client.lock_funds(&session_id, &seller, &100);
         client.lock_funds(&session_id, &seller, &200);
+    }
+
+    // ── Issue #798 RBAC tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_grant_and_has_role() {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        let user = Address::generate(&env);
+        let role = fee_manager_role(&env);
+        assert!(!client.has_role(&role, &user));
+        client.grant_role(&role, &user);
+        assert!(client.has_role(&role, &user));
+    }
+
+    #[test]
+    fn test_revoke_role() {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        let user = Address::generate(&env);
+        let role = dispute_resolver_role(&env);
+        client.grant_role(&role, &user);
+        assert!(client.has_role(&role, &user));
+        client.revoke_role(&role, &user);
+        assert!(!client.has_role(&role, &user));
+    }
+
+    #[test]
+    fn test_role_constants() {
+        let env = Env::default();
+        assert_eq!(default_admin_role(&env), Bytes::from_slice(&env, b"DEFAULT_ADMIN_ROLE"));
+        assert_eq!(fee_manager_role(&env), Bytes::from_slice(&env, b"FEE_MANAGER_ROLE"));
+        assert_eq!(dispute_resolver_role(&env), Bytes::from_slice(&env, b"DISPUTE_RESOLVER_ROLE"));
+        assert_eq!(upgrader_role(&env), Bytes::from_slice(&env, b"UPGRADER_ROLE"));
     }
 }
