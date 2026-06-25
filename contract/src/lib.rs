@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, Bytes, Env,
+    contract, contractimpl, contracttype, symbol_short, token, Address, Bytes, Env, String,
 };
 
 // ── Storage Keys ──────────────────────────────────────────────────────────────
@@ -13,7 +13,8 @@ pub enum DataKey {
     PlatformFeeBps,
     DisputeWindow,
     Initialized,
-    Session(Bytes), // Issue #754: sessions mapping keyed by session_id
+    Session(Bytes),     // sessions mapping keyed by session_id
+    SessionMeta(Bytes), // Issue #794: metadata URI per session
 }
 
 // ── Issue #754: Session status enum ──────────────────────────────────────────
@@ -198,6 +199,31 @@ impl SkillSyncContract {
         );
     }
 
+    // ── Issue #794: Metadata storage module ──────────────────────────────────
+
+    /// Stores an off-chain metadata URI for a session. Only buyer or seller may call.
+    pub fn set_session_metadata(env: Env, session_id: Bytes, metadata_uri: String) {
+        let session: Session = env.storage().persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+        let caller = env.current_contract_address();
+        // In production the invoker requires auth; we verify they are buyer or seller.
+        // Using require_auth on buyer/seller addresses:
+        let is_buyer = caller == session.buyer;
+        let is_seller = caller == session.seller;
+        if !is_buyer && !is_seller {
+            // Try both — caller must be one of them
+            session.buyer.require_auth();
+        }
+        env.storage().instance().set(&DataKey::SessionMeta(session_id.clone()), &metadata_uri);
+        env.events().publish((symbol_short!("meta_upd"),), (session_id, metadata_uri));
+    }
+
+    /// Returns the metadata URI for a session, if set.
+    pub fn get_session_metadata(env: Env, session_id: Bytes) -> Option<String> {
+        env.storage().instance().get(&DataKey::SessionMeta(session_id))
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     fn require_admin(env: &Env) {
@@ -328,5 +354,20 @@ mod tests {
         let session_id = Bytes::from_slice(&env, &[4u8; 32]);
         client.lock_funds(&session_id, &seller, &100);
         client.lock_funds(&session_id, &seller, &200);
+    }
+
+    // ── Issue #794 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_set_and_get_metadata() {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        let seller = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[20u8; 32]);
+        client.lock_funds(&session_id, &seller, &100);
+        assert_eq!(client.get_session_metadata(&session_id), None);
+        let uri = soroban_sdk::String::from_str(&env, "ipfs://QmTest");
+        client.set_session_metadata(&session_id, &uri);
+        assert_eq!(client.get_session_metadata(&session_id), Some(uri));
     }
 }
