@@ -14,6 +14,7 @@ pub enum DataKey {
     DisputeWindow,
     Initialized,
     Session(Bytes), // Issue #754: sessions mapping keyed by session_id
+    Paused,         // Issue #799: emergency pause flag
 }
 
 // ── Issue #754: Session status enum ──────────────────────────────────────────
@@ -75,6 +76,7 @@ impl SkillSyncContract {
 
     /// Sets the platform fee in basis points (0–1000). Admin only.
     pub fn set_platform_fee(env: Env, new_fee_bps: u32) {
+        Self::require_not_paused(&env);
         Self::require_admin(&env);
         assert!(new_fee_bps <= 1000, "fee exceeds 10%");
         env.storage().persistent().set(&DataKey::PlatformFeeBps, &new_fee_bps);
@@ -96,6 +98,7 @@ impl SkillSyncContract {
 
     /// Updates the treasury wallet address. Admin only.
     pub fn set_treasury(env: Env, new_treasury: Address) {
+        Self::require_not_paused(&env);
         Self::require_admin(&env);
         env.storage().persistent().set(&DataKey::Treasury, &new_treasury);
         env.events().publish(
@@ -116,6 +119,7 @@ impl SkillSyncContract {
 
     /// Sets the dispute resolution window in ledgers. Admin only.
     pub fn set_dispute_window(env: Env, window_ledgers: u32) {
+        Self::require_not_paused(&env);
         Self::require_admin(&env);
         env.storage().persistent().set(&DataKey::DisputeWindow, &window_ledgers);
         env.events().publish(
@@ -151,6 +155,7 @@ impl SkillSyncContract {
 
     /// Locks funds into a new escrow session. Reverts if session ID already exists.
     pub fn lock_funds(env: Env, session_id: Bytes, seller: Address, amount: i128) {
+        Self::require_not_paused(&env);
         assert!(amount > 0, "amount must be > 0");
 
         // Issue #755: prevent duplicate session IDs
@@ -187,6 +192,7 @@ impl SkillSyncContract {
 
     /// Upgrades the contract WASM. Admin only.
     pub fn upgrade(env: Env, new_wasm_hash: Bytes) {
+        Self::require_not_paused(&env);
         Self::require_admin(&env);
         let hash: soroban_sdk::BytesN<32> = new_wasm_hash
             .try_into()
@@ -198,7 +204,38 @@ impl SkillSyncContract {
         );
     }
 
+    // ── Issue #799: Emergency pause module ───────────────────────────────────
+
+    /// Pauses the contract. Admin only.
+    pub fn pause(env: Env) {
+        Self::require_admin(&env);
+        env.storage().persistent().set(&DataKey::Paused, &true);
+        env.events().publish((symbol_short!("Paused"),), ());
+    }
+
+    /// Unpauses the contract. Admin only.
+    pub fn unpause(env: Env) {
+        Self::require_admin(&env);
+        env.storage().persistent().set(&DataKey::Paused, &false);
+        env.events().publish((symbol_short!("Unpaused"),), ());
+    }
+
+    /// Returns true if the contract is paused.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    fn require_not_paused(env: &Env) {
+        let paused: bool = env.storage().persistent().get(&DataKey::Paused).unwrap_or(false);
+        if paused {
+            panic!("ContractPaused");
+        }
+    }
 
     fn require_admin(env: &Env) {
         let admin: Address = env
@@ -328,5 +365,45 @@ mod tests {
         let session_id = Bytes::from_slice(&env, &[4u8; 32]);
         client.lock_funds(&session_id, &seller, &100);
         client.lock_funds(&session_id, &seller, &200);
+    }
+
+    // ── Issue #799 Emergency Pause tests ─────────────────────────────────────
+
+    #[test]
+    fn test_pause_and_unpause() {
+        let (_, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        assert!(!client.is_paused());
+        client.pause();
+        assert!(client.is_paused());
+        client.unpause();
+        assert!(!client.is_paused());
+    }
+
+    #[test]
+    #[should_panic(expected = "ContractPaused")]
+    fn test_lock_funds_when_paused() {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        client.pause();
+        let seller = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[5u8; 32]);
+        client.lock_funds(&session_id, &seller, &100);
+    }
+
+    #[test]
+    fn test_get_session_not_paused_check() {
+        // View functions remain callable when paused
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        let seller = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[6u8; 32]);
+        client.lock_funds(&session_id, &seller, &100);
+        client.pause();
+        // get_session should still work when paused
+        let s = client.get_session(&session_id);
+        assert_eq!(s.amount, 100);
+        assert_eq!(client.get_platform_fee(), 0);
+        assert_eq!(client.get_dispute_window(), 1000);
     }
 }
