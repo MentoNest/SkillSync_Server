@@ -9,6 +9,7 @@ import { ShutdownService } from './shutdown/shutdown.service';
 
 const SHUTDOWN_TIMEOUT_MS = 30_000;
 const logger = new Logger('Bootstrap');
+import { setupSwagger } from './swagger/swagger.setup';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -28,6 +29,10 @@ async function bootstrap() {
 
   // Enable NestJS lifecycle shutdown hooks (OnModuleDestroy, etc.)
   app.enableShutdownHooks();
+  // OpenAPI / Swagger UI (disabled in production via env flag)
+  if (process.env.SWAGGER_ENABLED !== 'false') {
+    setupSwagger(app);
+  }
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
