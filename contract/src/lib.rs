@@ -13,7 +13,11 @@ pub enum DataKey {
     PlatformFeeBps,
     DisputeWindow,
     Initialized,
-    Session(Bytes), // Issue #754: sessions mapping keyed by session_id
+    Session(Bytes),            // sessions mapping keyed by session_id
+    RateLimitMax,              // Issue #805: max sessions per window
+    RateLimitWindow,           // Issue #805: window size in ledgers
+    UserSessionCount(Address), // Issue #805: (count, window_start) per address
+    RateWhitelist(Address),    // Issue #805: whitelisted addresses
 }
 
 // ── Issue #754: Session status enum ──────────────────────────────────────────
@@ -159,7 +163,30 @@ impl SkillSyncContract {
         }
 
         let buyer = env.current_contract_address();
-        // In a real invocation the caller requires auth; in tests mock_all_auths covers this.
+
+        // Issue #805: rate limiting check
+        let whitelisted: bool = env.storage().persistent()
+            .get(&DataKey::RateWhitelist(buyer.clone()))
+            .unwrap_or(false);
+        if !whitelisted {
+            if let Some(max) = env.storage().persistent().get::<DataKey, u32>(&DataKey::RateLimitMax) {
+                let window: u32 = env.storage().persistent().get(&DataKey::RateLimitWindow).unwrap_or(1000);
+                let now = env.ledger().sequence();
+                let (count, win_start): (u32, u32) = env.storage().persistent()
+                    .get(&DataKey::UserSessionCount(buyer.clone()))
+                    .unwrap_or((0, now));
+                let (new_count, new_start) = if now >= win_start + window {
+                    (1, now) // new window
+                } else {
+                    (count + 1, win_start)
+                };
+                if new_count > max {
+                    env.events().publish((symbol_short!("rate_hit"),), buyer.clone());
+                    panic!("RateLimitExceeded");
+                }
+                env.storage().persistent().set(&DataKey::UserSessionCount(buyer.clone()), &(new_count, new_start));
+            }
+        }
 
         // Transfer native tokens from buyer to contract
         let native = token::TokenClient::new(&env, &env.current_contract_address());
@@ -196,6 +223,21 @@ impl SkillSyncContract {
             (symbol_short!("upgraded"),),
             hash,
         );
+    }
+
+    // ── Issue #805: Rate limiting per address ─────────────────────────────────
+
+    /// Sets rate limit: max sessions per address per window. Admin only.
+    pub fn set_rate_limit(env: Env, max_sessions: u32, window_ledgers: u32) {
+        Self::require_admin(&env);
+        env.storage().persistent().set(&DataKey::RateLimitMax, &max_sessions);
+        env.storage().persistent().set(&DataKey::RateLimitWindow, &window_ledgers);
+    }
+
+    /// Whitelists an address, exempting it from rate limits. Admin only.
+    pub fn whitelist_address(env: Env, address: Address) {
+        Self::require_admin(&env);
+        env.storage().persistent().set(&DataKey::RateWhitelist(address), &true);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
