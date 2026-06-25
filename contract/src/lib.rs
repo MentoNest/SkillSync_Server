@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, Bytes, Env,
+    contract, contractimpl, contracttype, symbol_short, token, Address, Bytes, BytesN, Env,
 };
 
 // ── Storage Keys ──────────────────────────────────────────────────────────────
@@ -13,7 +13,8 @@ pub enum DataKey {
     PlatformFeeBps,
     DisputeWindow,
     Initialized,
-    Session(Bytes), // Issue #754: sessions mapping keyed by session_id
+    Session(Bytes),    // sessions mapping keyed by session_id
+    Nonce(Address),    // Issue #803: per-address nonce for replay prevention
 }
 
 // ── Issue #754: Session status enum ──────────────────────────────────────────
@@ -196,6 +197,51 @@ impl SkillSyncContract {
             (symbol_short!("upgraded"),),
             hash,
         );
+    }
+
+    // ── Issue #803: Signature verification module ─────────────────────────────
+
+    /// Returns current nonce for an address (for off-chain signing).
+    pub fn get_nonce(env: Env, address: Address) -> u64 {
+        env.storage().persistent().get(&DataKey::Nonce(address)).unwrap_or(0)
+    }
+
+    /// Approves a session using off-chain ed25519 signatures from buyer and seller.
+    /// Message signed by each party: sha256(session_id || nonce)
+    pub fn approve_with_signature(
+        env: Env,
+        session_id: Bytes,
+        buyer_pubkey: BytesN<32>,
+        buyer_sig: BytesN<64>,
+        seller_pubkey: BytesN<32>,
+        seller_sig: BytesN<64>,
+    ) {
+        let session: Session = env.storage().persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+        assert!(session.status == SessionStatus::Locked, "InvalidSessionState");
+
+        // Build message: session_id bytes + buyer nonce
+        let buyer_nonce: u64 = env.storage().persistent()
+            .get(&DataKey::Nonce(session.buyer.clone()))
+            .unwrap_or(0);
+        let seller_nonce: u64 = env.storage().persistent()
+            .get(&DataKey::Nonce(session.seller.clone()))
+            .unwrap_or(0);
+
+        let mut buyer_msg = session_id.clone();
+        buyer_msg.extend_from_array(&buyer_nonce.to_be_bytes());
+        let mut seller_msg = session_id.clone();
+        seller_msg.extend_from_array(&seller_nonce.to_be_bytes());
+
+        env.crypto().ed25519_verify(&buyer_pubkey, &buyer_msg, &buyer_sig);
+        env.crypto().ed25519_verify(&seller_pubkey, &seller_msg, &seller_sig);
+
+        // Increment nonces
+        env.storage().persistent().set(&DataKey::Nonce(session.buyer.clone()), &(buyer_nonce + 1));
+        env.storage().persistent().set(&DataKey::Nonce(session.seller.clone()), &(seller_nonce + 1));
+
+        env.events().publish((symbol_short!("off_appr"),), session_id);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
