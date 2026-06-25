@@ -10,6 +10,7 @@ import { AuthModule } from './auth.module';
 
 import { CacheModule } from '@nestjs/cache-manager';
 import cacheConfig from './config/cache.config';
+import { BackupModule } from './backup/backup.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import cacheConfig from './config/cache.config';
     CacheModule.register(cacheConfig),
     RedisModule,
     AuthModule,
+    BackupModule,
   ],
   controllers: [AppController],
   providers: [AppService],
