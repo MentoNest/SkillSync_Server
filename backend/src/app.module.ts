@@ -10,12 +10,14 @@ import { AuthModule } from './auth.module';
 
 import { CacheModule } from '@nestjs/cache-manager';
 import cacheConfig from './config/cache.config';
+import { EncryptionModule } from './common/encryption/encryption.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot(typeormConfig),
     CacheModule.register(cacheConfig),
+    EncryptionModule,
     RedisModule,
     AuthModule,
   ],
