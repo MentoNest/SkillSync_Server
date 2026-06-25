@@ -19,8 +19,7 @@ import { Role } from '../users/entities/role.entity';
 import { UserSuspension } from '../users/entities/user-suspension.entity';
 
 @Module({
-  imports: [, UserSuspension]),
-  ],
+  imports: [ConfigModule, TypeOrmModule.forFeature([AuditLog, RefreshToken, User, Role, UserSuspension])],
   controllers: [AuthController, AuditLogsController],
   providers: [
     AuthService,
@@ -31,8 +30,6 @@ import { UserSuspension } from '../users/entities/user-suspension.entity';
     NonceProvider,
     SuspensionService,
   ],
-  exports: [AuthService, AuditLogService, JwtAuthGuard, RolesGuard, SuspensionService
-  ],
-  exports: [AuthService, JwtAuthGuard, RolesGuard],
+  exports: [AuthService, AuditLogService, JwtAuthGuard, RolesGuard, SuspensionService],
 })
 export class AuthModule {}

@@ -41,8 +41,9 @@ export class UsersService implements OnModuleInit {
     const role = await this.roleRepo.findOne({ where: { name: roleName } });
     if (!role) throw new NotFoundException(`Role '${roleName}' not found`);
 
-    if (!user.roles.some((r) => r.name === roleName)) {
-      user.roles = [...user.roles, role];
+    const currentRoles = Array.isArray(user.roles) ? user.roles : [];
+    if (!currentRoles.some((r) => r.name === roleName)) {
+      user.roles = [...currentRoles, role];
       user.tokenVersion += 1;
       await this.userRepo.save(user);
     }
@@ -53,7 +54,8 @@ export class UsersService implements OnModuleInit {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    user.roles = user.roles.filter((r) => r.name !== roleName);
+    const currentRoles = Array.isArray(user.roles) ? user.roles : [];
+    user.roles = currentRoles.filter((r) => r.name !== roleName);
     user.tokenVersion += 1;
     await this.userRepo.save(user);
     return user;

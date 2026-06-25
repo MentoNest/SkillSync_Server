@@ -65,6 +65,23 @@ describe('UsersService - Username Functionality', () => {
     jest.clearAllMocks();
   });
 
+  describe('assignRole', () => {
+    it('should initialize roles and increment tokenVersion when assigning a role to a user without loaded roles', async () => {
+      const user = { id: 'user-1', roles: undefined, tokenVersion: 0 } as Partial<User> as User;
+      const role = { name: AuthRole.MENTOR } as Role;
+
+      mockUserRepo.findOne.mockResolvedValue(user);
+      mockRoleRepo.findOne.mockResolvedValue(role);
+      mockUserRepo.save.mockResolvedValue({ ...user, roles: [role], tokenVersion: 1 } as User);
+
+      const result = await service.assignRole('user-1', AuthRole.MENTOR);
+
+      expect(result.roles).toHaveLength(1);
+      expect(result.tokenVersion).toBe(1);
+      expect(mockUserRepo.save).toHaveBeenCalled();
+    });
+  });
+
   describe('checkUsernameAvailability', () => {
     it('should return available when username is valid and not taken', async () => {
       mockUserRepo.findOne.mockResolvedValue(null);
