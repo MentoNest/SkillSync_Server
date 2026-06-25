@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, Bytes, Env,
+    contract, contractimpl, contracttype, symbol_short, token, Address, Bytes, Env, Vec,
 };
 
 // ── Storage Keys ──────────────────────────────────────────────────────────────
@@ -13,7 +13,11 @@ pub enum DataKey {
     PlatformFeeBps,
     DisputeWindow,
     Initialized,
-    Session(Bytes), // Issue #754: sessions mapping keyed by session_id
+    Session(Bytes),              // sessions mapping keyed by session_id
+    AdminList,                   // Issue #804: list of admin addresses
+    AdminThreshold,              // Issue #804: required signature count
+    Proposal(Bytes),             // Issue #804: proposal data
+    ProposalSigns(Bytes),        // Issue #804: addresses that signed
 }
 
 // ── Issue #754: Session status enum ──────────────────────────────────────────
@@ -41,6 +45,16 @@ pub struct Session {
     pub created_at: u32,
     pub completed_at: u32,
     pub dispute_resolved_at: u32,
+}
+
+// ── Issue #804: Admin proposal struct ────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone)]
+pub struct AdminProposal {
+    pub action_type: u32, // 0=SetFee, 1=SetTreasury, 2=Upgrade, 3=ResolveDispute
+    pub payload: Bytes,
+    pub created_at: u32,
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────────
@@ -198,7 +212,87 @@ impl SkillSyncContract {
         );
     }
 
+    // ── Issue #804: Multi-signature admin module ──────────────────────────────
+
+    /// Sets the multi-sig admin list and threshold. Requires current admin auth.
+    pub fn set_admins(env: Env, admins: Vec<Address>, threshold: u32) {
+        Self::require_admin(&env);
+        assert!(threshold > 0 && threshold <= admins.len() as u32, "invalid threshold");
+        env.storage().persistent().set(&DataKey::AdminList, &admins);
+        env.storage().persistent().set(&DataKey::AdminThreshold, &threshold);
+        env.events().publish((symbol_short!("admins"),), threshold);
+    }
+
+    /// Any admin submits a proposal.
+    pub fn submit_admin_proposal(env: Env, proposal_id: Bytes, action_type: u32, payload: Bytes, proposer: Address) {
+        proposer.require_auth();
+        Self::assert_is_admin(&env, &proposer);
+        assert!(action_type <= 3, "unknown action type");
+        let proposal = AdminProposal {
+            action_type,
+            payload,
+            created_at: env.ledger().sequence(),
+        };
+        env.storage().persistent().set(&DataKey::Proposal(proposal_id.clone()), &proposal);
+        let mut signs: Vec<Address> = Vec::new(&env);
+        signs.push_back(proposer.clone());
+        env.storage().persistent().set(&DataKey::ProposalSigns(proposal_id.clone()), &signs);
+        env.events().publish((symbol_short!("prop_new"),), (proposal_id, proposer));
+    }
+
+    /// An admin signs an existing proposal.
+    pub fn sign_proposal(env: Env, proposal_id: Bytes, signer: Address) {
+        signer.require_auth();
+        Self::assert_is_admin(&env, &signer);
+        let _proposal: AdminProposal = env.storage().persistent()
+            .get(&DataKey::Proposal(proposal_id.clone()))
+            .expect("proposal not found");
+        let mut signs: Vec<Address> = env.storage().persistent()
+            .get(&DataKey::ProposalSigns(proposal_id.clone()))
+            .unwrap_or_else(|| Vec::new(&env));
+        // Check not already signed
+        for i in 0..signs.len() {
+            if signs.get(i).unwrap() == signer { panic!("already signed"); }
+        }
+        signs.push_back(signer.clone());
+        env.storage().persistent().set(&DataKey::ProposalSigns(proposal_id.clone()), &signs);
+        env.events().publish((symbol_short!("prop_sgn"),), (proposal_id, signer));
+    }
+
+    /// Executes a proposal once threshold is met.
+    pub fn execute_proposal(env: Env, proposal_id: Bytes) {
+        let proposal: AdminProposal = env.storage().persistent()
+            .get(&DataKey::Proposal(proposal_id.clone()))
+            .expect("proposal not found");
+        let signs: Vec<Address> = env.storage().persistent()
+            .get(&DataKey::ProposalSigns(proposal_id.clone()))
+            .unwrap_or_else(|| Vec::new(&env));
+        let threshold: u32 = env.storage().persistent().get(&DataKey::AdminThreshold).unwrap_or(1);
+        // Check expiry (10,000 ledgers)
+        assert!(
+            env.ledger().sequence() <= proposal.created_at + 10_000,
+            "proposal expired"
+        );
+        assert!(signs.len() as u32 >= threshold, "insufficient signatures");
+        // Execute based on action type - emit event; actual execution is caller's responsibility
+        env.storage().persistent().remove(&DataKey::Proposal(proposal_id.clone()));
+        env.storage().persistent().remove(&DataKey::ProposalSigns(proposal_id.clone()));
+        env.events().publish((symbol_short!("prop_exe"),), (proposal_id, proposal.action_type));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    fn assert_is_admin(env: &Env, addr: &Address) {
+        if let Some(admins) = env.storage().persistent().get::<DataKey, Vec<Address>>(&DataKey::AdminList) {
+            for i in 0..admins.len() {
+                if admins.get(i).unwrap() == *addr { return; }
+            }
+            panic!("NotAdmin");
+        }
+        // Fallback: single admin mode
+        let admin: Address = env.storage().persistent().get(&DataKey::Admin).expect("not initialized");
+        if admin != *addr { panic!("NotAdmin"); }
+    }
 
     fn require_admin(env: &Env) {
         let admin: Address = env
