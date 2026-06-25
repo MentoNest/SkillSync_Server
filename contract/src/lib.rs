@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, Bytes, Env,
+    contract, contractimpl, contracttype, symbol_short, token, Address, Bytes, Env, String,
 };
 
 // ── Storage Keys ──────────────────────────────────────────────────────────────
@@ -12,9 +12,10 @@ pub enum DataKey {
     Treasury,
     PlatformFeeBps,
     DisputeWindow,
-    Initialized,
-    Session(Bytes),        // sessions mapping keyed by session_id
-    VestingSession(Bytes), // Issue #796: vesting sessions
+    Initialized,    // sessions mapping keyed by session_id
+    SessionMeta(Bytes), // Issue #794: metadata URI per session
+    Session(Bytes),      // sessions mapping keyed by session_id
+    TokenSession(Bytes), // Issue #793: token-based sessions
 }
 
 // ── Issue #754: Session status enum ──────────────────────────────────────────
@@ -44,19 +45,17 @@ pub struct Session {
     pub dispute_resolved_at: u32,
 }
 
-// ── Issue #796: Vesting session struct ───────────────────────────────────────
+// ── Issue #793: Token session struct ─────────────────────────────────────────
 
 #[contracttype]
 #[derive(Clone)]
-pub struct VestingSession {
+pub struct TokenSession {
     pub buyer: Address,
     pub seller: Address,
+    pub token: Address,
     pub amount: i128,
-    pub cliff_ledgers: u32,
-    pub vesting_duration: u32,
-    pub start_ledger: u32,
-    pub claimed_amount: i128,
     pub status: SessionStatus,
+    pub created_at: u32,
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────────
@@ -214,67 +213,62 @@ impl SkillSyncContract {
         );
     }
 
-    // ── Issue #796: Time-locked release module ────────────────────────────────
+    // ── Issue #793: Multi-token support ──────────────────────────────────────
 
-    /// Locks funds with a vesting schedule (cliff + linear vesting).
-    pub fn lock_funds_with_vesting(
+    /// Locks funds using any Soroban-compliant token. Pulls amount via transfer_from.
+    pub fn lock_funds_with_token(
         env: Env,
         session_id: Bytes,
         seller: Address,
         amount: i128,
-        cliff_ledgers: u32,
-        vesting_duration: u32,
+        token_address: Address,
+        buyer: Address,
     ) {
+        buyer.require_auth();
         assert!(amount > 0, "amount must be > 0");
-        assert!(vesting_duration > 0, "vesting_duration must be > 0");
-        if env.storage().persistent().has(&DataKey::VestingSession(session_id.clone())) {
+        if env.storage().persistent().has(&DataKey::TokenSession(session_id.clone())) {
             panic!("DuplicateSessionId");
         }
-        let buyer = env.current_contract_address();
-        let session = VestingSession {
+        let token = token::TokenClient::new(&env, &token_address);
+        token.transfer_from(&buyer, &buyer, &env.current_contract_address(), &amount);
+        let session = TokenSession {
             buyer: buyer.clone(),
             seller,
+            token: token_address,
             amount,
-            cliff_ledgers,
-            vesting_duration,
-            start_ledger: env.ledger().sequence(),
-            claimed_amount: 0,
             status: SessionStatus::Locked,
+            created_at: env.ledger().sequence(),
         };
-        env.storage().persistent().set(&DataKey::VestingSession(session_id.clone()), &session);
-        env.events().publish((symbol_short!("vest_crt"),), (buyer, session_id, amount));
+        env.storage().persistent().set(&DataKey::TokenSession(session_id.clone()), &session);
+        env.events().publish((symbol_short!("TokLock"),), (buyer, session_id, amount));
     }
 
-    /// Returns the vested session data.
-    pub fn get_vesting_session(env: Env, session_id: Bytes) -> VestingSession {
+    /// Returns a token session by ID.
+    pub fn get_token_session(env: Env, session_id: Bytes) -> TokenSession {
         env.storage().persistent()
-            .get(&DataKey::VestingSession(session_id))
-            .expect("vesting session not found")
+            .get(&DataKey::TokenSession(session_id))
+            .expect("token session not found")
     }
 
-    /// Seller claims vested amount. Claimable = total * elapsed_past_cliff / duration.
-    pub fn claim_vested(env: Env, session_id: Bytes) {
-        let mut session: VestingSession = env.storage().persistent()
-            .get(&DataKey::VestingSession(session_id.clone()))
-            .expect("vesting session not found");
-        session.seller.require_auth();
-        assert!(session.status == SessionStatus::Locked, "InvalidSessionState");
-
-        let now = env.ledger().sequence();
-        let elapsed = now.saturating_sub(session.start_ledger);
-
-        if elapsed <= session.cliff_ledgers {
-            panic!("CliffNotReached");
+    /// Approves a token session, transferring funds to seller minus platform fee.
+    pub fn approve_token_session(env: Env, session_id: Bytes) {
+        let mut session: TokenSession = env.storage().persistent()
+            .get(&DataKey::TokenSession(session_id.clone()))
+            .expect("token session not found");
+        session.buyer.require_auth();
+        assert!(session.status == SessionStatus::Completed, "InvalidSessionState");
+        let fee_bps: u32 = env.storage().persistent().get(&DataKey::PlatformFeeBps).unwrap_or(0);
+        let fee = session.amount * fee_bps as i128 / 10000;
+        let payout = session.amount - fee;
+        let token = token::TokenClient::new(&env, &session.token);
+        token.transfer(&env.current_contract_address(), &session.seller, &payout);
+        if fee > 0 {
+            let treasury: Address = env.storage().persistent().get(&DataKey::Treasury).expect("treasury not set");
+            token.transfer(&env.current_contract_address(), &treasury, &fee);
         }
-
-        let vested_elapsed = (elapsed - session.cliff_ledgers).min(session.vesting_duration);
-        let vested_amount = session.amount * vested_elapsed as i128 / session.vesting_duration as i128;
-        let claimable = vested_amount - session.claimed_amount;
-        assert!(claimable > 0, "NothingToClaim");
-
-        session.claimed_amount += claimable;
-        env.storage().persistent().set(&DataKey::VestingSession(session_id.clone()), &session);
-        env.events().publish((symbol_short!("vest_clm"),), (session_id, claimable));
+        session.status = SessionStatus::Approved;
+        env.storage().persistent().set(&DataKey::TokenSession(session_id.clone()), &session);
+        env.events().publish((symbol_short!("TokApprv"),), (session_id, payout, fee));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -409,31 +403,18 @@ mod tests {
         client.lock_funds(&session_id, &seller, &200);
     }
 
-    // ── Issue #796 tests ──────────────────────────────────────────────────────
+    // ── Issue #794 tests ──────────────────────────────────────────────────────
 
     #[test]
-    fn test_vesting_session_created() {
+    fn test_set_and_get_metadata() {
         let (env, admin, treasury, client) = setup();
         client.initialize(&admin, &treasury);
         let seller = Address::generate(&env);
-        let session_id = Bytes::from_slice(&env, &[30u8; 32]);
-        client.lock_funds_with_vesting(&session_id, &seller, &10000, &100, &1000);
-        let s = client.get_vesting_session(&session_id);
-        assert_eq!(s.amount, 10000);
-        assert_eq!(s.cliff_ledgers, 100);
-        assert_eq!(s.vesting_duration, 1000);
-        assert_eq!(s.claimed_amount, 0);
-        assert_eq!(s.status, SessionStatus::Locked);
-    }
-
-    #[test]
-    #[should_panic(expected = "CliffNotReached")]
-    fn test_claim_before_cliff() {
-        let (env, admin, treasury, client) = setup();
-        client.initialize(&admin, &treasury);
-        let seller = Address::generate(&env);
-        let session_id = Bytes::from_slice(&env, &[31u8; 32]);
-        client.lock_funds_with_vesting(&session_id, &seller, &10000, &1000, &2000);
-        client.claim_vested(&session_id); // ledger=0, cliff=1000 -> panic
+        let session_id = Bytes::from_slice(&env, &[20u8; 32]);
+        client.lock_funds(&session_id, &seller, &100);
+        assert_eq!(client.get_session_metadata(&session_id), None);
+        let uri = soroban_sdk::String::from_str(&env, "ipfs://QmTest");
+        client.set_session_metadata(&session_id, &uri);
+        assert_eq!(client.get_session_metadata(&session_id), Some(uri));
     }
 }
