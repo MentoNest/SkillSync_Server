@@ -13,7 +13,12 @@ pub enum DataKey {
     PlatformFeeBps,
     DisputeWindow,
     Initialized,
-    Session(Bytes), // Issue #754: sessions mapping keyed by session_id
+    Session(Bytes),  // sessions mapping keyed by session_id
+    TotalVolume,     // Issue #802: cumulative locked volume
+    TotalFees,       // Issue #802: cumulative fees collected
+    TotalSessions,   // Issue #802: total session count
+    ActiveSessions,  // Issue #802: active (Locked/Completed) session count
+    TotalDisputes,   // Issue #802: total disputed session count
 }
 
 // ── Issue #754: Session status enum ──────────────────────────────────────────
@@ -177,6 +182,14 @@ impl SkillSyncContract {
 
         Self::save_session(&env, session_id.clone(), session);
 
+        // Issue #802: update analytics counters
+        let v: i128 = env.storage().persistent().get(&DataKey::TotalVolume).unwrap_or(0);
+        env.storage().persistent().set(&DataKey::TotalVolume, &(v + amount));
+        let t: u32 = env.storage().persistent().get(&DataKey::TotalSessions).unwrap_or(0);
+        env.storage().persistent().set(&DataKey::TotalSessions, &(t + 1));
+        let a: u32 = env.storage().persistent().get(&DataKey::ActiveSessions).unwrap_or(0);
+        env.storage().persistent().set(&DataKey::ActiveSessions, &(a + 1));
+
         env.events().publish(
             (symbol_short!("FundsLock"),),
             (buyer, session_id, amount),
@@ -196,6 +209,26 @@ impl SkillSyncContract {
             (symbol_short!("upgraded"),),
             hash,
         );
+    }
+
+    // ── Issue #802: Analytics and metrics module ──────────────────────────────
+
+    pub fn total_volume_locked(env: Env) -> i128 {
+        env.storage().persistent().get(&DataKey::TotalVolume).unwrap_or(0)
+    }
+
+    pub fn total_fees_collected(env: Env) -> i128 {
+        env.storage().persistent().get(&DataKey::TotalFees).unwrap_or(0)
+    }
+
+    pub fn active_sessions_count(env: Env) -> u32 {
+        env.storage().persistent().get(&DataKey::ActiveSessions).unwrap_or(0)
+    }
+
+    pub fn dispute_rate(env: Env) -> (u32, u32) {
+        let disputes: u32 = env.storage().persistent().get(&DataKey::TotalDisputes).unwrap_or(0);
+        let total: u32 = env.storage().persistent().get(&DataKey::TotalSessions).unwrap_or(0);
+        (disputes, total)
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
