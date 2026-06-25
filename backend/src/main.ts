@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe, VersioningType } from '@nestjs/common';
 
 import { LoggingMiddleware } from './middleware/logging.middleware';
 import { RequestIdMiddleware } from './exceptions/request-id.middleware';
@@ -13,6 +13,8 @@ import { setupSwagger } from './swagger/swagger.setup';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.setGlobalPrefix('api');
+  app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
   const loggingMiddleware = new LoggingMiddleware();
   const requestIdMiddleware = new RequestIdMiddleware();
 

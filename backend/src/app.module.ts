@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { DeprecationMiddleware } from './common/versioning/deprecation.middleware';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
@@ -30,4 +31,8 @@ import { SeedModule } from './database/seed/seed.module';
   providers: [AppService, ShutdownService],
   exports: [ShutdownService],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(DeprecationMiddleware).forRoutes('*');
+  }
+}
