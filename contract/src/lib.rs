@@ -72,6 +72,30 @@ pub struct TokenSession {
     pub created_at: u32,
 }
 
+// ── Issue #793: TokenSession struct ──────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone)]
+pub struct TokenSession {
+    pub buyer: Address,
+    pub seller: Address,
+    pub amount: i128,
+    pub token: Address,
+    pub status: SessionStatus,
+    pub created_at: u32,
+}
+
+// ── Issue #801: ExtensionProposal struct ──────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone)]
+pub struct ExtensionProposal {
+    pub proposed_by: Address,
+    pub additional_ledgers: u32,
+}
+
+const MAX_EXTENSION_LEDGERS: u32 = 10_000;
+
 // ── Contract ──────────────────────────────────────────────────────────────────
 
 #[contract]
