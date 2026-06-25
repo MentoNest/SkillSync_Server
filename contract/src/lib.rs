@@ -13,7 +13,8 @@ pub enum DataKey {
     PlatformFeeBps,
     DisputeWindow,
     Initialized,
-    Session(Bytes), // Issue #754: sessions mapping keyed by session_id
+    Session(Bytes),      // sessions mapping keyed by session_id
+    TokenSession(Bytes), // Issue #793: token-based sessions
 }
 
 // ── Issue #754: Session status enum ──────────────────────────────────────────
@@ -41,6 +42,19 @@ pub struct Session {
     pub created_at: u32,
     pub completed_at: u32,
     pub dispute_resolved_at: u32,
+}
+
+// ── Issue #793: Token session struct ─────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone)]
+pub struct TokenSession {
+    pub buyer: Address,
+    pub seller: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub status: SessionStatus,
+    pub created_at: u32,
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────────
@@ -196,6 +210,64 @@ impl SkillSyncContract {
             (symbol_short!("upgraded"),),
             hash,
         );
+    }
+
+    // ── Issue #793: Multi-token support ──────────────────────────────────────
+
+    /// Locks funds using any Soroban-compliant token. Pulls amount via transfer_from.
+    pub fn lock_funds_with_token(
+        env: Env,
+        session_id: Bytes,
+        seller: Address,
+        amount: i128,
+        token_address: Address,
+        buyer: Address,
+    ) {
+        buyer.require_auth();
+        assert!(amount > 0, "amount must be > 0");
+        if env.storage().persistent().has(&DataKey::TokenSession(session_id.clone())) {
+            panic!("DuplicateSessionId");
+        }
+        let token = token::TokenClient::new(&env, &token_address);
+        token.transfer_from(&buyer, &buyer, &env.current_contract_address(), &amount);
+        let session = TokenSession {
+            buyer: buyer.clone(),
+            seller,
+            token: token_address,
+            amount,
+            status: SessionStatus::Locked,
+            created_at: env.ledger().sequence(),
+        };
+        env.storage().persistent().set(&DataKey::TokenSession(session_id.clone()), &session);
+        env.events().publish((symbol_short!("TokLock"),), (buyer, session_id, amount));
+    }
+
+    /// Returns a token session by ID.
+    pub fn get_token_session(env: Env, session_id: Bytes) -> TokenSession {
+        env.storage().persistent()
+            .get(&DataKey::TokenSession(session_id))
+            .expect("token session not found")
+    }
+
+    /// Approves a token session, transferring funds to seller minus platform fee.
+    pub fn approve_token_session(env: Env, session_id: Bytes) {
+        let mut session: TokenSession = env.storage().persistent()
+            .get(&DataKey::TokenSession(session_id.clone()))
+            .expect("token session not found");
+        session.buyer.require_auth();
+        assert!(session.status == SessionStatus::Completed, "InvalidSessionState");
+        let fee_bps: u32 = env.storage().persistent().get(&DataKey::PlatformFeeBps).unwrap_or(0);
+        let fee = session.amount * fee_bps as i128 / 10000;
+        let payout = session.amount - fee;
+        let token = token::TokenClient::new(&env, &session.token);
+        token.transfer(&env.current_contract_address(), &session.seller, &payout);
+        if fee > 0 {
+            let treasury: Address = env.storage().persistent().get(&DataKey::Treasury).expect("treasury not set");
+            token.transfer(&env.current_contract_address(), &treasury, &fee);
+        }
+        session.status = SessionStatus::Approved;
+        env.storage().persistent().set(&DataKey::TokenSession(session_id.clone()), &session);
+        env.events().publish((symbol_short!("TokApprv"),), (session_id, payout, fee));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
