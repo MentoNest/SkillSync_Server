@@ -10,6 +10,7 @@ import { AuthModule } from './auth.module';
 
 import { CacheModule } from '@nestjs/cache-manager';
 import cacheConfig from './config/cache.config';
+import { ShutdownService } from './shutdown/shutdown.service';
 import { EncryptionModule } from './common/encryption/encryption.module';
 import { BackupModule } from './backup/backup.module';
 import { SeedModule } from './database/seed/seed.module';
@@ -26,6 +27,7 @@ import { SeedModule } from './database/seed/seed.module';
     SeedModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, ShutdownService],
+  exports: [ShutdownService],
 })
 export class AppModule {}
