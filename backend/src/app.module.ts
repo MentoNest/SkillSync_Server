@@ -14,9 +14,11 @@ import { ShutdownService } from './shutdown/shutdown.service';
 import { EncryptionModule } from './common/encryption/encryption.module';
 import { BackupModule } from './backup/backup.module';
 import { SeedModule } from './database/seed/seed.module';
+import { MetricsModule } from './metrics/metrics.module';
 
 @Module({
   imports: [
+    MetricsModule,
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot(typeormConfig),
     CacheModule.register(cacheConfig),

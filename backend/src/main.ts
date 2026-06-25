@@ -6,6 +6,7 @@ import { LoggingMiddleware } from './middleware/logging.middleware';
 import { RequestIdMiddleware } from './exceptions/request-id.middleware';
 import { HttpExceptionFilter } from './exceptions/http-exception.filter';
 import { ShutdownService } from './shutdown/shutdown.service';
+import { MetricsInterceptor } from './metrics/metrics.interceptor';
 
 const SHUTDOWN_TIMEOUT_MS = 30_000;
 const logger = new Logger('Bootstrap');
@@ -13,6 +14,10 @@ import { setupSwagger } from './swagger/swagger.setup';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  const metricsInterceptor = app.get(MetricsInterceptor);
+  app.useGlobalInterceptors(metricsInterceptor);
+
   const loggingMiddleware = new LoggingMiddleware();
   const requestIdMiddleware = new RequestIdMiddleware();
 
