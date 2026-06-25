@@ -14,6 +14,7 @@ import { ShutdownService } from './shutdown/shutdown.service';
 import { EncryptionModule } from './common/encryption/encryption.module';
 import { BackupModule } from './backup/backup.module';
 import { SeedModule } from './database/seed/seed.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { SeedModule } from './database/seed/seed.module';
     AuthModule,
     BackupModule,
     SeedModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService, ShutdownService],
