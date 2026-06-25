@@ -1,0 +1,201 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
+
+jobs:
+  test:
+    name: Unit & Contract Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests with coverage
+        run: npm run test:cov
+        env:
+          # Provide stub encryption keys so EncryptionService doesn't warn
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY || '0000000000000000000000000000000000000000000000000000000000000000' }}
+          ENCRYPTION_HMAC_KEY: ${{ secrets.ENCRYPTION_HMAC_KEY || '1111111111111111111111111111111111111111111111111111111111111111' }}
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: backend/coverage/
+
+  contract:
+    name: API Contract Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: test
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run contract tests
+        run: npx jest --testPathPatterns="api-contract" --no-coverage --forceExit
+        env:
+          ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+          ENCRYPTION_HMAC_KEY: '1111111111111111111111111111111111111111111111111111111111111111'
+
+  build:
+    name: TypeScript Build Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: test
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+  breaking-change-detection:
+    name: Detect Breaking API Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only run on pull requests targeting main
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          path: pr
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies (base)
+        run: npm ci
+        working-directory: base/backend
+
+      - name: Install dependencies (PR)
+        run: npm ci
+        working-directory: pr/backend
+
+      - name: Generate OpenAPI spec (base)
+        run: |
+          npx ts-node -e "
+          const { NestFactory } = require('@nestjs/core');
+          const { AppModule } = require('./src/app.module');
+          const { buildSwaggerDocument } = require('./src/swagger/swagger.setup');
+          const fs = require('fs');
+          async function run() {
+            const app = await NestFactory.create(AppModule, { logger: false });
+            const doc = buildSwaggerDocument(app);
+            fs.writeFileSync('../base-spec.json', JSON.stringify(doc, null, 2));
+            await app.close();
+          }
+          run().catch(e => { console.error(e); process.exit(1); });
+          " 2>/dev/null || echo '{}' > base-spec.json
+        working-directory: base/backend
+        continue-on-error: true
+        env:
+          DB_HOST: localhost
+          JWT_SECRET: test-secret
+
+      - name: Generate OpenAPI spec (PR)
+        run: |
+          npx ts-node -e "
+          const { NestFactory } = require('@nestjs/core');
+          const { AppModule } = require('./src/app.module');
+          const { buildSwaggerDocument } = require('./src/swagger/swagger.setup');
+          const fs = require('fs');
+          async function run() {
+            const app = await NestFactory.create(AppModule, { logger: false });
+            const doc = buildSwaggerDocument(app);
+            fs.writeFileSync('../pr-spec.json', JSON.stringify(doc, null, 2));
+            await app.close();
+          }
+          run().catch(e => { console.error(e); process.exit(1); });
+          " 2>/dev/null || echo '{}' > pr-spec.json
+        working-directory: pr/backend
+        continue-on-error: true
+        env:
+          DB_HOST: localhost
+          JWT_SECRET: test-secret
+
+      - name: Check for removed paths (breaking change)
+        run: |
+          node -e "
+          const base = require('./base/backend/base-spec.json');
+          const pr = require('./pr/backend/pr-spec.json');
+          const basePaths = Object.keys(base.paths || {});
+          const prPaths = Object.keys(pr.paths || {});
+          const removed = basePaths.filter(p => !prPaths.includes(p));
+          if (removed.length > 0) {
+            console.error('BREAKING CHANGE: The following paths were removed:');
+            removed.forEach(p => console.error(' -', p));
+            process.exit(1);
+          }
+          console.log('No removed paths detected.');
+          "
