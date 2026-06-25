@@ -13,7 +13,9 @@ pub enum DataKey {
     PlatformFeeBps,
     DisputeWindow,
     Initialized,
-    Session(Bytes), // Issue #754: sessions mapping keyed by session_id
+    Session(Bytes),           // sessions mapping keyed by session_id
+    ReferrerFeeBps,           // Issue #800: referrer share of platform fee in bps
+    ReferrerBalance(Address), // Issue #800: accumulated referrer fees
 }
 
 // ── Issue #754: Session status enum ──────────────────────────────────────────
@@ -198,6 +200,66 @@ impl SkillSyncContract {
         );
     }
 
+    // ── Issue #800: Fee sharing / referral module ─────────────────────────────
+
+    /// Sets the referrer share of platform fee in basis points (0–1000). Admin only.
+    pub fn set_referrer_fee_bps(env: Env, fee_bps: u32) {
+        Self::require_admin(&env);
+        assert!(fee_bps <= 1000, "referrer fee exceeds 10%");
+        env.storage().persistent().set(&DataKey::ReferrerFeeBps, &fee_bps);
+    }
+
+    /// Returns the referrer fee share in basis points.
+    pub fn get_referrer_fee_bps(env: Env) -> u32 {
+        env.storage().persistent().get(&DataKey::ReferrerFeeBps).unwrap_or(0)
+    }
+
+    /// Locks funds with a referrer. Accrues referrer share of platform fee to referrer balance.
+    pub fn lock_funds_with_referrer(
+        env: Env,
+        session_id: Bytes,
+        seller: Address,
+        amount: i128,
+        referrer: Address,
+    ) {
+        assert!(amount > 0, "amount must be > 0");
+        if env.storage().persistent().has(&DataKey::Session(session_id.clone())) {
+            panic!("DuplicateSessionId");
+        }
+        let fee_bps: u32 = env.storage().persistent().get(&DataKey::PlatformFeeBps).unwrap_or(0);
+        let ref_bps: u32 = env.storage().persistent().get(&DataKey::ReferrerFeeBps).unwrap_or(0);
+        let total_fee = amount * fee_bps as i128 / 10000;
+        let ref_fee = total_fee * ref_bps as i128 / 10000;
+        if ref_fee > 0 {
+            let prev: i128 = env.storage().persistent()
+                .get(&DataKey::ReferrerBalance(referrer.clone()))
+                .unwrap_or(0);
+            env.storage().persistent()
+                .set(&DataKey::ReferrerBalance(referrer.clone()), &(prev + ref_fee));
+            env.events().publish(
+                (symbol_short!("ref_fee"),),
+                (referrer.clone(), session_id.clone(), ref_fee),
+            );
+        }
+        let buyer = env.current_contract_address();
+        let session = Session {
+            buyer: buyer.clone(),
+            seller,
+            amount,
+            status: SessionStatus::Locked,
+            created_at: env.ledger().sequence(),
+            completed_at: 0,
+            dispute_resolved_at: 0,
+        };
+        Self::save_session(&env, session_id.clone(), session);
+        env.events().publish((symbol_short!("FundsLock"),), (buyer, session_id, amount));
+    }
+
+    /// Returns accumulated referrer fee balance for an address.
+    pub fn get_referrer_balance(env: Env, referrer: Address) -> i128 {
+        env.storage().persistent().get(&DataKey::ReferrerBalance(referrer)).unwrap_or(0)
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     fn require_admin(env: &Env) {
@@ -328,5 +390,32 @@ mod tests {
         let session_id = Bytes::from_slice(&env, &[4u8; 32]);
         client.lock_funds(&session_id, &seller, &100);
         client.lock_funds(&session_id, &seller, &200);
+    }
+
+    // ── Issue #800 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_referrer_fee_accrual() {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        client.set_platform_fee(&1000); // 10% platform fee
+        client.set_referrer_fee_bps(&500); // referrer gets 500/10000 = 5% of amount as referrer share
+        let seller = Address::generate(&env);
+        let referrer = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[10u8; 32]);
+        // 10000 amount * 1000/10000 = 1000 fee; 1000 * 500/10000 = 50 referrer fee
+        client.lock_funds_with_referrer(&session_id, &seller, &10000, &referrer);
+        assert_eq!(client.get_referrer_balance(&referrer), 50);
+    }
+
+    #[test]
+    fn test_referrer_fee_zero_when_unset() {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        let seller = Address::generate(&env);
+        let referrer = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[11u8; 32]);
+        client.lock_funds_with_referrer(&session_id, &seller, &1000, &referrer);
+        assert_eq!(client.get_referrer_balance(&referrer), 0);
     }
 }
