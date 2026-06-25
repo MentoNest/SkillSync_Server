@@ -1,13 +1,32 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn, Unique } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 @Entity({ name: 'users' })
-@Unique(['wallet'])
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ length: 56 })
+  /**
+   * Encrypted Stellar wallet address (AES-256-GCM).
+   * Use walletHash for exact-match database queries.
+   * The plaintext value is restored automatically by UserEncryptionSubscriber.
+   */
+  @Column({ length: 256 })
   wallet: string;
+
+  /**
+   * HMAC-SHA-256 hash of the wallet address.
+   * Indexed for O(1) exact-match lookups without exposing plaintext.
+   */
+  @Index({ unique: true })
+  @Column({ length: 64, name: 'wallet_hash' })
+  walletHash: string;
 
   @Column('simple-array')
   roles: string[];
