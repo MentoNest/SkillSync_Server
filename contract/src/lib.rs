@@ -13,7 +13,8 @@ pub enum DataKey {
     PlatformFeeBps,
     DisputeWindow,
     Initialized,
-    Session(Bytes), // Issue #754: sessions mapping keyed by session_id
+    Session(Bytes),           // sessions mapping keyed by session_id
+    ExtensionProposal(Bytes), // Issue #801: pending extension proposal
 }
 
 // ── Issue #754: Session status enum ──────────────────────────────────────────
@@ -41,6 +42,16 @@ pub struct Session {
     pub created_at: u32,
     pub completed_at: u32,
     pub dispute_resolved_at: u32,
+    pub deadline: u32, // Issue #801: completion deadline in ledgers (0 = no deadline)
+}
+
+// ── Issue #801: Extension proposal struct ────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone)]
+pub struct ExtensionProposal {
+    pub proposer: Address,
+    pub additional_ledgers: u32,
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────────
@@ -173,6 +184,7 @@ impl SkillSyncContract {
             created_at: env.ledger().sequence(),
             completed_at: 0,
             dispute_resolved_at: 0,
+            deadline: 0,
         };
 
         Self::save_session(&env, session_id.clone(), session);
@@ -196,6 +208,46 @@ impl SkillSyncContract {
             (symbol_short!("upgraded"),),
             hash,
         );
+    }
+
+    // ── Issue #801: Session extension module ──────────────────────────────────
+
+    /// Proposes a deadline extension. Either buyer or seller may propose.
+    pub fn propose_extension(env: Env, session_id: Bytes, additional_ledgers: u32, proposer: Address) {
+        proposer.require_auth();
+        assert!(additional_ledgers > 0 && additional_ledgers <= 10_000, "extension out of range");
+        let session: Session = env.storage().persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+        assert!(
+            proposer == session.buyer || proposer == session.seller,
+            "Unauthorized"
+        );
+        assert!(session.status == SessionStatus::Locked, "InvalidSessionState");
+        let proposal = ExtensionProposal { proposer: proposer.clone(), additional_ledgers };
+        env.storage().persistent().set(&DataKey::ExtensionProposal(session_id.clone()), &proposal);
+        env.events().publish((symbol_short!("ext_prop"),), (session_id, proposer, additional_ledgers));
+    }
+
+    /// Accepts the pending extension proposal. The other party calls this.
+    pub fn accept_extension(env: Env, session_id: Bytes, acceptor: Address) {
+        acceptor.require_auth();
+        let proposal: ExtensionProposal = env.storage().persistent()
+            .get(&DataKey::ExtensionProposal(session_id.clone()))
+            .expect("no pending proposal");
+        let mut session: Session = env.storage().persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+        assert!(acceptor != proposal.proposer, "proposer cannot accept own proposal");
+        assert!(
+            acceptor == session.buyer || acceptor == session.seller,
+            "Unauthorized"
+        );
+        let current = if session.deadline == 0 { env.ledger().sequence() } else { session.deadline };
+        session.deadline = current + proposal.additional_ledgers;
+        Self::save_session(&env, session_id.clone(), session);
+        env.storage().persistent().remove(&DataKey::ExtensionProposal(session_id.clone()));
+        env.events().publish((symbol_short!("ext_ok"),), (session_id, acceptor, proposal.additional_ledgers));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
