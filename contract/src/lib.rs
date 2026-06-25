@@ -13,7 +13,8 @@ pub enum DataKey {
     PlatformFeeBps,
     DisputeWindow,
     Initialized,
-    Session(Bytes), // Issue #754: sessions mapping keyed by session_id
+    Session(Bytes),        // sessions mapping keyed by session_id
+    VestingSession(Bytes), // Issue #796: vesting sessions
 }
 
 // ── Issue #754: Session status enum ──────────────────────────────────────────
@@ -41,6 +42,21 @@ pub struct Session {
     pub created_at: u32,
     pub completed_at: u32,
     pub dispute_resolved_at: u32,
+}
+
+// ── Issue #796: Vesting session struct ───────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone)]
+pub struct VestingSession {
+    pub buyer: Address,
+    pub seller: Address,
+    pub amount: i128,
+    pub cliff_ledgers: u32,
+    pub vesting_duration: u32,
+    pub start_ledger: u32,
+    pub claimed_amount: i128,
+    pub status: SessionStatus,
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────────
@@ -198,6 +214,69 @@ impl SkillSyncContract {
         );
     }
 
+    // ── Issue #796: Time-locked release module ────────────────────────────────
+
+    /// Locks funds with a vesting schedule (cliff + linear vesting).
+    pub fn lock_funds_with_vesting(
+        env: Env,
+        session_id: Bytes,
+        seller: Address,
+        amount: i128,
+        cliff_ledgers: u32,
+        vesting_duration: u32,
+    ) {
+        assert!(amount > 0, "amount must be > 0");
+        assert!(vesting_duration > 0, "vesting_duration must be > 0");
+        if env.storage().persistent().has(&DataKey::VestingSession(session_id.clone())) {
+            panic!("DuplicateSessionId");
+        }
+        let buyer = env.current_contract_address();
+        let session = VestingSession {
+            buyer: buyer.clone(),
+            seller,
+            amount,
+            cliff_ledgers,
+            vesting_duration,
+            start_ledger: env.ledger().sequence(),
+            claimed_amount: 0,
+            status: SessionStatus::Locked,
+        };
+        env.storage().persistent().set(&DataKey::VestingSession(session_id.clone()), &session);
+        env.events().publish((symbol_short!("vest_crt"),), (buyer, session_id, amount));
+    }
+
+    /// Returns the vested session data.
+    pub fn get_vesting_session(env: Env, session_id: Bytes) -> VestingSession {
+        env.storage().persistent()
+            .get(&DataKey::VestingSession(session_id))
+            .expect("vesting session not found")
+    }
+
+    /// Seller claims vested amount. Claimable = total * elapsed_past_cliff / duration.
+    pub fn claim_vested(env: Env, session_id: Bytes) {
+        let mut session: VestingSession = env.storage().persistent()
+            .get(&DataKey::VestingSession(session_id.clone()))
+            .expect("vesting session not found");
+        session.seller.require_auth();
+        assert!(session.status == SessionStatus::Locked, "InvalidSessionState");
+
+        let now = env.ledger().sequence();
+        let elapsed = now.saturating_sub(session.start_ledger);
+
+        if elapsed <= session.cliff_ledgers {
+            panic!("CliffNotReached");
+        }
+
+        let vested_elapsed = (elapsed - session.cliff_ledgers).min(session.vesting_duration);
+        let vested_amount = session.amount * vested_elapsed as i128 / session.vesting_duration as i128;
+        let claimable = vested_amount - session.claimed_amount;
+        assert!(claimable > 0, "NothingToClaim");
+
+        session.claimed_amount += claimable;
+        env.storage().persistent().set(&DataKey::VestingSession(session_id.clone()), &session);
+        env.events().publish((symbol_short!("vest_clm"),), (session_id, claimable));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     fn require_admin(env: &Env) {
@@ -328,5 +407,33 @@ mod tests {
         let session_id = Bytes::from_slice(&env, &[4u8; 32]);
         client.lock_funds(&session_id, &seller, &100);
         client.lock_funds(&session_id, &seller, &200);
+    }
+
+    // ── Issue #796 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_vesting_session_created() {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        let seller = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[30u8; 32]);
+        client.lock_funds_with_vesting(&session_id, &seller, &10000, &100, &1000);
+        let s = client.get_vesting_session(&session_id);
+        assert_eq!(s.amount, 10000);
+        assert_eq!(s.cliff_ledgers, 100);
+        assert_eq!(s.vesting_duration, 1000);
+        assert_eq!(s.claimed_amount, 0);
+        assert_eq!(s.status, SessionStatus::Locked);
+    }
+
+    #[test]
+    #[should_panic(expected = "CliffNotReached")]
+    fn test_claim_before_cliff() {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        let seller = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[31u8; 32]);
+        client.lock_funds_with_vesting(&session_id, &seller, &10000, &1000, &2000);
+        client.claim_vested(&session_id); // ledger=0, cliff=1000 -> panic
     }
 }
