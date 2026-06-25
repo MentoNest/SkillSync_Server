@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, Bytes, Env,
+    contract, contractimpl, contracttype, symbol_short, token, Address, Bytes, Env, String,
 };
 
 // ── Storage Keys ──────────────────────────────────────────────────────────────
@@ -12,7 +12,8 @@ pub enum DataKey {
     Treasury,
     PlatformFeeBps,
     DisputeWindow,
-    Initialized,
+    Initialized,    // sessions mapping keyed by session_id
+    SessionMeta(Bytes), // Issue #794: metadata URI per session
     Session(Bytes),      // sessions mapping keyed by session_id
     TokenSession(Bytes), // Issue #793: token-based sessions
 }
@@ -400,5 +401,20 @@ mod tests {
         let session_id = Bytes::from_slice(&env, &[4u8; 32]);
         client.lock_funds(&session_id, &seller, &100);
         client.lock_funds(&session_id, &seller, &200);
+    }
+
+    // ── Issue #794 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_set_and_get_metadata() {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        let seller = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[20u8; 32]);
+        client.lock_funds(&session_id, &seller, &100);
+        assert_eq!(client.get_session_metadata(&session_id), None);
+        let uri = soroban_sdk::String::from_str(&env, "ipfs://QmTest");
+        client.set_session_metadata(&session_id, &uri);
+        assert_eq!(client.get_session_metadata(&session_id), Some(uri));
     }
 }
