@@ -11,11 +11,14 @@ import { User } from './entities/user.entity';
 import { UserService } from './auth/user.service';
 import { LoginAttemptService } from './auth/login-attempt.service';
 import { AuditLogService } from './auth/audit-log.service';
+import { EncryptionModule } from './common/encryption/encryption.module';
+import { UserEncryptionSubscriber } from './common/encryption/user-encryption.subscriber';
 
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
     RedisModule,
+    EncryptionModule,
     TypeOrmModule.forFeature([User]),
     JwtModule.registerAsync({
       inject: [ConfigService],
@@ -39,7 +42,7 @@ import { AuditLogService } from './auth/audit-log.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, UserService, LoginAttemptService, AuditLogService],
+  providers: [AuthService, JwtStrategy, UserService, LoginAttemptService, AuditLogService, UserEncryptionSubscriber],
   exports: [AuthService],
 })
 export class AuthModule {}
