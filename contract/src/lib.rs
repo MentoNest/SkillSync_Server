@@ -343,6 +343,110 @@ impl SkillSyncContract {
         (after_fee, fee_amount)
     }
 
+    // ── Issue #756: approve_session ─────────────────────────────────────────────
+
+    /// Buyer approves a completed session, releasing funds to seller minus platform fee.
+    pub fn approve_session(env: Env, session_id: Bytes) {
+        let mut session: Session = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+
+        session.buyer.require_auth();
+        assert!(session.status == SessionStatus::Completed, "InvalidSessionState");
+
+        let fee_bps: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PlatformFeeBps)
+            .unwrap_or(0);
+        let payout = session.amount - (session.amount * fee_bps as i128 / 10000);
+        let fee = session.amount * fee_bps as i128 / 10000;
+
+        let treasury: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Treasury)
+            .expect("treasury not set");
+
+        let native = token::TokenClient::new(&env, &env.current_contract_address());
+        native.transfer(&env.current_contract_address(), &session.seller, &payout);
+        if fee > 0 {
+            native.transfer(&env.current_contract_address(), &treasury, &fee);
+        }
+
+        session.status = SessionStatus::Approved;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Session(session_id.clone()), &session);
+
+        env.events().publish(
+            (symbol_short!("SessionApproved"),),
+            (session_id, payout, fee),
+        );
+    }
+
+    // ── Issue #755 + #756: complete_session ───────────────────────────────────────
+
+    /// Marks a Locked session as Completed. Seller or buyer can call.
+    pub fn complete_session(env: Env, session_id: Bytes) {
+        let mut session: Session = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+        assert!(session.status == SessionStatus::Locked, "InvalidSessionState");
+        session.status = SessionStatus::Completed;
+        session.completed_at = env.ledger().sequence();
+        Self::save_session(&env, session_id, session);
+        env.events().publish((symbol_short!("Completed"),), session_id);
+    }
+
+    // ── Issue #756: approve_session ─────────────────────────────────────────────
+
+    /// Buyer approves a completed session, releasing funds to seller minus platform fee.
+    pub fn approve_session(env: Env, session_id: Bytes) {
+        let mut session: Session = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+
+        session.buyer.require_auth();
+        assert!(session.status == SessionStatus::Completed, "InvalidSessionState");
+
+        let fee_bps: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PlatformFeeBps)
+            .unwrap_or(0);
+        let payout = session.amount - (session.amount * fee_bps as i128 / 10000);
+        let fee = session.amount * fee_bps as i128 / 10000;
+
+        let treasury: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Treasury)
+            .expect("treasury not set");
+
+        let native = token::TokenClient::new(&env, &env.current_contract_address());
+        native.transfer(&env.current_contract_address(), &session.seller, &payout);
+        if fee > 0 {
+            native.transfer(&env.current_contract_address(), &treasury, &fee);
+        }
+
+        session.status = SessionStatus::Approved;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Session(session_id.clone()), &session);
+
+        env.events().publish(
+            (symbol_short!("SessionApproved"),),
+            (session_id, payout, fee),
+        );
+    }
+
     // ── Issue #752: Upgradeability ────────────────────────────────────────────
 
     /// Upgrades the contract WASM. Admin only.
@@ -803,6 +907,62 @@ mod tests {
         client.resolve_dispute(&session_id, &2u32, &50i128, &50i128);
         let s = client.get_session(&session_id);
         assert_eq!(s.status, SessionStatus::Resolved);
+    }
+
+    // ── Issue #756 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    #[should_panic(expected = "InvalidSessionState")]
+    fn test_approve_on_locked_session_reverts() {
+        let (_, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        // Session is Locked, approve should revert
+        client.approve_session(&session_id);
+    }
+
+    #[test]
+    fn test_approve_session_success() {
+        use soroban_sdk::testutils::Events as _;
+        let (env, admin, treasury, client, session_id) = setup_with_session(1000);
+        let seller = Address::generate(&env);
+        let mut session = client.get_session(&session_id);
+        session.status = SessionStatus::Completed;
+        session.completed_at = env.ledger().sequence();
+        env.storage().persistent().set(&DataKey::Session(session_id.clone()), &session);
+        client.approve_session(&session_id);
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Approved);
+    }
+
+    #[test]
+    fn test_approve_session_with_fee() {
+        use soroban_sdk::testutils::Events as _;
+        let (env, admin, treasury, client, session_id) = setup_with_session(1000);
+        client.set_platform_fee(&250); // 2.5%
+        let mut session = client.get_session(&session_id);
+        session.status = SessionStatus::Completed;
+        session.completed_at = env.ledger().sequence();
+        env.storage().persistent().set(&DataKey::Session(session_id.clone()), &session);
+        client.approve_session(&session_id);
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Approved);
+        // payout = 1000 - 25 = 975, fee = 25
+        let events = env.events().all();
+        assert!(events.len() >= 2, "events should include SessionApproved");
+    }
+
+    #[test]
+    fn test_approve_session_emits_event() {
+        use soroban_sdk::testutils::Events as _;
+        let (env, admin, treasury, client, session_id) = setup_with_session(1000);
+        let mut session = client.get_session(&session_id);
+        session.status = SessionStatus::Completed;
+        session.completed_at = env.ledger().sequence();
+        env.storage().persistent().set(&DataKey::Session(session_id.clone()), &session);
+        client.approve_session(&session_id);
+        let events = env.events().all();
+        assert!(events.iter().any(|e| format!("{:?}", e.0).contains("SessionApproved")), "SessionApproved event not emitted");
+    }
+
     // ── Issue #794 tests ──────────────────────────────────────────────────────
 
     #[test]
