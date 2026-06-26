@@ -1,12 +1,16 @@
+import { PortfolioLink } from './portfolio-link.entity';
 import { Role } from './role.entity';
+import { UserStatus } from '../enums/user-status.enum';
 
 export class User {
   id!: string;
   walletAddress!: string;
   tokenVersion!: number;
+  status!: UserStatus;
   username!: string | null;
   displayName!: string | null;
   usernameChangedAt!: Date | null;
+  deletedAt!: Date | null;
   createdAt!: Date;
   updatedAt!: Date;
   roles!: Role[];
@@ -20,4 +24,5 @@ export class User {
   verifiedBy?: string | null;
   verificationNotes?: string | null;
   timezone?: string;
+  portfolioLinks?: PortfolioLink[];
 }
