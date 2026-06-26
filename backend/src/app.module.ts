@@ -14,6 +14,7 @@ import { ShutdownService } from './shutdown/shutdown.service';
 import { EncryptionModule } from './common/encryption/encryption.module';
 import { BackupModule } from './backup/backup.module';
 import { SeedModule } from './database/seed/seed.module';
+import { AdminModule } from './admin/admin.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { SessionsModule } from './sessions/sessions.module';
@@ -30,6 +31,7 @@ import { ChatModule } from './chat/chat.module';
     AuthModule,
     BackupModule,
     SeedModule,
+    AdminModule,
     NotificationsModule,
     SessionsModule,
     ChatModule,
