@@ -6,6 +6,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { UserStatus } from '../users/enums/user-status.enum';
 
 @Entity({ name: 'users' })
 export class User {
@@ -33,6 +34,26 @@ export class User {
 
   @Column('simple-array')
   permissions: string[];
+
+  @Column({
+    type: 'enum',
+    enum: UserStatus,
+    default: UserStatus.ACTIVE,
+  })
+  status: UserStatus;
+
+  @Index({ unique: true, sparse: true })
+  @Column({ length: 30, nullable: true, default: null })
+  username: string | null;
+
+  @Column({ length: 50, nullable: true, default: null })
+  displayName: string | null;
+
+  @Column({ nullable: true, default: null })
+  usernameChangedAt: Date | null;
+
+  @Column({ nullable: true, default: null })
+  deletedAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;
