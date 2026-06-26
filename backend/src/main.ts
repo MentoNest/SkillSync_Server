@@ -48,6 +48,17 @@ async function bootstrap() {
   app.use(requestIdMiddleware.use.bind(requestIdMiddleware));
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new RequestIdInterceptor());
+
+  const allowedOrigins = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
+    : ['http://localhost:3000', 'http://localhost:3001'];
+
+  app.enableCors({
+    origin: allowedOrigins,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Accept'],
+    credentials: true,
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
