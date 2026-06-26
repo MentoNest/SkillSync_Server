@@ -1,10 +1,8 @@
 import {
   Body,
   Controller,
-  DefaultValuePipe,
   Get,
   Param,
-  ParseIntPipe,
   ParseUUIDPipe,
   Patch,
   Post,
@@ -18,6 +16,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { AuthRole } from '../auth/enums/auth-role.enum';
 import { AdminService } from './admin.service';
 import { UpdateRolesDto } from './dto/update-roles.dto';
+import { AdminUsersQueryDto } from './dto/admin-users-query.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
@@ -28,11 +27,8 @@ export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   @Get('users')
-  listUsers(
-    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
-    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
-  ) {
-    return this.adminService.listUsers(page, limit);
+  listUsers(@Query() query: AdminUsersQueryDto) {
+    return this.adminService.listUsers(query.page ?? 1, query.limit ?? 20);
   }
 
   @Get('analytics')
