@@ -2,6 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { seedAdmin } from './admin.seed';
+import { DemoSeedService } from './demo/demo-seed.service';
 
 /**
  * SeedService runs database seeding once during application bootstrap,
@@ -14,7 +15,10 @@ import { seedAdmin } from './admin.seed';
 export class SeedService implements OnApplicationBootstrap {
   private readonly logger = new Logger(SeedService.name);
 
-  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly demoSeedService: DemoSeedService,
+  ) {}
 
   async onApplicationBootstrap(): Promise<void> {
     this.logger.log('Running startup seeds...');
@@ -28,6 +32,17 @@ export class SeedService implements OnApplicationBootstrap {
         `Seed encountered an error: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+
+    if (process.env.SEED_DEMO_DATA === 'true') {
+      try {
+        await this.demoSeedService.seed();
+      } catch (error) {
+        this.logger.error(
+          `Demo seed encountered an error: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
     this.logger.log('Startup seeds complete.');
   }
 }
