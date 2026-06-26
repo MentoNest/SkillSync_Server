@@ -1,3 +1,6 @@
+import { Controller, Get, Query } from '@nestjs/common';
+import { UsersService } from './users.service';
+import { SearchUsersDto } from './dto/search-users.dto';
 import { Body, Controller, Get, Param, Patch, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../jwt-auth.guard';
 import { UsersService } from './users.service';
@@ -9,6 +12,18 @@ import { Request } from 'express';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @Get('users')
+  async searchUsers(@Query() query: SearchUsersDto) {
+    return this.usersService.searchUsers({
+      role: query.role,
+      search: query.search,
+      skill: query.skill,
+      page: query.page,
+      limit: query.limit,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
+    });
+  }
   @Get('user/username/available')
   async checkUsernameAvailability(@Query('username') username: string) {
     return this.usersService.checkUsernameAvailability(username);
