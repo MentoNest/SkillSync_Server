@@ -1,6 +1,4 @@
- feat/refresh-token
-import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Req } from '@nestjs/common';
-import { Body, Controller, Get, HttpException, HttpStatus, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Req, UseGuards } from '@nestjs/common';
 import {
   ApiBody,
   ApiOperation,
@@ -8,9 +6,11 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
- main
 import { randomBytes } from 'crypto';
-import { Keypair, StrKey } from 'stellar-sdk';
+import { Keypair } from 'stellar-sdk';
+import { normalizeWalletAddress } from './common/utils/wallet.utils';
+import { Throttle } from './common/throttler/throttle.decorator';
+import { ThrottlerGuard } from './common/throttler/throttler.guard';
 import { RedisService } from './redis/redis.service';
 import { AuthService } from './auth.service';
 import { LoginDto } from './auth/login.dto';
@@ -22,6 +22,7 @@ import { RefreshTokenService } from './refresh-token/refresh-token.service';
 
 @ApiTags('auth')
 @Controller('auth')
+@UseGuards(ThrottlerGuard)
 export class AuthController {
   constructor(
     private readonly redisService: RedisService,
@@ -33,6 +34,7 @@ export class AuthController {
   ) {}
 
   @Get('nonce/:walletAddress')
+  @Throttle(5, 60)
   @ApiOperation({
     summary: 'Request a sign-in nonce',
     description:
@@ -55,21 +57,18 @@ export class AuthController {
   @ApiResponse({ status: 400, description: 'Invalid Stellar wallet address' })
   @ApiResponse({ status: 429, description: 'Rate limit exceeded (5 requests/min)' })
   async getNonce(@Param('walletAddress') walletAddress: string) {
-    if (!StrKey.isValidEd25519PublicKey(walletAddress)) {
-      throw new HttpException('Invalid Stellar wallet address', HttpStatus.BAD_REQUEST);
-    }
-
-    await this.enforceRateLimit(walletAddress);
+    const normalized = normalizeWalletAddress(walletAddress);
 
     const nonce = randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
-    await this.redisService.set(walletAddress, nonce, 300, 'nonce');
+    await this.redisService.set(normalized, nonce, 300, 'nonce');
 
     return { nonce, expiresAt };
   }
 
   @Post('login')
+  @Throttle(10, 60)
   @ApiOperation({
     summary: 'Authenticate with Stellar wallet signature',
     description:
@@ -102,41 +101,39 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Nonce expired or invalid signature' })
   @ApiResponse({ status: 429, description: 'Too many login attempts' })
   async login(@Body() dto: LoginDto) {
-    if (!StrKey.isValidEd25519PublicKey(dto.wallet)) {
-      throw new HttpException('Invalid Stellar wallet address', HttpStatus.BAD_REQUEST);
-    }
+    const wallet = normalizeWalletAddress(dto.wallet);
 
     if (!['mainnet', 'testnet'].includes(dto.network)) {
       throw new HttpException('Invalid network', HttpStatus.BAD_REQUEST);
     }
 
-    const attemptCount = await this.loginAttemptService.incrementAttempts(dto.wallet);
+    const attemptCount = await this.loginAttemptService.incrementAttempts(wallet);
     if (attemptCount > 10) {
-      await this.auditLogService.logAttempt(dto.wallet, 'failure', 'rate_limit_exceeded');
+      await this.auditLogService.logAttempt(wallet, 'failure', 'rate_limit_exceeded');
       throw new HttpException('Too many login attempts', HttpStatus.TOO_MANY_REQUESTS);
     }
 
-    const storedNonce = await this.redisService.get(dto.wallet, 'nonce');
+    const storedNonce = await this.redisService.get(wallet, 'nonce');
     if (!storedNonce) {
-      await this.auditLogService.logAttempt(dto.wallet, 'failure', 'nonce_expired');
+      await this.auditLogService.logAttempt(wallet, 'failure', 'nonce_expired');
       throw new HttpException('Nonce expired or invalid', HttpStatus.UNAUTHORIZED);
     }
 
     let valid = false;
     try {
-      valid = this.verifySignature(dto.wallet, dto.signature, storedNonce, dto.network);
+      valid = this.verifySignature(wallet, dto.signature, storedNonce, dto.network);
     } finally {
-      await this.deleteNonce(dto.wallet);
+      await this.deleteNonce(wallet);
     }
 
     if (!valid) {
-      await this.auditLogService.logAttempt(dto.wallet, 'failure', 'invalid_signature');
+      await this.auditLogService.logAttempt(wallet, 'failure', 'invalid_signature');
       throw new HttpException('Invalid signature', HttpStatus.UNAUTHORIZED);
     }
 
-    const user = await this.userService.findOrCreateByWallet(dto.wallet);
-    await this.loginAttemptService.resetAttempts(dto.wallet);
-    await this.auditLogService.logAttempt(dto.wallet, 'success', 'login_success', user.id);
+    const user = await this.userService.findOrCreateByWallet(wallet);
+    await this.loginAttemptService.resetAttempts(wallet);
+    await this.auditLogService.logAttempt(wallet, 'success', 'login_success', user.id);
 
     const accessToken = await this.authService.issueAccessToken(user.id, user.wallet, user.roles, user.permissions);
     const refreshToken = await this.authService.issueRefreshToken(user.id);
@@ -163,6 +160,7 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @Throttle(20, 60)
   async refresh(@Body() body: RefreshTokenDto, @Req() req: any) {
     const { refreshToken } = body;
 
@@ -233,20 +231,6 @@ export class AuthController {
       return keypair.verify(payload, Buffer.from(signature, 'base64'));
     } catch {
       return false;
-    }
-  }
-
-  private async enforceRateLimit(walletAddress: string): Promise<void> {
-    const rateKey = `rate:${walletAddress}`;
-    const client = this.redisService.getClient();
-    const currentCount = await client.incr(rateKey);
-
-    if (currentCount === 1) {
-      await client.expire(rateKey, 60);
-    }
-
-    if (currentCount > 5) {
-      throw new HttpException('Rate limit exceeded', HttpStatus.TOO_MANY_REQUESTS);
     }
   }
 
