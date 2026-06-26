@@ -51,6 +51,17 @@ async function bootstrap() {
 
   // Enable NestJS lifecycle shutdown hooks (OnModuleDestroy, etc.)
   app.enableShutdownHooks();
+  // Fail fast in production if critical secrets are missing
+  if (process.env.NODE_ENV === 'production') {
+    const missing: string[] = [];
+    if (!process.env.JWT_SECRET) missing.push('JWT_SECRET');
+    if (!process.env.ENCRYPTION_KEY) missing.push('ENCRYPTION_KEY');
+    if (!process.env.ENCRYPTION_HMAC_KEY) missing.push('ENCRYPTION_HMAC_KEY');
+    if (missing.length) {
+      logger.error(`Missing required environment variables for production: ${missing.join(', ')}`);
+      process.exit(1);
+    }
+  }
   // OpenAPI / Swagger UI (disabled in production via env flag)
   if (process.env.SWAGGER_ENABLED !== 'false') {
     setupSwagger(app);
