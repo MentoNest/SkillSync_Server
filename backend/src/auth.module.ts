@@ -16,6 +16,7 @@ import { RefreshTokenService } from './refresh-token/refresh-token.service';
 import { EncryptionModule } from './common/encryption/encryption.module';
 import { UserEncryptionSubscriber } from './common/encryption/user-encryption.subscriber';
 import { ThrottlerModule } from './common/throttler/throttler.module';
+import { SuspiciousActivityService } from './auth/suspicious-activity.service';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { ThrottlerModule } from './common/throttler/throttler.module';
     AuditLogService,
     RefreshTokenService,
     UserEncryptionSubscriber,
+    SuspiciousActivityService,
   ],
   exports: [AuthService, RefreshTokenService],
 })

@@ -19,6 +19,7 @@ import { UserService } from './auth/user.service';
 import { LoginAttemptService } from './auth/login-attempt.service';
 import { AuditLogService } from './auth/audit-log.service';
 import { RefreshTokenService } from './refresh-token/refresh-token.service';
+import { SuspiciousActivityService } from './auth/suspicious-activity.service';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -31,6 +32,7 @@ export class AuthController {
     private readonly loginAttemptService: LoginAttemptService,
     private readonly auditLogService: AuditLogService,
     private readonly refreshTokenService: RefreshTokenService,
+    private readonly suspiciousActivityService: SuspiciousActivityService,
   ) {}
 
   @Get('nonce/:walletAddress')
@@ -100,11 +102,23 @@ export class AuthController {
   @ApiResponse({ status: 400, description: 'Invalid wallet address or network' })
   @ApiResponse({ status: 401, description: 'Nonce expired or invalid signature' })
   @ApiResponse({ status: 429, description: 'Too many login attempts' })
-  async login(@Body() dto: LoginDto) {
+  async login(@Body() dto: LoginDto, @Req() req: any) {
     const wallet = normalizeWalletAddress(dto.wallet);
+    const ip: string = req.headers?.['x-forwarded-for']?.split(',')[0]?.trim()
+      ?? req.socket?.remoteAddress
+      ?? '0.0.0.0';
 
     if (!['mainnet', 'testnet'].includes(dto.network)) {
       throw new HttpException('Invalid network', HttpStatus.BAD_REQUEST);
+    }
+
+    // Check lockdown before doing any work
+    if (await this.suspiciousActivityService.isLockedDown(wallet)) {
+      const ttl = await this.suspiciousActivityService.lockdownTtl(wallet);
+      throw new HttpException(
+        { statusCode: 423, message: 'Account temporarily locked due to suspicious activity', retryAfter: ttl },
+        423,
+      );
     }
 
     const attemptCount = await this.loginAttemptService.incrementAttempts(wallet);
@@ -116,6 +130,7 @@ export class AuthController {
     const storedNonce = await this.redisService.get(wallet, 'nonce');
     if (!storedNonce) {
       await this.auditLogService.logAttempt(wallet, 'failure', 'nonce_expired');
+      await this.suspiciousActivityService.trackFailedAttempt(wallet, ip);
       throw new HttpException('Nonce expired or invalid', HttpStatus.UNAUTHORIZED);
     }
 
@@ -128,11 +143,16 @@ export class AuthController {
 
     if (!valid) {
       await this.auditLogService.logAttempt(wallet, 'failure', 'invalid_signature');
+      const flagged = await this.suspiciousActivityService.trackFailedAttempt(wallet, ip);
+      if (flagged) {
+        await this.suspiciousActivityService.applyLockdown(wallet);
+      }
       throw new HttpException('Invalid signature', HttpStatus.UNAUTHORIZED);
     }
 
     const user = await this.userService.findOrCreateByWallet(wallet);
     await this.loginAttemptService.resetAttempts(wallet);
+    await this.suspiciousActivityService.registerKnownIp(wallet, ip);
     await this.auditLogService.logAttempt(wallet, 'success', 'login_success', user.id);
 
     const accessToken = await this.authService.issueAccessToken(user.id, user.wallet, user.roles, user.permissions);
