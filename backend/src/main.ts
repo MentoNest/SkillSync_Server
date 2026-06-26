@@ -4,6 +4,7 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { join } from 'path';
 import * as express from 'express';
+import helmet from 'helmet';
 
 import { LoggingMiddleware } from './middleware/logging.middleware';
 import { RequestIdMiddleware } from './exceptions/request-id.middleware';
@@ -21,6 +22,20 @@ async function bootstrap() {
   const requestIdMiddleware = new RequestIdMiddleware();
 
   app.useWebSocketAdapter(new IoAdapter(app));
+  // Security: enable HTTP headers via Helmet
+  app.use(helmet());
+
+  // CORS: strict whitelist from `CORS_ALLOWED_ORIGINS` (comma-separated)
+  const rawCors = process.env.CORS_ALLOWED_ORIGINS || '';
+  const corsWhitelist = rawCors.split(',').map((s) => s.trim()).filter(Boolean);
+  app.enableCors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (corsWhitelist.length === 0) return callback(new Error('CORS not configured'), false);
+      return callback(null, corsWhitelist.includes(origin));
+    },
+    credentials: true,
+  });
   app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
   app.use(loggingMiddleware.use.bind(loggingMiddleware));
   app.use(requestIdMiddleware.use.bind(requestIdMiddleware));

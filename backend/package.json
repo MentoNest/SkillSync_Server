@@ -46,6 +46,7 @@
     "pg": "^8.22.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+     "helmet": "^7.0.0",
  feat/refresh-token
     "socket.io": "^4.8.3",
  main
