@@ -235,4 +235,24 @@ export class UsersService implements OnModuleInit {
       },
     };
   }
+
+  async softDeleteUser(userId: string): Promise<void> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    user.deletedAt = new Date();
+    await this.userRepo.save(user);
+  }
+
+  async restoreUser(userId: string): Promise<User> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.deletedAt) throw new BadRequestException('User is not deleted');
+    const graceDays = parseInt(process.env.DELETE_GRACE_DAYS ?? '30', 10);
+    const elapsed = Date.now() - user.deletedAt.getTime();
+    if (elapsed > graceDays * 24 * 60 * 60 * 1000) {
+      throw new BadRequestException('Grace period has expired');
+    }
+    user.deletedAt = null;
+    return this.userRepo.save(user);
+  }
 }

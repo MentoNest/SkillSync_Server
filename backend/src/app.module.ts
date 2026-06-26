@@ -7,6 +7,7 @@ import typeormConfig from './config/typeorm.config';
 
 import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './auth.module';
+import { UsersModule } from './users/users.module';
 
 import { CacheModule } from '@nestjs/cache-manager';
 import cacheConfig from './config/cache.config';
@@ -25,6 +26,7 @@ import { ChatModule } from './chat/chat.module';
     EncryptionModule,
     RedisModule,
     AuthModule,
+    UsersModule,
     BackupModule,
     SeedModule,
     SessionsModule,
