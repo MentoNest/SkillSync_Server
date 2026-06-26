@@ -11,6 +11,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { NonceProvider } from './providers/nonce.provider';
 import { SuspensionService } from './suspension.service';
+import { SuspiciousLoginService } from './suspicious-login.service';
 
 import { AuditLog } from './entities/audit-log.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
@@ -29,6 +30,7 @@ import { UserSuspension } from '../users/entities/user-suspension.entity';
     RolesGuard,
     NonceProvider,
     SuspensionService,
+    SuspiciousLoginService,
   ],
   exports: [AuthService, AuditLogService, JwtAuthGuard, RolesGuard, SuspensionService],
 })
