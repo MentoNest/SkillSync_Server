@@ -46,7 +46,9 @@
     "pg": "^8.22.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+ feat/refresh-token
     "socket.io": "^4.8.3",
+ main
     "stellar-sdk": "^12.0.2",
     "typeorm": "^1.0.0",
     "uuid": "^14.0.1"
@@ -60,8 +62,11 @@
     "@nestjs/testing": "^11.0.1",
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
+ feat/refresh-token
+    "@types/node": "^22.20.0",
     "@types/multer": "^2.1.0",
     "@types/node": "^22.10.7",
+ main
     "@types/supertest": "^6.0.2",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",

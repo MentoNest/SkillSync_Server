@@ -41,7 +41,7 @@ export class AuthService {
     return this.signToken(payload, jti, this.configService.get('JWT_REFRESH_EXPIRATION', '7d'));
   }
 
-  private async signToken(payload: Record<string, unknown>, jti: string, expiresIn: string): Promise<string> {
+  private async signToken(payload: any, jti: string, expiresIn: string): Promise<string> {
     const algorithm = this.configService.get<string>('JWT_ALGORITHM') || (this.configService.get('JWT_PRIVATE_KEY') ? 'RS256' : 'HS256');
     const signOptions: Record<string, unknown> = {
       jwtid: jti,
@@ -89,5 +89,21 @@ export class AuthService {
     }
 
     return true;
+  }
+
+  async decodeToken(token: string): Promise<any> {
+    try {
+      return this.jwtService.decode(token);
+    } catch {
+      return null;
+    }
+  }
+
+  async verifyToken(token: string): Promise<any> {
+    try {
+      return this.jwtService.verifyAsync(token);
+    } catch {
+      return null;
+    }
   }
 }
