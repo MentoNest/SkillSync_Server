@@ -1,10 +1,14 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
+import { IoAdapter } from '@nestjs/platform-socket.io';
+import { join } from 'path';
+import * as express from 'express';
 
 import { LoggingMiddleware } from './middleware/logging.middleware';
 import { RequestIdMiddleware } from './exceptions/request-id.middleware';
 import { HttpExceptionFilter } from './exceptions/http-exception.filter';
+import { RequestIdInterceptor } from './exceptions/request-id.interceptor';
 import { ShutdownService } from './shutdown/shutdown.service';
 
 const SHUTDOWN_TIMEOUT_MS = 30_000;
@@ -16,9 +20,12 @@ async function bootstrap() {
   const loggingMiddleware = new LoggingMiddleware();
   const requestIdMiddleware = new RequestIdMiddleware();
 
+  app.useWebSocketAdapter(new IoAdapter(app));
+  app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
   app.use(loggingMiddleware.use.bind(loggingMiddleware));
   app.use(requestIdMiddleware.use.bind(requestIdMiddleware));
   app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalInterceptors(new RequestIdInterceptor());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

@@ -11,7 +11,7 @@ export class LoggingMiddleware implements NestMiddleware {
   use(req: Request, res: Response, next: NextFunction) {
     const { ip, method, originalUrl, body, headers } = req;
     const userAgent = req.get('user-agent') || '';
-    const requestId = uuidv4();
+    const requestId = (req.headers['x-request-id'] as string) ?? uuidv4();
 
     const start = process.hrtime();
 
