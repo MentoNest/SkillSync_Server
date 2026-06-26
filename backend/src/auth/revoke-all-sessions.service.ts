@@ -25,7 +25,7 @@ export class RevokeAllSessionsService {
       }
     }
 
-    await this.redisService.incr(`token_version:${userId}`);
+    await this.redisService.getClient().incr(`token_version:${userId}`);
 
     return { revoked: tokens.length };
   }
