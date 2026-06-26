@@ -8,6 +8,7 @@ import * as express from 'express';
 import { LoggingMiddleware } from './middleware/logging.middleware';
 import { RequestIdMiddleware } from './exceptions/request-id.middleware';
 import { HttpExceptionFilter } from './exceptions/http-exception.filter';
+import { RequestIdInterceptor } from './exceptions/request-id.interceptor';
 import { ShutdownService } from './shutdown/shutdown.service';
 
 const SHUTDOWN_TIMEOUT_MS = 30_000;
@@ -24,6 +25,7 @@ async function bootstrap() {
   app.use(loggingMiddleware.use.bind(loggingMiddleware));
   app.use(requestIdMiddleware.use.bind(requestIdMiddleware));
   app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalInterceptors(new RequestIdInterceptor());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
