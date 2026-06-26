@@ -236,23 +236,35 @@ export class UsersService implements OnModuleInit {
     };
   }
 
-  async softDeleteUser(userId: string): Promise<void> {
-    const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user) throw new NotFoundException('User not found');
-    user.deletedAt = new Date();
-    await this.userRepo.save(user);
-  }
+  async searchUsers(params: {
+    role?: string;
+    search?: string;
+    skill?: string;
+    page?: number;
+    limit?: number;
+    sortBy?: string;
+    sortOrder?: 'ASC' | 'DESC';
+  }): Promise<{ items: Partial<User>[]; meta: { total: number; page: number; limit: number; totalPages: number } }> {
+    const { role, search, skill, page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'DESC' } = params;
 
-  async restoreUser(userId: string): Promise<User> {
-    const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user) throw new NotFoundException('User not found');
-    if (!user.deletedAt) throw new BadRequestException('User is not deleted');
-    const graceDays = parseInt(process.env.DELETE_GRACE_DAYS ?? '30', 10);
-    const elapsed = Date.now() - user.deletedAt.getTime();
-    if (elapsed > graceDays * 24 * 60 * 60 * 1000) {
-      throw new BadRequestException('Grace period has expired');
+    const qb = this.userRepo.createQueryBuilder('user').leftJoinAndSelect('user.roles', 'role');
+
+    if (role) {
+      qb.andWhere('role.name = :role', { role });
     }
-    user.deletedAt = null;
-    return this.userRepo.save(user);
+    if (search) {
+      qb.andWhere('LOWER(user.displayName) LIKE LOWER(:search)', { search: `%${search}%` });
+    }
+
+    const orderCol = sortBy === 'name' ? 'user.displayName' : `user.${sortBy}`;
+    qb.orderBy(orderCol, sortOrder).skip((page - 1) * limit).take(limit);
+
+    const [users, total] = await qb.getManyAndCount();
+
+    const items = users.map(({ id, username, displayName, isVerified, isFeatured, createdAt }) => ({
+      id, username, displayName, isVerified, isFeatured, createdAt,
+    }));
+
+    return { items, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
   }
 }
