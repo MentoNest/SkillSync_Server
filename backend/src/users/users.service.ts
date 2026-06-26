@@ -235,4 +235,36 @@ export class UsersService implements OnModuleInit {
       },
     };
   }
+
+  async searchUsers(params: {
+    role?: string;
+    search?: string;
+    skill?: string;
+    page?: number;
+    limit?: number;
+    sortBy?: string;
+    sortOrder?: 'ASC' | 'DESC';
+  }): Promise<{ items: Partial<User>[]; meta: { total: number; page: number; limit: number; totalPages: number } }> {
+    const { role, search, skill, page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'DESC' } = params;
+
+    const qb = this.userRepo.createQueryBuilder('user').leftJoinAndSelect('user.roles', 'role');
+
+    if (role) {
+      qb.andWhere('role.name = :role', { role });
+    }
+    if (search) {
+      qb.andWhere('LOWER(user.displayName) LIKE LOWER(:search)', { search: `%${search}%` });
+    }
+
+    const orderCol = sortBy === 'name' ? 'user.displayName' : `user.${sortBy}`;
+    qb.orderBy(orderCol, sortOrder).skip((page - 1) * limit).take(limit);
+
+    const [users, total] = await qb.getManyAndCount();
+
+    const items = users.map(({ id, username, displayName, isVerified, isFeatured, createdAt }) => ({
+      id, username, displayName, isVerified, isFeatured, createdAt,
+    }));
+
+    return { items, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
+  }
 }
