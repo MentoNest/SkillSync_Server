@@ -12,13 +12,21 @@ import { RefreshToken } from './entities/refresh-token.entity';
 import { UserService } from './auth/user.service';
 import { LoginAttemptService } from './auth/login-attempt.service';
 import { AuditLogService } from './auth/audit-log.service';
+ feat/refresh-token
 import { RefreshTokenService } from './refresh-token/refresh-token.service';
+import { EncryptionModule } from './common/encryption/encryption.module';
+import { UserEncryptionSubscriber } from './common/encryption/user-encryption.subscriber';
+ main
 
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
     RedisModule,
+ feat/refresh-token
     TypeOrmModule.forFeature([User, RefreshToken]),
+    EncryptionModule,
+    TypeOrmModule.forFeature([User]),
+ main
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
@@ -41,6 +49,7 @@ import { RefreshTokenService } from './refresh-token/refresh-token.service';
     }),
   ],
   controllers: [AuthController],
+ feat/refresh-token
   providers: [
     AuthService,
     JwtStrategy,
@@ -50,5 +59,8 @@ import { RefreshTokenService } from './refresh-token/refresh-token.service';
     RefreshTokenService,
   ],
   exports: [AuthService, RefreshTokenService],
+  providers: [AuthService, JwtStrategy, UserService, LoginAttemptService, AuditLogService, UserEncryptionSubscriber],
+  exports: [AuthService],
+ main
 })
 export class AuthModule {}

@@ -10,16 +10,28 @@ import { AuthModule } from './auth.module';
 
 import { CacheModule } from '@nestjs/cache-manager';
 import cacheConfig from './config/cache.config';
+import { ShutdownService } from './shutdown/shutdown.service';
+import { EncryptionModule } from './common/encryption/encryption.module';
+import { BackupModule } from './backup/backup.module';
+import { SeedModule } from './database/seed/seed.module';
+import { SessionsModule } from './sessions/sessions.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot(typeormConfig),
     CacheModule.register(cacheConfig),
+    EncryptionModule,
     RedisModule,
     AuthModule,
+    BackupModule,
+    SeedModule,
+    SessionsModule,
+    ChatModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, ShutdownService],
+  exports: [ShutdownService],
 })
 export class AppModule {}
