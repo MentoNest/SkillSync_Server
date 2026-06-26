@@ -2,6 +2,103 @@ name: Backend CI
 
 on:
   push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  backend:
+    name: Backend tests & lint
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      DB_HOST: localhost
+      DB_PORT: '5432'
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      DB_DATABASE: skill_sync_test
+      JWT_SECRET: ci-jwt-secret
+      ENCRYPTION_KEY: ci-encryption-key
+      ENCRYPTION_HMAC_KEY: ci-encryption-hmac
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: skill_sync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready -U postgres
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (ESLint)
+        run: npm run lint
+
+      - name: Prettier format check
+        run: npx prettier --check "src/**/*.ts" "test/**/*.ts"
+
+      - name: Run unit tests
+        run: npm run test --silent
+
+      - name: Wait for Postgres to become available
+        shell: bash
+        run: |
+          for i in {1..30}; do
+            if command -v pg_isready >/dev/null 2>&1 && pg_isready -h localhost -p 5432; then
+              echo "Postgres is ready"; break
+            fi
+            if nc -z localhost 5432 >/dev/null 2>&1; then
+              echo "Postgres port open"; break
+            fi
+            echo "Waiting for Postgres..."; sleep 1
+          done
+
+      - name: Run E2E tests (test DB)
+        env:
+          DB_HOST: ${{ job.env.DB_HOST }}
+          DB_PORT: ${{ job.env.DB_PORT }}
+          DB_USERNAME: ${{ job.env.DB_USERNAME }}
+          DB_PASSWORD: ${{ job.env.DB_PASSWORD }}
+          DB_DATABASE: ${{ job.env.DB_DATABASE }}
+          JWT_SECRET: ${{ job.env.JWT_SECRET }}
+          ENCRYPTION_KEY: ${{ job.env.ENCRYPTION_KEY }}
+          ENCRYPTION_HMAC_KEY: ${{ job.env.ENCRYPTION_HMAC_KEY }}
+        run: npm run test:e2e --silent
+
+      - name: Build (type check / compile)
+        run: npm run build
+
+      - name: Security audit (npm audit)
+        run: npm audit --audit-level=low
+name: Backend CI
+
+on:
+  push:
     branches: [main]
     paths:
       - 'backend/**'
