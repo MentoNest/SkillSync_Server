@@ -26,7 +26,15 @@ const MSG_RATE_WINDOW_SECONDS = 60;
 const ONLINE_KEY_PREFIX = 'wsOnline';
 
 @WebSocketGateway({
-  cors: { origin: process.env.CORS_ORIGIN || '*', credentials: true },
+  cors: {
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      const raw = process.env.CORS_ALLOWED_ORIGINS || '';
+      const whitelist = raw.split(',').map((s) => s.trim()).filter(Boolean);
+      if (!origin) return callback(null, true);
+      return callback(null, whitelist.includes(origin));
+    },
+    credentials: true,
+  },
   namespace: '/chat',
   transports: ['websocket', 'polling'],
 })

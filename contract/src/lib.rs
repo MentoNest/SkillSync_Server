@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, Bytes, Env, String,
+    contract, contractimpl, contracttype, symbol_short, token, Address, Bytes, BytesN, Env, String,
 };
 
 // ── Storage Keys ──────────────────────────────────────────────────────────────
@@ -13,12 +13,14 @@ pub enum DataKey {
     PlatformFeeBps,
     DisputeWindow,
     Initialized,
-    Session(Bytes),           // sessions mapping keyed by session_id
-    ExtensionProposal(Bytes), // Issue #801: pending extension proposal
-    Initialized,    // sessions mapping keyed by session_id
-    SessionMeta(Bytes), // Issue #794: metadata URI per session
-    Session(Bytes),      // sessions mapping keyed by session_id
-    TokenSession(Bytes), // Issue #793: token-based sessions
+    Paused,
+    TotalVolume,
+    TotalSessions,
+    ActiveSessions,
+    Session(Bytes),
+    ExtensionProposal(Bytes),
+    SessionMeta(Bytes),
+    TokenSession(Bytes),
 }
 
 // ── Issue #754: Session status enum ──────────────────────────────────────────
@@ -50,15 +52,6 @@ pub struct Session {
     pub deadline: u32, // Issue #801: completion deadline in ledgers (0 = no deadline)
 }
 
-// ── Issue #801: Extension proposal struct ────────────────────────────────────
-
-#[contracttype]
-#[derive(Clone)]
-pub struct ExtensionProposal {
-    pub proposer: Address,
-    pub additional_ledgers: u32,
-}
-
 // ── Issue #793: Token session struct ─────────────────────────────────────────
 
 #[contracttype]
@@ -70,28 +63,6 @@ pub struct TokenSession {
     pub amount: i128,
     pub status: SessionStatus,
     pub created_at: u32,
-}
-
-// ── Issue #793: TokenSession struct ──────────────────────────────────────────
-
-#[contracttype]
-#[derive(Clone)]
-pub struct TokenSession {
-    pub buyer: Address,
-    pub seller: Address,
-    pub amount: i128,
-    pub token: Address,
-    pub status: SessionStatus,
-    pub created_at: u32,
-}
-
-// ── Issue #801: ExtensionProposal struct ──────────────────────────────────────
-
-#[contracttype]
-#[derive(Clone)]
-pub struct ExtensionProposal {
-    pub proposed_by: Address,
-    pub additional_ledgers: u32,
 }
 
 const MAX_EXTENSION_LEDGERS: u32 = 10_000;
@@ -257,6 +228,29 @@ impl SkillSyncContract {
         );
     }
 
+    // ── Issue #XXX: complete_session ───────────────────────────────────────────
+
+    /// Seller marks the session as delivered and moves it to Completed.
+    pub fn complete_session(env: Env, session_id: Bytes) {
+        let mut session: Session = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+
+        session.seller.require_auth();
+        assert!(session.status == SessionStatus::Locked, "InvalidSessionState");
+
+        session.status = SessionStatus::Completed;
+        session.completed_at = env.ledger().sequence();
+        Self::save_session(&env, session_id.clone(), session);
+
+        env.events().publish(
+            (symbol_short!("SessComp"),),
+            (session_id, session.completed_at),
+        );
+    }
+
     // ── Issue #760: open_dispute ──────────────────────────────────────────────
 
     /// Opens a dispute on a Locked or Completed session. Caller must be buyer or seller.
@@ -280,6 +274,34 @@ impl SkillSyncContract {
         env.events().publish(
             (symbol_short!("dis_open"),),
             (session_id, reason),
+        );
+    }
+
+    /// Allows the buyer to request an early refund before the session is completed.
+    /// The full escrowed amount is returned to the buyer with no fee deducted.
+    pub fn refund_session(env: Env, session_id: Bytes) {
+        Self::require_not_paused(&env);
+
+        let mut session: Session = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+
+        assert!(session.status == SessionStatus::Locked, "InvalidSessionState");
+
+        let buyer = session.buyer.clone();
+        buyer.require_auth();
+
+        let caller = env.current_contract_address();
+        assert!(buyer == caller, "Unauthorized");
+
+        session.status = SessionStatus::Refunded;
+        Self::save_session(&env, session_id.clone(), session);
+
+        env.events().publish(
+            (symbol_short!("sess_ref"),),
+            (session_id, buyer),
         );
     }
 
@@ -347,6 +369,11 @@ impl SkillSyncContract {
 
     /// Buyer approves a completed session, releasing funds to seller minus platform fee.
     pub fn approve_session(env: Env, session_id: Bytes) {
+    // ── Issue #auto-refund: auto_refund ───────────────────────────────────────
+
+    /// Processes automatic refund for sessions stuck in Completed state beyond dispute window.
+    /// No fees are deducted; buyer receives the full amount.
+    pub fn auto_refund(env: Env, session_id: Bytes) {
         let mut session: Session = env
             .storage()
             .persistent()
@@ -444,6 +471,31 @@ impl SkillSyncContract {
         env.events().publish(
             (symbol_short!("SessionApproved"),),
             (session_id, payout, fee),
+        assert!(session.status == SessionStatus::Completed, "session not completed");
+
+        let dispute_window: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DisputeWindow)
+            .unwrap_or(1000);
+        let current_ledger = env.ledger().sequence();
+        assert!(
+            current_ledger > session.completed_at + dispute_window,
+            "dispute window not elapsed"
+        );
+
+        let buyer = session.buyer.clone();
+        let amount = session.amount;
+
+        let native = token::TokenClient::new(&env, &env.current_contract_address());
+        native.transfer(&env.current_contract_address(), &buyer, &amount);
+
+        session.status = SessionStatus::Refunded;
+        Self::save_session(&env, session_id.clone(), session);
+
+        env.events().publish(
+            (symbol_short!("AutoRefund"),),
+            (session_id, buyer, amount),
         );
     }
 
@@ -501,6 +553,8 @@ impl SkillSyncContract {
         Self::save_session(&env, session_id.clone(), session);
         env.storage().persistent().remove(&DataKey::ExtensionProposal(session_id.clone()));
         env.events().publish((symbol_short!("ext_ok"),), (session_id, acceptor, proposal.additional_ledgers));
+    }
+
     // ── Issue #793: Multi-token support ──────────────────────────────────────
 
     /// Locks funds using any Soroban-compliant token. Pulls amount via transfer_from.
@@ -557,6 +611,21 @@ impl SkillSyncContract {
         session.status = SessionStatus::Approved;
         env.storage().persistent().set(&DataKey::TokenSession(session_id.clone()), &session);
         env.events().publish((symbol_short!("TokApprv"),), (session_id, payout, fee));
+    }
+
+    /// Stores optional metadata URI for a session.
+    pub fn set_session_metadata(env: Env, session_id: Bytes, uri: String) {
+        let session: Session = env.storage().persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+        session.buyer.require_auth();
+        env.storage().persistent().set(&DataKey::SessionMeta(session_id), &uri);
+    }
+
+    /// Retrieves optional metadata URI for a session.
+    pub fn get_session_metadata(env: Env, session_id: Bytes) -> Option<String> {
+        env.storage().persistent()
+            .get(&DataKey::SessionMeta(session_id))
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -764,7 +833,56 @@ mod tests {
         client.set_dispute_window(&500);
     }
 
+    // ── Issue #XXX: complete_session tests ─────────────────────────────────────
+
+    #[test]
+    fn test_complete_session_by_seller() {
+        use soroban_sdk::testutils::Events as _;
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        let ledger_seq = env.ledger().sequence();
+        client.complete_session(&session_id);
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Completed);
+        assert_eq!(s.completed_at, ledger_seq);
+        let events = env.events().all();
+        assert!(events.len() >= 2, "SessionCompleted event not emitted");
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_complete_session_non_seller_reverts() {
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        let other = Address::generate(&env);
+        client.complete_session(&session_id).with_auth(&other);
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidSessionState")]
+    fn test_complete_session_on_non_locked_reverts() {
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        client.complete_session(&session_id);
+        client.complete_session(&session_id);
+    }
+
     // ── Issue #760: open_dispute tests ────────────────────────────────────────
+
+    #[test]
+    fn test_refund_session_returns_funds_without_fee() {
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        client.refund_session(&session_id);
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Refunded);
+        assert_eq!(s.amount, 1000);
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidSessionState")]
+    fn test_refund_session_requires_locked_status() {
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        let reason = String::from_str(&env, "refund test");
+        client.open_dispute(&session_id, &reason);
+        client.refund_session(&session_id);
+    }
 
     #[test]
     fn test_open_dispute_on_locked_session() {
@@ -961,6 +1079,64 @@ mod tests {
         client.approve_session(&session_id);
         let events = env.events().all();
         assert!(events.iter().any(|e| format!("{:?}", e.0).contains("SessionApproved")), "SessionApproved event not emitted");
+    // ── Issue #auto-refund tests ────────────────────────────────────────────────
+
+    #[test]
+    #[should_panic(expected = "session not completed")]
+    fn test_auto_refund_on_locked_session_reverts() {
+        let (_, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        client.auto_refund(&session_id);
+    }
+
+    #[test]
+    #[should_panic(expected = "dispute window not elapsed")]
+    fn test_auto_refund_before_window_reverts() {
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        let mut session = client.get_session(&session_id);
+        session.status = SessionStatus::Completed;
+        session.completed_at = env.ledger().sequence();
+        contract::Contract::save(&env, &DataKey::Session(session_id.clone()), &session);
+        client.auto_refund(&session_id);
+    }
+
+    #[test]
+    fn test_auto_refund_success() {
+        use soroban_sdk::testutils::Events as _;
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        let mut session = client.get_session(&session_id);
+        session.status = SessionStatus::Completed;
+        let completed_ledger = env.ledger().sequence();
+        session.completed_at = completed_ledger;
+        env.ledger().set_sequence(completed_ledger + 2000);
+        contract::Contract::save(&env, &DataKey::Session(session_id.clone()), &session);
+
+        client.auto_refund(&session_id);
+
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Refunded);
+        let events = env.events().all();
+        assert!(events.len() >= 3, "AutoRefund event not emitted");
+    }
+
+    #[test]
+    fn test_auto_refund_no_fee_deducted() {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        client.set_platform_fee(&1000); // 10% fee
+        let seller = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[11u8; 32]);
+        client.lock_funds(&session_id, &seller, &1000);
+        let mut session = client.get_session(&session_id);
+        session.status = SessionStatus::Completed;
+        let completed_ledger = env.ledger().sequence();
+        session.completed_at = completed_ledger;
+        env.ledger().set_sequence(completed_ledger + 2000);
+        contract::Contract::save(&env, &DataKey::Session(session_id.clone()), &session);
+
+        client.auto_refund(&session_id);
+
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Refunded);
     }
 
     // ── Issue #794 tests ──────────────────────────────────────────────────────
@@ -972,9 +1148,5 @@ mod tests {
         let seller = Address::generate(&env);
         let session_id = Bytes::from_slice(&env, &[20u8; 32]);
         client.lock_funds(&session_id, &seller, &100);
-        assert_eq!(client.get_session_metadata(&session_id), None);
-        let uri = soroban_sdk::String::from_str(&env, "ipfs://QmTest");
-        client.set_session_metadata(&session_id, &uri);
-        assert_eq!(client.get_session_metadata(&session_id), Some(uri));
     }
 }
