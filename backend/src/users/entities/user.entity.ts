@@ -1,3 +1,4 @@
+import { PortfolioLink } from './portfolio-link.entity';
 import { Role } from './role.entity';
 import { UserStatus } from '../enums/user-status.enum';
 
@@ -23,4 +24,5 @@ export class User {
   verifiedBy?: string | null;
   verificationNotes?: string | null;
   timezone?: string;
+  portfolioLinks?: PortfolioLink[];
 }
