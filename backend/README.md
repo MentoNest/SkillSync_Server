@@ -96,3 +96,28 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+## Production hardening (quick notes)
+
+When deploying to production, ensure the following environment variables are set and never checked into source control:
+
+- `NODE_ENV`: set to `production` to enable production behaviour
+- `CORS_ALLOWED_ORIGINS`: comma-separated list of allowed front-end origins (e.g. `https://app.example.com,https://admin.example.com`)
+- `PORT`: port to listen on
+- `SWAGGER_USER` and `SWAGGER_PASS`: basic auth credentials to protect the Swagger UI (if exposing docs in production)
+- `SWAGGER_ENABLED`: set to `false` to disable Swagger entirely
+- `JWT_SECRET`, `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`, `ENCRYPTION_KEY`, `ENCRYPTION_HMAC_KEY`, `REDIS_PASSWORD`, etc.
+
+Example (Unix/macOS):
+
+```bash
+NODE_ENV=production CORS_ALLOWED_ORIGINS="https://app.example.com" npm run build && npm run start:prod
+```
+
+Example (PowerShell/Windows):
+
+```powershell
+$env:NODE_ENV = 'production'; $env:CORS_ALLOWED_ORIGINS = 'https://app.example.com'; npm run build; npm run start:prod
+```
+
+Do not store secrets in code or commit `.env` files to the repository. Use your cloud provider's secret manager or a dedicated secrets store.
