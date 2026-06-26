@@ -17,6 +17,7 @@ import { EncryptionModule } from './common/encryption/encryption.module';
 import { UserEncryptionSubscriber } from './common/encryption/user-encryption.subscriber';
 import { ThrottlerModule } from './common/throttler/throttler.module';
 import { SuspiciousActivityService } from './auth/suspicious-activity.service';
+import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Module({
   imports: [
@@ -56,7 +57,8 @@ import { SuspiciousActivityService } from './auth/suspicious-activity.service';
     RefreshTokenService,
     UserEncryptionSubscriber,
     SuspiciousActivityService,
+    JwtAuthGuard,
   ],
-  exports: [AuthService, RefreshTokenService],
+  exports: [AuthService, RefreshTokenService, JwtModule, JwtAuthGuard],
 })
 export class AuthModule {}
