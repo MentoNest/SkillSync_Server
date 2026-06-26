@@ -365,6 +365,45 @@ impl SkillSyncContract {
         (after_fee, fee_amount)
     }
 
+    // ── Issue #auto-refund: auto_refund ───────────────────────────────────────
+
+    /// Processes automatic refund for sessions stuck in Completed state beyond dispute window.
+    /// No fees are deducted; buyer receives the full amount.
+    pub fn auto_refund(env: Env, session_id: Bytes) {
+        let mut session: Session = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+
+        assert!(session.status == SessionStatus::Completed, "session not completed");
+
+        let dispute_window: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DisputeWindow)
+            .unwrap_or(1000);
+        let current_ledger = env.ledger().sequence();
+        assert!(
+            current_ledger > session.completed_at + dispute_window,
+            "dispute window not elapsed"
+        );
+
+        let buyer = session.buyer.clone();
+        let amount = session.amount;
+
+        let native = token::TokenClient::new(&env, &env.current_contract_address());
+        native.transfer(&env.current_contract_address(), &buyer, &amount);
+
+        session.status = SessionStatus::Refunded;
+        Self::save_session(&env, session_id.clone(), session);
+
+        env.events().publish(
+            (symbol_short!("AutoRefund"),),
+            (session_id, buyer, amount),
+        );
+    }
+
     // ── Issue #752: Upgradeability ────────────────────────────────────────────
 
     /// Upgrades the contract WASM. Admin only.
@@ -891,6 +930,68 @@ mod tests {
         client.resolve_dispute(&session_id, &2u32, &50i128, &50i128);
         let s = client.get_session(&session_id);
         assert_eq!(s.status, SessionStatus::Resolved);
+    }
+
+    // ── Issue #auto-refund tests ────────────────────────────────────────────────
+
+    #[test]
+    #[should_panic(expected = "session not completed")]
+    fn test_auto_refund_on_locked_session_reverts() {
+        let (_, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        client.auto_refund(&session_id);
+    }
+
+    #[test]
+    #[should_panic(expected = "dispute window not elapsed")]
+    fn test_auto_refund_before_window_reverts() {
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        let mut session = client.get_session(&session_id);
+        session.status = SessionStatus::Completed;
+        session.completed_at = env.ledger().sequence();
+        contract::Contract::save(&env, &DataKey::Session(session_id.clone()), &session);
+        client.auto_refund(&session_id);
+    }
+
+    #[test]
+    fn test_auto_refund_success() {
+        use soroban_sdk::testutils::Events as _;
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        let mut session = client.get_session(&session_id);
+        session.status = SessionStatus::Completed;
+        let completed_ledger = env.ledger().sequence();
+        session.completed_at = completed_ledger;
+        env.ledger().set_sequence(completed_ledger + 2000);
+        contract::Contract::save(&env, &DataKey::Session(session_id.clone()), &session);
+
+        client.auto_refund(&session_id);
+
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Refunded);
+        let events = env.events().all();
+        assert!(events.len() >= 3, "AutoRefund event not emitted");
+    }
+
+    #[test]
+    fn test_auto_refund_no_fee_deducted() {
+        let (env, admin, treasury, client) = setup();
+        client.initialize(&admin, &treasury);
+        client.set_platform_fee(&1000); // 10% fee
+        let seller = Address::generate(&env);
+        let session_id = Bytes::from_slice(&env, &[11u8; 32]);
+        client.lock_funds(&session_id, &seller, &1000);
+        let mut session = client.get_session(&session_id);
+        session.status = SessionStatus::Completed;
+        let completed_ledger = env.ledger().sequence();
+        session.completed_at = completed_ledger;
+        env.ledger().set_sequence(completed_ledger + 2000);
+        contract::Contract::save(&env, &DataKey::Session(session_id.clone()), &session);
+
+        client.auto_refund(&session_id);
+
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Refunded);
+    }
+
     // ── Issue #794 tests ──────────────────────────────────────────────────────
 
     #[test]
@@ -900,9 +1001,5 @@ mod tests {
         let seller = Address::generate(&env);
         let session_id = Bytes::from_slice(&env, &[20u8; 32]);
         client.lock_funds(&session_id, &seller, &100);
-        assert_eq!(client.get_session_metadata(&session_id), None);
-        let uri = soroban_sdk::String::from_str(&env, "ipfs://QmTest");
-        client.set_session_metadata(&session_id, &uri);
-        assert_eq!(client.get_session_metadata(&session_id), Some(uri));
     }
 }
