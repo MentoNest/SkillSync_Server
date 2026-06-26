@@ -1,8 +1,11 @@
 import { Controller, Get, HttpCode, Req, Res, UseGuards } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+ feat/refresh-token
+import type { Request } from 'express';
 import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Request } from 'express';
+ main
 import { AppService } from './app.service';
 import { RedisService } from './redis/redis.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -67,6 +70,6 @@ export class AppController {
   @ApiResponse({ status: 200, description: 'Valid JWT', schema: { example: { status: 'ok', user: {} } } })
   @ApiResponse({ status: 401, description: 'Missing or invalid JWT' })
   getProtected(@Req() req: Request) {
-    return { status: 'ok', user: req.user };
+ return { status: 'ok', user: (req as any).user };
   }
 }
