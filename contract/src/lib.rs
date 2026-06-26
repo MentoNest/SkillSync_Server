@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, Bytes, Env, String,
+    contract, contractimpl, contracttype, symbol_short, token, Address, Bytes, BytesN, Env, String,
 };
 
 // ── Storage Keys ──────────────────────────────────────────────────────────────
@@ -17,10 +17,10 @@ pub enum DataKey {
     TotalVolume,
     TotalSessions,
     ActiveSessions,
-    Session(Bytes),           // sessions mapping keyed by session_id
-    ExtensionProposal(Bytes), // Issue #801: pending extension proposal
-    SessionMeta(Bytes),       // Issue #794: metadata URI per session
-    TokenSession(Bytes),      // Issue #793: token-based sessions
+    Session(Bytes),
+    ExtensionProposal(Bytes),
+    SessionMeta(Bytes),
+    TokenSession(Bytes),
 }
 
 // ── Issue #754: Session status enum ──────────────────────────────────────────
@@ -50,15 +50,6 @@ pub struct Session {
     pub dispute_opened_at: u32,   // Issue #760
     pub dispute_resolved_at: u32,
     pub deadline: u32, // Issue #801: completion deadline in ledgers (0 = no deadline)
-}
-
-// ── Issue #801: Extension proposal struct ────────────────────────────────────
-
-#[contracttype]
-#[derive(Clone)]
-pub struct ExtensionProposal {
-    pub proposer: Address,
-    pub additional_ledgers: u32,
 }
 
 // ── Issue #793: Token session struct ─────────────────────────────────────────
@@ -234,6 +225,29 @@ impl SkillSyncContract {
         env.events().publish(
             (symbol_short!("FundsLock"),),
             (buyer, session_id, amount),
+        );
+    }
+
+    // ── Issue #XXX: complete_session ───────────────────────────────────────────
+
+    /// Seller marks the session as delivered and moves it to Completed.
+    pub fn complete_session(env: Env, session_id: Bytes) {
+        let mut session: Session = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+
+        session.seller.require_auth();
+        assert!(session.status == SessionStatus::Locked, "InvalidSessionState");
+
+        session.status = SessionStatus::Completed;
+        session.completed_at = env.ledger().sequence();
+        Self::save_session(&env, session_id.clone(), session);
+
+        env.events().publish(
+            (symbol_short!("SessComp"),),
+            (session_id, session.completed_at),
         );
     }
 
@@ -683,6 +697,37 @@ mod tests {
     fn test_uninitialized_set_dispute_window_reverts() {
         let (_, _admin, _treasury, client) = setup();
         client.set_dispute_window(&500);
+    }
+
+    // ── Issue #XXX: complete_session tests ─────────────────────────────────────
+
+    #[test]
+    fn test_complete_session_by_seller() {
+        use soroban_sdk::testutils::Events as _;
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        let ledger_seq = env.ledger().sequence();
+        client.complete_session(&session_id);
+        let s = client.get_session(&session_id);
+        assert_eq!(s.status, SessionStatus::Completed);
+        assert_eq!(s.completed_at, ledger_seq);
+        let events = env.events().all();
+        assert!(events.len() >= 2, "SessionCompleted event not emitted");
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_complete_session_non_seller_reverts() {
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        let other = Address::generate(&env);
+        client.complete_session(&session_id).with_auth(&other);
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidSessionState")]
+    fn test_complete_session_on_non_locked_reverts() {
+        let (env, _admin, _treasury, client, session_id) = setup_with_session(1000);
+        client.complete_session(&session_id);
+        client.complete_session(&session_id);
     }
 
     // ── Issue #760: open_dispute tests ────────────────────────────────────────
