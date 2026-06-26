@@ -15,6 +15,7 @@ import { EncryptionModule } from './common/encryption/encryption.module';
 import { BackupModule } from './backup/backup.module';
 import { SeedModule } from './database/seed/seed.module';
 import { SessionsModule } from './sessions/sessions.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { SessionsModule } from './sessions/sessions.module';
     BackupModule,
     SeedModule,
     SessionsModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [AppService, ShutdownService],
