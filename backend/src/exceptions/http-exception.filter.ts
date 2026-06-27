@@ -51,6 +51,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
       if (typeof response === 'string') {
         return {
+          success: false,
           statusCode: status,
           message: response,
           error: exception.name,
@@ -66,6 +67,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       const validation = this.extractValidationErrors(payload);
 
       return {
+        success: false,
         statusCode: status,
         message: payload.message || payload.error || exception.name,
         error: payload.error || exception.name,
@@ -79,6 +81,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     return {
+      success: false,
       statusCode: status,
       message: 'Internal server error',
       error: 'Internal Server Error',
