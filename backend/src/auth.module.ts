@@ -12,12 +12,10 @@ import { RefreshToken } from './entities/refresh-token.entity';
 import { UserService } from './auth/user.service';
 import { LoginAttemptService } from './auth/login-attempt.service';
 import { AuditLogService } from './auth/audit-log.service';
+import { SuspiciousLoginService } from './auth/suspicious-login.service';
 import { RefreshTokenService } from './refresh-token/refresh-token.service';
 import { EncryptionModule } from './common/encryption/encryption.module';
 import { UserEncryptionSubscriber } from './common/encryption/user-encryption.subscriber';
-import { ThrottlerModule } from './common/throttler/throttler.module';
-import { SuspiciousActivityService } from './auth/suspicious-activity.service';
-import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Module({
   imports: [
@@ -25,7 +23,6 @@ import { JwtAuthGuard } from './jwt-auth.guard';
     RedisModule,
     TypeOrmModule.forFeature([User, RefreshToken]),
     EncryptionModule,
-    ThrottlerModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
@@ -54,11 +51,10 @@ import { JwtAuthGuard } from './jwt-auth.guard';
     UserService,
     LoginAttemptService,
     AuditLogService,
+    SuspiciousLoginService,
     RefreshTokenService,
     UserEncryptionSubscriber,
-    SuspiciousActivityService,
-    JwtAuthGuard,
   ],
-  exports: [AuthService, RefreshTokenService, JwtModule, JwtAuthGuard],
+  exports: [AuthService, RefreshTokenService, SuspiciousLoginService],
 })
 export class AuthModule {}
