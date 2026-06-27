@@ -108,12 +108,15 @@ impl SkillSyncContract {
     /// Sets the platform fee in basis points (0–1000). Admin only.
     pub fn set_platform_fee(env: Env, new_fee_bps: u32) {
         Self::require_not_paused(&env);
-        Self::require_admin(&env);
+        let admin = Self::require_admin(&env);
         assert!(new_fee_bps <= 1000, "fee exceeds 10%");
+        let old_fee_bps: u32 = env.storage().persistent()
+            .get(&DataKey::PlatformFeeBps).unwrap_or(0);
         env.storage().persistent().set(&DataKey::PlatformFeeBps, &new_fee_bps);
+        // Issue #781: typed PlatformFeeUpdated event
         env.events().publish(
             (symbol_short!("fee_upd"),),
-            new_fee_bps,
+            (old_fee_bps, new_fee_bps, admin),
         );
     }
 
@@ -130,11 +133,14 @@ impl SkillSyncContract {
     /// Updates the treasury wallet address. Admin only.
     pub fn set_treasury(env: Env, new_treasury: Address) {
         Self::require_not_paused(&env);
-        Self::require_admin(&env);
+        let admin = Self::require_admin(&env);
+        let old_treasury: Address = env.storage().persistent()
+            .get(&DataKey::Treasury).expect("treasury not set");
         env.storage().persistent().set(&DataKey::Treasury, &new_treasury);
+        // Issue #782: typed TreasuryUpdated event
         env.events().publish(
-            (symbol_short!("treas"),),
-            new_treasury,
+            (symbol_short!("treas_upd"),),
+            (old_treasury, new_treasury, admin),
         );
     }
 
@@ -251,9 +257,10 @@ impl SkillSyncContract {
         );
     }
 
-    // ── Issue #760: open_dispute ──────────────────────────────────────────────
+    // ── Issue #779: open_dispute ──────────────────────────────────────────────
 
     /// Opens a dispute on a Locked or Completed session. Caller must be buyer or seller.
+    /// Emits: DisputeOpened(session_id, opened_by, reason, timestamp)
     pub fn open_dispute(env: Env, session_id: Bytes, reason: String) {
         let mut session: Session = env
             .storage()
@@ -267,13 +274,16 @@ impl SkillSyncContract {
             "session not in disputable state"
         );
 
+        let opened_by = session.buyer.clone();
+        let timestamp = env.ledger().sequence();
         session.status = SessionStatus::Disputed;
-        session.dispute_opened_at = env.ledger().sequence();
+        session.dispute_opened_at = timestamp;
         Self::save_session(&env, session_id.clone(), session);
 
+        // Issue #779: typed DisputeOpened event
         env.events().publish(
             (symbol_short!("dis_open"),),
-            (session_id, reason),
+            (session_id, opened_by, reason, timestamp),
         );
     }
 
@@ -305,9 +315,10 @@ impl SkillSyncContract {
         );
     }
 
-    // ── Issue #761: resolve_dispute ───────────────────────────────────────────
+    // ── Issue #780: resolve_dispute ───────────────────────────────────────────
 
     /// Admin resolves a dispute by splitting funds between buyer and seller.
+    /// Emits: DisputeResolved(session_id, resolver, buyer_share, seller_share, fee, timestamp)
     pub fn resolve_dispute(
         env: Env,
         session_id: Bytes,
@@ -315,7 +326,7 @@ impl SkillSyncContract {
         buyer_share: i128,
         seller_share: i128,
     ) {
-        Self::require_admin(&env);
+        let resolver = Self::require_admin(&env);
 
         let mut session: Session = env
             .storage()
@@ -333,6 +344,7 @@ impl SkillSyncContract {
         let (buyer_net, buyer_fee) = Self::apply_fee(&env, buyer_share);
         let (seller_net, seller_fee) = Self::apply_fee(&env, seller_share);
         let total_fee = buyer_fee + seller_fee;
+        let timestamp = env.ledger().sequence();
 
         let treasury: Address = env
             .storage()
@@ -341,13 +353,15 @@ impl SkillSyncContract {
             .expect("treasury not set");
 
         session.status = SessionStatus::Resolved;
-        session.dispute_resolved_at = env.ledger().sequence();
+        session.dispute_resolved_at = timestamp;
         Self::save_session(&env, session_id.clone(), session);
 
+        // Issue #780: typed DisputeResolved event
         env.events().publish(
             (symbol_short!("dis_res"),),
-            (session_id, resolution, buyer_net, seller_net, total_fee, treasury),
+            (session_id, resolver, buyer_net, seller_net, total_fee, timestamp),
         );
+        let _ = (resolution, treasury);
     }
 
     // ── Issue #762: apply_fee ─────────────────────────────────────────────────
