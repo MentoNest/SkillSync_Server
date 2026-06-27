@@ -55,6 +55,7 @@ export class User {
   @Column({ nullable: true, default: null })
   deletedAt: Date | null;
 
+  @Index()
   @CreateDateColumn()
   createdAt: Date;
 

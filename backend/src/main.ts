@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { Logger, ValidationPipe, VersioningType  } from '@nestjs/common';
+import { Logger, ValidationPipe, VersioningType } from '@nestjs/common';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { join } from 'path';
 import * as express from 'express';
@@ -12,6 +12,7 @@ import { HttpExceptionFilter } from './exceptions/http-exception.filter';
 import { RequestIdInterceptor } from './exceptions/request-id.interceptor';
 import { ShutdownService } from './shutdown/shutdown.service';
 import { MetricsInterceptor } from './metrics/metrics.interceptor';
+import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
 const SHUTDOWN_TIMEOUT_MS = 30_000;
 const logger = new Logger('Bootstrap');
@@ -65,6 +66,40 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
       transform: true,
       transformOptions: { enableImplicitConversion: true },
+    }),
+  );
+  app.useGlobalInterceptors(new ResponseInterceptor());
+
+  // Security Headers Setup
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.disable('x-powered-by');
+
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:', 'https:'],
+          connectSrc: ["'self'"],
+          fontSrc: ["'self'", 'https:', 'data:'],
+          objectSrc: ["'none'"],
+          mediaSrc: ["'self'"],
+          frameSrc: ["'none'"],
+        },
+      },
+      crossOriginEmbedderPolicy: false,
+      hsts: {
+        maxAge: 31536000,
+        includeSubDomains: true,
+        preload: true,
+      },
+      frameguard: {
+        action: 'deny',
+      },
+      noSniff: true,
+      xssFilter: true, // sets X-XSS-Protection: 1; mode=block
     }),
   );
 
