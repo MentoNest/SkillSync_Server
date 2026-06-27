@@ -1,18 +1,20 @@
-import { Controller, Get, Query } from '@nestjs/common';
-import { UsersService } from './users.service';
-import { SearchUsersDto } from './dto/search-users.dto';
 import { Body, Controller, Get, Param, Patch, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../jwt-auth.guard';
 import { UsersService } from './users.service';
+import { SearchUsersDto } from './dto/search-users.dto';
 import { UpdateUsernameDto } from './dto/update-username.dto';
 import { UpdateDisplayNameDto } from './dto/update-display-name.dto';
 import { Request } from 'express';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
+@ApiTags('users')
 @Controller()
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get('users')
+  @ApiOperation({ summary: 'Search users' })
+  @ApiResponse({ status: 200, description: 'User list returned' })
   async searchUsers(@Query() query: SearchUsersDto) {
     return this.usersService.searchUsers({
       role: query.role,
@@ -24,6 +26,7 @@ export class UsersController {
       sortOrder: query.sortOrder,
     });
   }
+
   @Get('user/username/available')
   async checkUsernameAvailability(@Query('username') username: string) {
     return this.usersService.checkUsernameAvailability(username);
@@ -63,29 +66,5 @@ export class UsersController {
       isFeatured: user.isFeatured,
       createdAt: user.createdAt,
     };
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../jwt-auth.guard';
-import { UsersService } from './users.service';
-
-@ApiTags('users')
-@Controller('users')
-@UseGuards(JwtAuthGuard)
-export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
-
-  @Get(':id')
-  @ApiOperation({ summary: 'Get user by ID' })
-  @ApiResponse({ status: 200, description: 'User found' })
-  @ApiResponse({ status: 404, description: 'User not found' })
-  async getUser(@Param('id') id: string) {
-    return this.usersService.findById(id);
-  }
-
-  @Get(':id/profile')
-  @ApiOperation({ summary: 'Get full user profile' })
-  @ApiResponse({ status: 200, description: 'User profile returned' })
-  async getProfile(@Param('id') id: string) {
-    return this.usersService.findById(id);
   }
 }

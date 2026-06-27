@@ -7,7 +7,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { randomBytes } from 'crypto';
-import { Keypair, StrKey } from 'stellar-sdk';
+import { Keypair } from 'stellar-sdk';
+import { normalizeWalletAddress } from './common/utils/wallet.utils';
 import { RedisService } from './redis/redis.service';
 import { AuthService } from './auth.service';
 import { LoginDto } from './auth/login.dto';
@@ -54,16 +55,14 @@ export class AuthController {
   @ApiResponse({ status: 400, description: 'Invalid Stellar wallet address' })
   @ApiResponse({ status: 429, description: 'Rate limit exceeded (5 requests/min)' })
   async getNonce(@Param('walletAddress') walletAddress: string) {
-    if (!StrKey.isValidEd25519PublicKey(walletAddress)) {
-      throw new HttpException('Invalid Stellar wallet address', HttpStatus.BAD_REQUEST);
-    }
+    const normalized = normalizeWalletAddress(walletAddress);
 
-    await this.enforceRateLimit(walletAddress);
+    await this.enforceRateLimit(normalized);
 
     const nonce = randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
-    await this.redisService.set(walletAddress, nonce, 300, 'nonce');
+    await this.redisService.set(normalized, nonce, 300, 'nonce');
 
     return { nonce, expiresAt };
   }
@@ -111,23 +110,23 @@ export class AuthController {
       throw new HttpException('Invalid network', HttpStatus.BAD_REQUEST);
     }
 
-    const attemptCount = await this.loginAttemptService.incrementAttempts(dto.wallet);
+    const attemptCount = await this.loginAttemptService.incrementAttempts(wallet);
     if (attemptCount > 10) {
-      await this.auditLogService.logAttempt(dto.wallet, 'failure', 'rate_limit_exceeded');
+      await this.auditLogService.logAttempt(wallet, 'failure', 'rate_limit_exceeded');
       throw new HttpException('Too many login attempts', HttpStatus.TOO_MANY_REQUESTS);
     }
 
-    const storedNonce = await this.redisService.get(dto.wallet, 'nonce');
+    const storedNonce = await this.redisService.get(wallet, 'nonce');
     if (!storedNonce) {
-      await this.auditLogService.logAttempt(dto.wallet, 'failure', 'nonce_expired');
+      await this.auditLogService.logAttempt(wallet, 'failure', 'nonce_expired');
       throw new HttpException('Nonce expired or invalid', HttpStatus.UNAUTHORIZED);
     }
 
     let valid = false;
     try {
-      valid = this.verifySignature(dto.wallet, dto.signature, storedNonce, dto.network);
+      valid = this.verifySignature(wallet, dto.signature, storedNonce, dto.network);
     } finally {
-      await this.deleteNonce(dto.wallet);
+      await this.deleteNonce(wallet);
     }
 
     if (!valid) {

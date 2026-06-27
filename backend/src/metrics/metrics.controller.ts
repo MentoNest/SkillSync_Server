@@ -1,5 +1,5 @@
 import { Controller, Get, UseGuards, Res } from '@nestjs/common';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { MetricsService } from './metrics.service';
 import { MetricsBasicAuthGuard } from './metrics.guard';
 import { ApiExcludeController } from '@nestjs/swagger';
