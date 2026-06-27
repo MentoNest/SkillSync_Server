@@ -61,6 +61,8 @@ export class AuthController {
   async getNonce(@Param('walletAddress') walletAddress: string) {
     const normalized = normalizeWalletAddress(walletAddress);
 
+    await this.enforceRateLimit(normalized);
+
     const nonce = randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
