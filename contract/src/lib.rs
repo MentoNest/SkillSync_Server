@@ -291,6 +291,11 @@ impl SkillSyncContract {
     /// Emits: SessionApproved(session_id, buyer, seller, amount, fee, timestamp)
     pub fn approve_session(env: Env, session_id: Bytes) {
         let mut session: Session = env.storage().persistent()
+
+    /// Buyer approves a completed session, releasing funds to seller minus platform fee.
+    /// Emits: SessionApproved(session_id, buyer, seller, amount, fee, timestamp)
+    pub fn approve_session(env: Env, session_id: Bytes) {
+        let mut session: Session = env.storage().persistent()
     // ── Issue #779: open_dispute ──────────────────────────────────────────────
 
     /// Opens a dispute on a Locked or Completed session. Caller must be buyer or seller.
@@ -319,12 +324,32 @@ impl SkillSyncContract {
             native.transfer(&env.current_contract_address(), &treasury, &fee);
         }
 
+
+        let fee_bps: u32 = env.storage().persistent()
+            .get(&DataKey::PlatformFeeBps).unwrap_or(0);
+        let fee = session.amount * fee_bps as i128 / 10000;
+        let payout = session.amount - fee;
+
+        let treasury: Address = env.storage().persistent()
+            .get(&DataKey::Treasury).expect("treasury not set");
+
+        let native = token::TokenClient::new(&env, &env.current_contract_address());
+        native.transfer(&env.current_contract_address(), &session.seller, &payout);
+        if fee > 0 {
+            native.transfer(&env.current_contract_address(), &treasury, &fee);
+        }
+
         let buyer = session.buyer.clone();
         let seller = session.seller.clone();
         let amount = session.amount;
         let timestamp = env.ledger().sequence();
         session.status = SessionStatus::Approved;
         env.storage().persistent().set(&DataKey::Session(session_id.clone()), &session);
+
+        // Issue #776: typed SessionApproved event
+        env.events().publish(
+            (symbol_short!("SessAppr"),),
+            (session_id, buyer, seller, amount, fee, timestamp),
 
         // Issue #776: typed SessionApproved event
         env.events().publish(
@@ -363,6 +388,39 @@ impl SkillSyncContract {
         Self::save_session(&env, session_id.clone(), session);
 
         // Issue #777: typed SessionRefunded event
+        env.events().publish(
+            (symbol_short!("SessRef"),),
+            (session_id, buyer, amount, timestamp),
+        );
+    }
+
+    // ── Issue #779: open_dispute ──────────────────────────────────────────────
+
+    /// Opens a dispute on a Locked or Completed session.
+    /// Emits: DisputeOpened(session_id, opened_by, reason, timestamp)
+    pub fn open_dispute(env: Env, session_id: Bytes, reason: String) {
+        let mut session: Session = env.storage().persistent()
+            .get(&DataKey::Session(session_id.clone()))
+            .expect("session not found");
+
+        assert!(
+            session.status == SessionStatus::Completed || session.status == SessionStatus::Locked,
+            "session not in disputable state"
+        );
+
+        let opened_by = session.buyer.clone();
+        let timestamp = env.ledger().sequence();
+        session.status = SessionStatus::Disputed;
+        session.dispute_opened_at = timestamp;
+        Self::save_session(&env, session_id.clone(), session);
+
+        // Issue #779: typed DisputeOpened event
+        env.events().publish(
+            (symbol_short!("dis_open"),),
+            (session_id, opened_by, reason, timestamp),
+        );
+    }
+
         env.events().publish(
             (symbol_short!("SessRef"),),
             (session_id, buyer, amount, timestamp),
