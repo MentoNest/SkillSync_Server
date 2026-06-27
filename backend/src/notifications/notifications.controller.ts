@@ -14,6 +14,7 @@ import { Request } from 'express';
 import { JwtAuthGuard } from '../jwt-auth.guard';
 import { JwtAccessTokenPayload } from '../jwt-payload.interface';
 import { MarkReadDto } from './dto/mark-read.dto';
+import { GetNotificationsQueryDto } from './dto/get-notifications-query.dto';
 import { NotificationsService } from './notifications.service';
 
 @ApiTags('Notifications')
@@ -26,13 +27,12 @@ export class NotificationsController {
   @Get()
   async findForUser(
     @Req() req: Request & { user: JwtAccessTokenPayload },
-    @Query('page') page = 1,
-    @Query('limit') limit = 20,
+    @Query() query: GetNotificationsQueryDto,
   ) {
     return this.notificationsService.findForUser(
       req.user.sub,
-      Number(page),
-      Number(limit),
+      query.page ?? 1,
+      query.limit ?? 20,
     );
   }
 

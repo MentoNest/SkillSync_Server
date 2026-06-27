@@ -12,10 +12,10 @@ import { RefreshToken } from './entities/refresh-token.entity';
 import { UserService } from './auth/user.service';
 import { LoginAttemptService } from './auth/login-attempt.service';
 import { AuditLogService } from './auth/audit-log.service';
+import { SuspiciousLoginService } from './auth/suspicious-login.service';
 import { RefreshTokenService } from './refresh-token/refresh-token.service';
 import { EncryptionModule } from './common/encryption/encryption.module';
 import { UserEncryptionSubscriber } from './common/encryption/user-encryption.subscriber';
-import { ThrottlerModule } from './common/throttler/throttler.module';
 
 @Module({
   imports: [
@@ -23,7 +23,6 @@ import { ThrottlerModule } from './common/throttler/throttler.module';
     RedisModule,
     TypeOrmModule.forFeature([User, RefreshToken]),
     EncryptionModule,
-    ThrottlerModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
@@ -52,9 +51,10 @@ import { ThrottlerModule } from './common/throttler/throttler.module';
     UserService,
     LoginAttemptService,
     AuditLogService,
+    SuspiciousLoginService,
     RefreshTokenService,
     UserEncryptionSubscriber,
   ],
-  exports: [AuthService, RefreshTokenService],
+  exports: [AuthService, RefreshTokenService, SuspiciousLoginService],
 })
 export class AuthModule {}
