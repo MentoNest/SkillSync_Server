@@ -3,6 +3,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { RedisService } from './redis/redis.service';
 import { ShutdownService } from './shutdown/shutdown.service';
+import { JwtAuthGuard } from './jwt-auth.guard';
 
 const mockRedisService = {
   get: jest.fn().mockResolvedValue(null),
@@ -20,7 +21,10 @@ describe('AppController', () => {
         ShutdownService,
         { provide: RedisService, useValue: mockRedisService },
       ],
-    }).compile();
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     appController = app.get<AppController>(AppController);
     shutdownService = app.get<ShutdownService>(ShutdownService);
@@ -34,49 +38,26 @@ describe('AppController', () => {
 
   describe('health endpoint', () => {
     it('should return 200 with status ok when not shutting down', async () => {
-      const res = {
-        status: jest.fn().mockReturnThis(),
-        json: jest.fn(),
-      } as any;
-
+      const res = { status: jest.fn().mockReturnThis(), json: jest.fn() } as any;
       await appController.health(res);
-
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'ok' }),
-      );
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok' }));
     });
 
     it('should return 503 with status shutting_down when shutdown is initiated', async () => {
       shutdownService.initiateShutdown();
-
-      const res = {
-        status: jest.fn().mockReturnThis(),
-        json: jest.fn(),
-      } as any;
-
+      const res = { status: jest.fn().mockReturnThis(), json: jest.fn() } as any;
       await appController.health(res);
-
       expect(res.status).toHaveBeenCalledWith(503);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'shutting_down' }),
-      );
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'shutting_down' }));
     });
 
     it('should return 503 when redis check fails', async () => {
       mockRedisService.get.mockRejectedValueOnce(new Error('Redis unavailable'));
-
-      const res = {
-        status: jest.fn().mockReturnThis(),
-        json: jest.fn(),
-      } as any;
-
+      const res = { status: jest.fn().mockReturnThis(), json: jest.fn() } as any;
       await appController.health(res);
-
       expect(res.status).toHaveBeenCalledWith(503);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'degraded' }),
-      );
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'degraded' }));
     });
   });
 });
