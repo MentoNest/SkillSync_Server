@@ -3,37 +3,31 @@ import { Keypair } from 'stellar-sdk';
 import { AuthController } from './auth.controller';
 import { RedisService } from './redis/redis.service';
 
-// Generate a valid Stellar ED25519 public key at test time
 const validStellarAddress = Keypair.random().publicKey();
 
 describe('AuthController', () => {
   let controller: AuthController;
-  let redisService: RedisService;
-  let mockClient: Record<string, jest.Mock>;
+  let redisService: jest.Mocked<Pick<RedisService, 'set' | 'get' | 'del' | 'getClient'>>;
 
   beforeEach(() => {
-    mockClient = {
-      incr: jest.fn(),
-      expire: jest.fn(),
-    };
-
     redisService = {
       set: jest.fn(),
-      getClient: jest.fn().mockReturnValue(mockClient),
-    } as unknown as RedisService;
+      get: jest.fn(),
+      del: jest.fn(),
+      getClient: jest.fn(),
+    };
 
     controller = new AuthController(
-      redisService,
-      undefined as any, // authService – not exercised in these tests
+      redisService as unknown as RedisService,
+      undefined as any, // authService
       undefined as any, // userService
       undefined as any, // loginAttemptService
       undefined as any, // auditLogService
+      undefined as any, // refreshTokenService
     );
   });
 
   it('returns a nonce and expiresAt for a valid Stellar wallet address', async () => {
-    mockClient.incr.mockResolvedValue(1);
-
     const result = await controller.getNonce(validStellarAddress);
 
     expect(typeof result.nonce).toBe('string');
@@ -46,29 +40,21 @@ describe('AuthController', () => {
       300,
       'nonce',
     );
-    expect(mockClient.expire).toHaveBeenCalledWith(
-      `rate:${validStellarAddress}`,
-      60,
-    );
   });
 
   it('throws BAD_REQUEST for an invalid Stellar wallet address', async () => {
-    await expect(controller.getNonce('invalid-address')).rejects.toThrow(
-      HttpException,
-    );
-    await expect(
-      controller.getNonce('invalid-address'),
-    ).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST });
+    await expect(controller.getNonce('invalid-address')).rejects.toMatchObject({
+      status: HttpStatus.BAD_REQUEST,
+    });
   });
 
-  it('throws TOO_MANY_REQUESTS when rate limit is exceeded', async () => {
-    mockClient.incr.mockResolvedValue(6);
-
-    await expect(controller.getNonce(validStellarAddress)).rejects.toThrow(
-      HttpException,
+  it('normalizes lowercase wallet address to uppercase', async () => {
+    const result = await controller.getNonce(validStellarAddress.toLowerCase());
+    expect(redisService.set).toHaveBeenCalledWith(
+      validStellarAddress,
+      result.nonce,
+      300,
+      'nonce',
     );
-    await expect(
-      controller.getNonce(validStellarAddress),
-    ).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
   });
 });

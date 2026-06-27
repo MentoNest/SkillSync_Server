@@ -9,6 +9,8 @@ import {
 import { randomBytes } from 'crypto';
 import { Keypair } from 'stellar-sdk';
 import { normalizeWalletAddress } from './common/utils/wallet.utils';
+import { Throttle } from './common/throttler/throttle.decorator';
+import { ThrottlerGuard } from './common/throttler/throttler.guard';
 import { RedisService } from './redis/redis.service';
 import { AuthService } from './auth.service';
 import { LoginDto } from './auth/login.dto';
@@ -21,6 +23,7 @@ import { RefreshTokenService } from './refresh-token/refresh-token.service';
 
 @ApiTags('auth')
 @Controller('auth')
+@UseGuards(ThrottlerGuard)
 export class AuthController {
   constructor(
     private readonly redisService: RedisService,
@@ -33,6 +36,7 @@ export class AuthController {
   ) {}
 
   @Get('nonce/:walletAddress')
+  @Throttle(5, 60)
   @ApiOperation({
     summary: 'Request a sign-in nonce',
     description:
@@ -68,6 +72,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @Throttle(10, 60)
   @ApiOperation({
     summary: 'Authenticate with Stellar wallet signature',
     description:
@@ -166,6 +171,7 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @Throttle(20, 60)
   async refresh(@Body() body: RefreshTokenDto, @Req() req: any) {
     const { refreshToken } = body;
 
@@ -236,20 +242,6 @@ export class AuthController {
       return keypair.verify(payload, Buffer.from(signature, 'base64'));
     } catch {
       return false;
-    }
-  }
-
-  private async enforceRateLimit(walletAddress: string): Promise<void> {
-    const rateKey = `rate:${walletAddress}`;
-    const client = this.redisService.getClient();
-    const currentCount = await client.incr(rateKey);
-
-    if (currentCount === 1) {
-      await client.expire(rateKey, 60);
-    }
-
-    if (currentCount > 5) {
-      throw new HttpException('Rate limit exceeded', HttpStatus.TOO_MANY_REQUESTS);
     }
   }
 
