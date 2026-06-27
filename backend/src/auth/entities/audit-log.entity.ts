@@ -9,5 +9,5 @@ export enum AuditEventType {
   ROLE_ASSIGNED = 'role_assigned',
   ROLE_REVOKED = 'role_revoked',
   TOKEN_INVALIDATED = 'token_invalidated',
-  SUSPICIOUS_ACTIVITY = 'suspicious_activity',
+  SUSPICIOUS_LOGIN_DETECTED = 'suspicious_login_detected',
 }

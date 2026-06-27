@@ -16,6 +16,7 @@ import { CreateSessionDto } from './dto/create-session.dto';
 import { CancelSessionDto } from './dto/cancel-session.dto';
 import { RescheduleSessionDto } from './dto/reschedule-session.dto';
 import { RateSessionDto } from './dto/rate-session.dto';
+import { SessionHistoryQueryDto } from './dto/session-history-query.dto';
 
 @ApiTags('Sessions')
 @ApiBearerAuth()
@@ -62,8 +63,8 @@ export class SessionsController {
   }
 
   @Get()
-  getHistory(@Query('status') status: string | undefined, @Request() req: any) {
-    return this.sessionsService.getHistory(req.user.sub, status);
+  getHistory(@Query() query: SessionHistoryQueryDto, @Request() req: any) {
+    return this.sessionsService.getHistory(req.user.sub, query.status);
   }
 
   @Get(':id')
