@@ -20,6 +20,7 @@ import { LoginAttemptService } from './auth/login-attempt.service';
 import { AuditLogService } from './auth/audit-log.service';
 import { SuspiciousLoginService } from './auth/suspicious-login.service';
 import { RefreshTokenService } from './refresh-token/refresh-token.service';
+import { SuspiciousActivityService } from './auth/suspicious-activity.service';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -33,6 +34,7 @@ export class AuthController {
     private readonly auditLogService: AuditLogService,
     private readonly suspiciousLoginService: SuspiciousLoginService,
     private readonly refreshTokenService: RefreshTokenService,
+    private readonly suspiciousActivityService: SuspiciousActivityService,
   ) {}
 
   @Get('nonce/:walletAddress')
@@ -115,6 +117,15 @@ export class AuthController {
       throw new HttpException('Invalid network', HttpStatus.BAD_REQUEST);
     }
 
+    // Check lockdown before doing any work
+    if (await this.suspiciousActivityService.isLockedDown(wallet)) {
+      const ttl = await this.suspiciousActivityService.lockdownTtl(wallet);
+      throw new HttpException(
+        { statusCode: 423, message: 'Account temporarily locked due to suspicious activity', retryAfter: ttl },
+        423,
+      );
+    }
+
     const attemptCount = await this.loginAttemptService.incrementAttempts(wallet);
     if (attemptCount > 10) {
       await this.auditLogService.logAttempt(wallet, 'failure', 'rate_limit_exceeded');
@@ -124,6 +135,7 @@ export class AuthController {
     const storedNonce = await this.redisService.get(wallet, 'nonce');
     if (!storedNonce) {
       await this.auditLogService.logAttempt(wallet, 'failure', 'nonce_expired');
+      await this.suspiciousActivityService.trackFailedAttempt(wallet, ip);
       throw new HttpException('Nonce expired or invalid', HttpStatus.UNAUTHORIZED);
     }
 

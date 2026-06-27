@@ -9,7 +9,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -24,7 +24,10 @@ import { AdminUsersQueryDto } from './dto/admin-users-query.dto';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(AuthRole.ADMIN)
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly suspiciousActivityService: SuspiciousActivityService,
+  ) {}
 
   @Get('users')
   listUsers(@Query() query: AdminUsersQueryDto) {
@@ -34,6 +37,12 @@ export class AdminController {
   @Get('analytics')
   getAnalytics() {
     return this.adminService.getAnalytics();
+  }
+
+  @Get('suspicious-activity')
+  @ApiOperation({ summary: 'List recent suspicious authentication events' })
+  getSuspiciousActivity() {
+    return this.suspiciousActivityService.getRecentEvents();
   }
 
   @Get('users/:id')
