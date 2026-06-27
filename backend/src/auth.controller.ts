@@ -16,6 +16,7 @@ import { RefreshTokenDto } from './auth/refresh-token.dto';
 import { UserService } from './auth/user.service';
 import { LoginAttemptService } from './auth/login-attempt.service';
 import { AuditLogService } from './auth/audit-log.service';
+import { SuspiciousLoginService } from './auth/suspicious-login.service';
 import { RefreshTokenService } from './refresh-token/refresh-token.service';
 
 @ApiTags('auth')
@@ -27,6 +28,7 @@ export class AuthController {
     private readonly userService: UserService,
     private readonly loginAttemptService: LoginAttemptService,
     private readonly auditLogService: AuditLogService,
+    private readonly suspiciousLoginService: SuspiciousLoginService,
     private readonly refreshTokenService: RefreshTokenService,
   ) {}
 
@@ -97,8 +99,12 @@ export class AuthController {
   @ApiResponse({ status: 400, description: 'Invalid wallet address or network' })
   @ApiResponse({ status: 401, description: 'Nonce expired or invalid signature' })
   @ApiResponse({ status: 429, description: 'Too many login attempts' })
-  async login(@Body() dto: LoginDto) {
-    const wallet = normalizeWalletAddress(dto.wallet);
+  async login(@Body() dto: LoginDto, @Req() req: any) {
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+
+    if (!StrKey.isValidEd25519PublicKey(dto.wallet)) {
+      throw new HttpException('Invalid Stellar wallet address', HttpStatus.BAD_REQUEST);
+    }
 
     if (!['mainnet', 'testnet'].includes(dto.network)) {
       throw new HttpException('Invalid network', HttpStatus.BAD_REQUEST);
@@ -124,13 +130,16 @@ export class AuthController {
     }
 
     if (!valid) {
-      await this.auditLogService.logAttempt(wallet, 'failure', 'invalid_signature');
+      await this.auditLogService.logAttempt(dto.wallet, 'failure', 'invalid_signature');
+      await this.suspiciousLoginService.recordFailedAttempt(dto.wallet, ip);
+      await this.suspiciousLoginService.checkSuspicious(dto.wallet, ip);
       throw new HttpException('Invalid signature', HttpStatus.UNAUTHORIZED);
     }
 
-    const user = await this.userService.findOrCreateByWallet(wallet);
-    await this.loginAttemptService.resetAttempts(wallet);
-    await this.auditLogService.logAttempt(wallet, 'success', 'login_success', user.id);
+    const user = await this.userService.findOrCreateByWallet(dto.wallet);
+    await this.loginAttemptService.resetAttempts(dto.wallet);
+    await this.auditLogService.logAttempt(dto.wallet, 'success', 'login_success', user.id);
+    await this.suspiciousLoginService.recordSuccessfulLogin(dto.wallet, ip);
 
     const accessToken = await this.authService.issueAccessToken(user.id, user.wallet, user.roles, user.permissions);
     const refreshToken = await this.authService.issueRefreshToken(user.id);

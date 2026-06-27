@@ -12,6 +12,7 @@ import { RefreshToken } from './entities/refresh-token.entity';
 import { UserService } from './auth/user.service';
 import { LoginAttemptService } from './auth/login-attempt.service';
 import { AuditLogService } from './auth/audit-log.service';
+import { SuspiciousLoginService } from './auth/suspicious-login.service';
 import { RefreshTokenService } from './refresh-token/refresh-token.service';
 import { EncryptionModule } from './common/encryption/encryption.module';
 import { UserEncryptionSubscriber } from './common/encryption/user-encryption.subscriber';
@@ -50,9 +51,10 @@ import { UserEncryptionSubscriber } from './common/encryption/user-encryption.su
     UserService,
     LoginAttemptService,
     AuditLogService,
+    SuspiciousLoginService,
     RefreshTokenService,
     UserEncryptionSubscriber,
   ],
-  exports: [AuthService, RefreshTokenService],
+  exports: [AuthService, RefreshTokenService, SuspiciousLoginService],
 })
 export class AuthModule {}

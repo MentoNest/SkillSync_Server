@@ -1,29 +1,7 @@
 import { Body, Controller, HttpCode, HttpStatus, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { IsEnum, IsOptional, IsString, IsNumber } from 'class-validator';
 import { JwtAuthGuard } from '../jwt-auth.guard';
-
-export class CreateProfileDto {
-  @IsEnum(['mentor', 'mentee'])
-  profileType: 'mentor' | 'mentee';
-
-  @IsOptional()
-  @IsString()
-  bio?: string;
-
-  @IsOptional()
-  skills?: string[];
-
-  @IsOptional()
-  @IsNumber()
-  hourlyRate?: number;
-
-  @IsOptional()
-  learningGoals?: string[];
-
-  @IsOptional()
-  areasOfInterest?: string[];
-}
+import { CreateProfileDto } from './dto/create-profile.dto';
 
 @ApiTags('users')
 @Controller('user')
