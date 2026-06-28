@@ -91,6 +91,10 @@ export class AuthService {
     return true;
   }
 
+  async blacklistToken(jti: string, ttlSeconds: number): Promise<void> {
+    await this.redisService.getClient().set(`blacklist:jti:${jti}`, '1', 'EX', ttlSeconds);
+  }
+
   async decodeToken(token: string): Promise<any> {
     try {
       return this.jwtService.decode(token);

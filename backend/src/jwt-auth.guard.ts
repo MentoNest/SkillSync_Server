@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
 import { RedisService } from './redis/redis.service';
 import { JwtAccessTokenPayload } from './jwt-payload.interface';
+import { AuthService } from './auth.service';
 
 export const OPTIONAL_AUTH_KEY = 'optionalAuth';
 /** Mark a route as accepting requests with or without a valid token. */
@@ -23,6 +24,7 @@ export class JwtAuthGuard implements CanActivate {
     private readonly configService: ConfigService,
     private readonly redisService: RedisService,
     private readonly reflector: Reflector,
+    private readonly authService: AuthService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -62,6 +64,13 @@ export class JwtAuthGuard implements CanActivate {
     if (blacklisted) {
       if (optional) return true;
       throw new UnauthorizedException({ message: 'Token has been revoked', code: 'token_revoked' });
+    }
+
+    // Token version check (invalidated by logoutAll / revokeAll)
+    const versionValid = await this.authService.validateTokenVersion(payload);
+    if (!versionValid) {
+      if (optional) return true;
+      throw new UnauthorizedException({ message: 'Token version invalidated', code: 'token_invalidated' });
     }
 
     req.user = payload;
