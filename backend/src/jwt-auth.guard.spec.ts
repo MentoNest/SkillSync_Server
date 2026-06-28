@@ -4,10 +4,12 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 const mockVerifyAsync = jest.fn();
 const mockRedisGet = jest.fn();
 const mockReflector = { getAllAndOverride: jest.fn() };
+const mockValidateTokenVersion = jest.fn();
 
 const mockJwtService = { verifyAsync: mockVerifyAsync };
 const mockConfig = { get: jest.fn((key: string) => key === 'JWT_SECRET' ? 'test-secret' : undefined) };
 const mockRedis = { getClient: jest.fn(() => ({ get: mockRedisGet })) };
+const mockAuthService = { validateTokenVersion: mockValidateTokenVersion };
 
 const validPayload = { sub: 'user-1', wallet: 'G123', roles: [], permissions: [], jti: 'jti-abc', ver: 0 };
 
@@ -27,11 +29,13 @@ describe('JwtAuthGuard', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockValidateTokenVersion.mockResolvedValue(true);
     guard = new JwtAuthGuard(
       mockJwtService as any,
       mockConfig as any,
       mockRedis as any,
       mockReflector as any,
+      mockAuthService as any,
     );
   });
 
@@ -115,6 +119,26 @@ describe('JwtAuthGuard', () => {
       const ctx = makeContext('Bearer blacklisted.token', true);
       expect(await guard.canActivate(ctx as any)).toBe(true);
     });
+  });
+
+  it('throws 401 token_invalidated when token version is stale', async () => {
+    mockVerifyAsync.mockResolvedValue(validPayload);
+    mockRedisGet.mockResolvedValue(null);
+    mockValidateTokenVersion.mockResolvedValue(false);
+
+    const ctx = makeContext('Bearer valid.token.here');
+    await expect(guard.canActivate(ctx as any)).rejects.toMatchObject({
+      response: { code: 'token_invalidated' },
+    });
+  });
+
+  it('returns true (not throws) for stale version in optional mode', async () => {
+    mockVerifyAsync.mockResolvedValue(validPayload);
+    mockRedisGet.mockResolvedValue(null);
+    mockValidateTokenVersion.mockResolvedValue(false);
+
+    const ctx = makeContext('Bearer valid.token', true);
+    expect(await guard.canActivate(ctx as any)).toBe(true);
   });
 
   it('verifies token in under 5ms average', async () => {

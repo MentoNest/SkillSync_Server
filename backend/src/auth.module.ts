@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
+import { JwtAuthGuard } from './jwt-auth.guard';
 import { RedisModule } from './redis/redis.module';
 import { User } from './entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
@@ -48,6 +49,7 @@ import { UserEncryptionSubscriber } from './common/encryption/user-encryption.su
   providers: [
     AuthService,
     JwtStrategy,
+    JwtAuthGuard,
     UserService,
     LoginAttemptService,
     AuditLogService,
@@ -55,6 +57,6 @@ import { UserEncryptionSubscriber } from './common/encryption/user-encryption.su
     RefreshTokenService,
     UserEncryptionSubscriber,
   ],
-  exports: [AuthService, RefreshTokenService, SuspiciousLoginService],
+  exports: [AuthService, JwtAuthGuard, RefreshTokenService, SuspiciousLoginService],
 })
 export class AuthModule {}

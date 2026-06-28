@@ -8,6 +8,9 @@ const validStellarAddress = Keypair.random().publicKey();
 describe('AuthController', () => {
   let controller: AuthController;
   let redisService: jest.Mocked<Pick<RedisService, 'set' | 'get' | 'del' | 'getClient'>>;
+  let authService: { blacklistToken: jest.Mock; incrementTokenVersion: jest.Mock };
+  let refreshTokenService: { revokeAllUserTokens: jest.Mock };
+  let auditLogService: { logEvent: jest.Mock; logAttempt: jest.Mock };
 
   beforeEach(() => {
     redisService = {
@@ -16,14 +19,27 @@ describe('AuthController', () => {
       del: jest.fn(),
       getClient: jest.fn(),
     };
+    authService = {
+      blacklistToken: jest.fn().mockResolvedValue(undefined),
+      incrementTokenVersion: jest.fn().mockResolvedValue(1),
+    };
+    refreshTokenService = {
+      revokeAllUserTokens: jest.fn().mockResolvedValue(undefined),
+    };
+    auditLogService = {
+      logEvent: jest.fn().mockResolvedValue(undefined),
+      logAttempt: jest.fn().mockResolvedValue(undefined),
+    };
 
     controller = new AuthController(
       redisService as unknown as RedisService,
-      undefined as any, // authService
+      authService as any,
       undefined as any, // userService
       undefined as any, // loginAttemptService
-      undefined as any, // auditLogService
-      undefined as any, // refreshTokenService
+      auditLogService as any,
+      undefined as any, // suspiciousLoginService
+      refreshTokenService as any,
+      undefined as any, // suspiciousActivityService
     );
   });
 
@@ -56,5 +72,54 @@ describe('AuthController', () => {
       300,
       'nonce',
     );
+  });
+
+  describe('logout', () => {
+    const exp = Math.floor(Date.now() / 1000) + 600;
+    const mockReq = {
+      user: { sub: 'user-1', jti: 'jti-abc', exp, wallet: 'G123', roles: [], permissions: [], ver: 0 },
+      ip: '127.0.0.1',
+      headers: { 'user-agent': 'jest' },
+    };
+
+    it('blacklists jti with remaining TTL and revokes refresh tokens', async () => {
+      const result = await controller.logout(mockReq as any);
+
+      expect(authService.blacklistToken).toHaveBeenCalledWith('jti-abc', expect.any(Number));
+      const ttlArg = (authService.blacklistToken as jest.Mock).mock.calls[0][1];
+      expect(ttlArg).toBeGreaterThan(0);
+      expect(ttlArg).toBeLessThanOrEqual(600);
+
+      expect(refreshTokenService.revokeAllUserTokens).toHaveBeenCalledWith('user-1');
+      expect(auditLogService.logEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-1', details: expect.objectContaining({ action: 'logout' }) }),
+      );
+      expect(result).toEqual({ message: 'Logged out successfully' });
+    });
+
+    it('uses fallback TTL of 900 when exp missing', async () => {
+      const req = { ...mockReq, user: { ...mockReq.user, exp: undefined } };
+      await controller.logout(req as any);
+      expect(authService.blacklistToken).toHaveBeenCalledWith('jti-abc', 900);
+    });
+  });
+
+  describe('logoutAll', () => {
+    const mockReq = {
+      user: { sub: 'user-1', jti: 'jti-abc', exp: Math.floor(Date.now() / 1000) + 600, wallet: 'G123', roles: [], permissions: [], ver: 0 },
+      ip: '127.0.0.1',
+      headers: { 'user-agent': 'jest' },
+    };
+
+    it('increments token version and revokes all refresh tokens', async () => {
+      const result = await controller.logoutAll(mockReq as any);
+
+      expect(authService.incrementTokenVersion).toHaveBeenCalledWith('user-1');
+      expect(refreshTokenService.revokeAllUserTokens).toHaveBeenCalledWith('user-1');
+      expect(auditLogService.logEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-1', details: expect.objectContaining({ action: 'logout_all' }) }),
+      );
+      expect(result).toEqual({ message: 'All sessions invalidated' });
+    });
   });
 });

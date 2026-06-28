@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Req, UseGuards } from '@nestjs/common';
 import {
   ApiBody,
   ApiOperation,
@@ -21,6 +21,9 @@ import { AuditLogService } from './auth/audit-log.service';
 import { SuspiciousLoginService } from './auth/suspicious-login.service';
 import { RefreshTokenService } from './refresh-token/refresh-token.service';
 import { SuspiciousActivityService } from './auth/suspicious-activity.service';
+import { JwtAuthGuard } from './jwt-auth.guard';
+import { AuditEventType } from './auth/entities/audit-log.entity';
+import { JwtAccessTokenPayload } from './jwt-payload.interface';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -241,6 +244,61 @@ export class AuthController {
       }
       throw new HttpException(error.message || 'Failed to refresh token', HttpStatus.UNAUTHORIZED);
     }
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Logout and invalidate current access token' })
+  @ApiResponse({ status: 200, description: 'Logged out successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async logout(@Req() req: any) {
+    const user: JwtAccessTokenPayload = req.user;
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+
+    const now = Math.floor(Date.now() / 1000);
+    const ttl = user.exp ? Math.max(user.exp - now, 1) : 900;
+
+    await this.authService.blacklistToken(user.jti, ttl);
+    await this.refreshTokenService.revokeAllUserTokens(user.sub);
+
+    await this.auditLogService.logEvent({
+      userId: user.sub,
+      eventType: AuditEventType.TOKEN_INVALIDATED,
+      audit: {
+        ipAddress: ip,
+        userAgent: req.headers['user-agent'] || '',
+        deviceFingerprint: null,
+      },
+      details: { jti: user.jti, action: 'logout' },
+    });
+
+    return { message: 'Logged out successfully' };
+  }
+
+  @Post('logout-all')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Logout all sessions by invalidating token version' })
+  @ApiResponse({ status: 200, description: 'All sessions invalidated' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async logoutAll(@Req() req: any) {
+    const user: JwtAccessTokenPayload = req.user;
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+
+    await this.authService.incrementTokenVersion(user.sub);
+    await this.refreshTokenService.revokeAllUserTokens(user.sub);
+
+    await this.auditLogService.logEvent({
+      userId: user.sub,
+      eventType: AuditEventType.TOKEN_INVALIDATED,
+      audit: {
+        ipAddress: ip,
+        userAgent: req.headers['user-agent'] || '',
+        deviceFingerprint: null,
+      },
+      details: { action: 'logout_all' },
+    });
+
+    return { message: 'All sessions invalidated' };
   }
 
   private deleteNonce(wallet: string) {
