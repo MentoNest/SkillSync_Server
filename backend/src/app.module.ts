@@ -1,58 +1,10 @@
-import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
-import { DeprecationMiddleware } from './common/versioning/deprecation.middleware';
-import { ConfigModule } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import typeormConfig from './config/typeorm.config';
-
-import { RedisModule } from './redis/redis.module';
-import { AuthModule } from './auth.module';
-import { UsersModule } from './users/users.module';
-import { ThrottlerModule } from './common/throttler/throttler.module';
-import { ThrottlerGuard } from './common/throttler/throttler.guard';
-
-import { CacheModule } from '@nestjs/cache-manager';
-import cacheConfig from './config/cache.config';
-import { ShutdownService } from './shutdown/shutdown.service';
-import { EncryptionModule } from './common/encryption/encryption.module';
-import { BackupModule } from './backup/backup.module';
-import { SeedModule } from './database/seed/seed.module';
-import { AdminModule } from './admin/admin.module';
-import { NotificationsModule } from './notifications/notifications.module';
-import { MetricsModule } from './metrics/metrics.module';
-import { SessionsModule } from './sessions/sessions.module';
-import { ChatModule } from './chat/chat.module';
 
 @Module({
-  imports: [
-    MetricsModule,
-    ConfigModule.forRoot({ isGlobal: true }),
-    TypeOrmModule.forRoot(typeormConfig),
-    CacheModule.register(cacheConfig),
-    EncryptionModule,
-    RedisModule,
-    ThrottlerModule,
-    AuthModule,
-    UsersModule,
-    BackupModule,
-    SeedModule,
-    AdminModule,
-    NotificationsModule,
-    SessionsModule,
-    ChatModule,
-  ],
+  imports: [],
   controllers: [AppController],
-  providers: [
-    AppService,
-    ShutdownService,
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
-  ],
-  exports: [ShutdownService],
+  providers: [AppService],
 })
-export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer.apply(DeprecationMiddleware).forRoutes('*');
-  }
-}
+export class AppModule {}
