@@ -6,6 +6,8 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { ProfilesModule } from './profiles/profiles.module.js';
+import { RedisModule } from './config/redis.module.js';
 import typeOrmConfig from './config/typeorm.config.js';
 
 @Module({
@@ -13,8 +15,10 @@ import typeOrmConfig from './config/typeorm.config.js';
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot(typeOrmConfig),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    RedisModule.forRoot(),
     UsersModule,
     AuthModule,
+    ProfilesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
