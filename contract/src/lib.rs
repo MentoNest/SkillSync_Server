@@ -1,11 +1,33 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Env, Address, Symbol};
+use soroban_sdk::{contract, contractimpl, contracttype, Env, Address, Symbol, Bytes32, token::TokenClient};
 
-// Storage key for platform fee
+// Storage keys
 const PLATFORM_FEE_KEY: &str = "platform_fee";
-// Storage key for admin address
 const ADMIN_KEY: &str = "admin";
+const TREASURY_KEY: &str = "treasury";
+const SESSION_PREFIX: &str = "session_";
+
+// Session status enum
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SessionStatus {
+    Created,
+    Completed,
+    Approved,
+}
+
+// Session structure
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Session {
+    pub id: Bytes32,
+    pub buyer: Address,
+    pub seller: Address,
+    pub amount: u64,
+    pub status: SessionStatus,
+    pub token_address: Address, // The token used for this escrow
+}
 
 // Event to emit when platform fee is updated
 #[contracttype]
@@ -16,20 +38,33 @@ pub struct PlatformFeeUpdated {
     pub updated_by: Address,
 }
 
+// Event to emit when session is approved
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SessionApproved {
+    pub session_id: Bytes32,
+    pub buyer: Address,
+    pub seller: Address,
+    pub total_amount: u64,
+    pub platform_fee: u64,
+    pub seller_payout: u64,
+}
+
 #[contract]
 pub struct SkillsyncContract;
 
 #[contractimpl]
 impl SkillsyncContract {
-    // Initialize the contract with an admin and initial platform fee
-    pub fn __constructor(env: Env, admin: Address, initial_platform_fee_bps: u32) {
+    // Initialize the contract with an admin, treasury, and initial platform fee
+    pub fn __constructor(env: Env, admin: Address, treasury: Address, initial_platform_fee_bps: u32) {
         // Validate initial fee is within 0-1000 bps (0-10%)
         if initial_platform_fee_bps > 1000 {
             panic!("Platform fee must be between 0 and 1000 basis points");
         }
         
-        // Store admin and initial fee
+        // Store admin, treasury, and initial fee
         env.storage().persistent().set(&ADMIN_KEY, &admin);
+        env.storage().persistent().set(&TREASURY_KEY, &treasury);
         env.storage().persistent().set(&PLATFORM_FEE_KEY, &initial_platform_fee_bps);
     }
 
@@ -75,6 +110,128 @@ impl SkillsyncContract {
         let fee_bps = Self::get_platform_fee(env);
         // Calculate fee: (amount * fee_bps) / 10000 (since 1bps = 1/10000)
         (amount * fee_bps as u64) / 10000
+    }
+
+    // Function to create a new session (would be called when escrow is created)
+    pub fn create_session(
+        env: Env,
+        session_id: Bytes32,
+        buyer: Address,
+        seller: Address,
+        amount: u64,
+        token_address: Address,
+    ) {
+        // Create session storage key
+        let session_key = Symbol::from_str(&env, &format!("{}{}", SESSION_PREFIX, hex::encode(session_id.to_array())));
+        
+        // Check if session already exists
+        if env.storage().persistent().has(&session_key) {
+            panic!("Session with this ID already exists");
+        }
+
+        // Create and store the new session
+        let session = Session {
+            id: session_id,
+            buyer,
+            seller,
+            amount,
+            status: SessionStatus::Created,
+            token_address,
+        };
+        
+        env.storage().persistent().set(&session_key, &session);
+    }
+
+    // Function to mark a session as completed (would be called when work is done)
+    pub fn mark_session_completed(env: Env, session_id: Bytes32) {
+        // Get the session
+        let mut session = Self::get_session(&env, &session_id);
+        
+        // Only buyer or seller can mark as completed
+        if !env.invoker().address().eq(&session.buyer) && !env.invoker().address().eq(&session.seller) {
+            panic!("Only buyer or seller can mark session as completed");
+        }
+        
+        // Session must be in Created status
+        if !matches!(session.status, SessionStatus::Created) {
+            panic!("Only sessions in Created status can be marked as Completed");
+        }
+
+        // Update status
+        session.status = SessionStatus::Completed;
+        Self::save_session(&env, &session_id, session);
+    }
+
+    // Buyer-only function to approve a completed session and release funds
+    pub fn approve_session(env: Env, session_id: Bytes32) {
+        // Get the session
+        let mut session = Self::get_session(&env, &session_id);
+        
+        // Verify that only the buyer can approve
+        if !env.invoker().address().eq(&session.buyer) {
+            panic!("Only the buyer can approve the session");
+        }
+        // Require explicit authentication from the buyer
+        session.buyer.require_auth();
+
+        // Verify session is in Completed status
+        if !matches!(session.status, SessionStatus::Completed) {
+            panic!("Only completed sessions can be approved");
+        }
+
+        // Get treasury address
+        let treasury: Address = env.storage().persistent().get(&TREASURY_KEY).expect("Treasury not set");
+
+        // Calculate fees and payout
+        let platform_fee = Self::calculate_platform_fee(env, session.amount);
+        let seller_payout = session.amount - platform_fee;
+
+        // Initialize token client to handle transfers
+        let token = TokenClient::new(&env, &session.token_address);
+
+        // Transfer payout to seller
+        token.transfer(
+            &env.current_contract_address(),
+            &session.seller,
+            &seller_payout
+        );
+
+        // Transfer platform fee to treasury
+        token.transfer(
+            &env.current_contract_address(),
+            &treasury,
+            &platform_fee
+        );
+
+        // Update session status to Approved
+        session.status = SessionStatus::Approved;
+        Self::save_session(&env, &session_id, session);
+
+        // Emit SessionApproved event
+        let event = SessionApproved {
+            session_id,
+            buyer: session.buyer,
+            seller: session.seller,
+            total_amount: session.amount,
+            platform_fee,
+            seller_payout,
+        };
+        env.events().publish(
+            (Symbol::new(&env, "SessionApproved"),),
+            event,
+        );
+    }
+
+    // Helper function to get a session from storage
+    fn get_session(env: &Env, session_id: &Bytes32) -> Session {
+        let session_key = Symbol::from_str(env, &format!("{}{}", SESSION_PREFIX, hex::encode(session_id.to_array())));
+        env.storage().persistent().get(&session_key).expect("Session not found")
+    }
+
+    // Helper function to save a session to storage
+    fn save_session(env: &Env, session_id: &Bytes32, session: Session) {
+        let session_key = Symbol::from_str(env, &format!("{}{}", SESSION_PREFIX, hex::encode(session_id.to_array())));
+        env.storage().persistent().set(&session_key, &session);
     }
 
     pub fn hello(env: Env) -> Symbol {
