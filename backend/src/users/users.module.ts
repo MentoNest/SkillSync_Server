@@ -4,12 +4,15 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { UsersController } from './users.controller.js';
 import { UsersService } from './users.service.js';
+import { AvatarController } from './avatar.controller.js';
+import { AvatarService } from './avatar.service.js';
 import { User } from './entities/user.entity.js';
 import { Role } from './entities/role.entity.js';
 import { MentorProfile } from './entities/mentor-profile.entity.js';
 import { MenteeProfile } from './entities/mentee-profile.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
+import { StorageModule } from '../storage/storage.module.js';
 
 @Module({
   imports: [
@@ -23,9 +26,10 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
       }),
     }),
     ConfigModule,
+    StorageModule,
   ],
-  controllers: [UsersController],
-  providers: [UsersService, JwtAuthGuard, RolesGuard],
+  controllers: [UsersController, AvatarController],
+  providers: [UsersService, JwtAuthGuard, RolesGuard, AvatarService],
   exports: [UsersService],
 })
 export class UsersModule {}

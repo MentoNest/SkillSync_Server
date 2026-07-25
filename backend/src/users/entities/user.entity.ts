@@ -39,6 +39,15 @@ export class User {
   @Column({ default: 0 })
   tokenVersion: number;
 
+  @Column({ type: 'varchar', nullable: true })
+  avatarUrl: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  avatarThumbnailUrl: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  avatarStorageKey: string | null;
+
   @OneToMany(() => Role, (role) => role.user, { cascade: true, eager: true })
   roles: Role[];
 
