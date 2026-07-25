@@ -257,8 +257,16 @@ describe('UsersService', () => {
 
     it('should throw ForbiddenException when requester is not owner or admin', async () => {
       await expect(
-        service.updateMentorProfile('user-1', 'other-user', [AuthRole.MENTEE], {
+        service.updateMentorProfile('user-1', 'other-user', [AuthRole.MENTOR], {
           bio: 'Hack attempt',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should throw ForbiddenException when requester does not have mentor role', async () => {
+      await expect(
+        service.updateMentorProfile('user-1', 'user-1', [AuthRole.MENTEE], {
+          bio: 'No role',
         }),
       ).rejects.toThrow(ForbiddenException);
     });
@@ -321,6 +329,14 @@ describe('UsersService', () => {
       await expect(
         service.updateMenteeProfile('user-1', 'other-user', [AuthRole.MENTEE], {
           learningGoals: ['Hack'],
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should throw ForbiddenException when requester does not have mentee role', async () => {
+      await expect(
+        service.updateMenteeProfile('user-1', 'user-1', [AuthRole.MENTOR], {
+          learningGoals: ['No role'],
         }),
       ).rejects.toThrow(ForbiddenException);
     });

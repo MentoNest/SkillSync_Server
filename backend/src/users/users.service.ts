@@ -148,6 +148,12 @@ export class UsersService {
     dto: UpdateMentorProfileDto,
   ): Promise<MentorProfile> {
     const isAdmin = requesterRoles?.includes(AuthRole.ADMIN);
+    const isMentor = requesterRoles?.includes(AuthRole.MENTOR);
+    if (!isAdmin && !isMentor) {
+      throw new ForbiddenException(
+        'Only users with the mentor role can update a mentor profile',
+      );
+    }
     if (userId !== requesterId && !isAdmin) {
       throw new ForbiddenException(
         'Only the profile owner or an admin can update this profile',
@@ -197,6 +203,12 @@ export class UsersService {
     dto: UpdateMenteeProfileDto,
   ): Promise<MenteeProfile> {
     const isAdmin = requesterRoles?.includes(AuthRole.ADMIN);
+    const isMentee = requesterRoles?.includes(AuthRole.MENTEE);
+    if (!isAdmin && !isMentee) {
+      throw new ForbiddenException(
+        'Only users with the mentee role can update a mentee profile',
+      );
+    }
     if (userId !== requesterId && !isAdmin) {
       throw new ForbiddenException(
         'Only the profile owner or an admin can update this profile',
