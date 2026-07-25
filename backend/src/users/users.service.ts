@@ -15,6 +15,9 @@ import { CreateMentorProfileDto } from './dto/create-mentor-profile.dto.js';
 import { CreateMenteeProfileDto } from './dto/create-mentee-profile.dto.js';
 import { UpdateMentorProfileDto } from './dto/update-mentor-profile.dto.js';
 import { UpdateMenteeProfileDto } from './dto/update-mentee-profile.dto.js';
+import { UpdateUserDto } from './dto/update-user.dto.js';
+import { UserQueryDto } from './dto/user-query.dto.js';
+import { UserStatus } from './enums/user-status.enum.js';
 import { AuthRole } from '../common/enums/auth-role.enum.js';
 
 interface FieldChange {
@@ -271,5 +274,71 @@ export class UsersService {
       throw new NotFoundException('Mentee profile not found');
     }
     return profile;
+  }
+
+  async updateUser(userId: string, dto: UpdateUserDto): Promise<User> {
+    const user = await this.findById(userId);
+
+    if (dto.email && dto.email !== user.email) {
+      const existing = await this.userRepo.findOne({
+        where: { email: dto.email },
+      });
+      if (existing && existing.id !== userId) {
+        throw new ConflictException('Email is already in use');
+      }
+    }
+
+    const changes = this.applyChanges(
+      user as unknown as Record<string, unknown>,
+      dto as Record<string, unknown>,
+    );
+
+    const saved = await this.userRepo.save(user);
+
+    if (Object.keys(changes).length > 0) {
+      this.logger.log(
+        JSON.stringify({
+          event: 'USER_UPDATED',
+          userId,
+          changes,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+    }
+
+    return saved;
+  }
+
+  async deactivateUser(userId: string): Promise<User> {
+    const user = await this.findById(userId);
+    user.status = UserStatus.DELETED;
+    const saved = await this.userRepo.save(user);
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'USER_DEACTIVATED',
+        userId,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+
+    return saved;
+  }
+
+  async findAll(
+    query: UserQueryDto,
+  ): Promise<{ data: User[]; total: number; page: number; limit: number }> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    const [data, total] = await this.userRepo.findAndCount({
+      where: query.status ? { status: query.status } : {},
+      relations: ['roles'],
+      skip: (page - 1) * limit,
+      take: limit,
+      order: { createdAt: 'DESC' },
+    });
+
+    return { data, total, page, limit };
   }
 }
