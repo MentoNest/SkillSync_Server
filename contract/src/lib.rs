@@ -72,14 +72,17 @@ impl SkillsyncContract {
         env.ledger().transfer_native(&buyer, &env.current_contract_address(), amount);
 
         // Create and store the session with status = Locked
-        let session = EscrowSession {
-            session_id: session_id.clone(),
+        let current_timestamp = env.ledger().timestamp();
+        let session = Session {
             buyer: buyer.clone(),
             seller: seller.clone(),
             amount,
             status: SessionStatus::Locked,
+            created_at: current_timestamp,
+            completed_at: None,
+            dispute_resolved_at: None,
         };
-        env.storage().persistent().set(&session_key, &session);
+        save_session(&env, &session_id, &session);
 
         // Emit FundsLocked event
         log!(&env, "FundsLocked: session_id={:X}, buyer={:A}, seller={:A}, amount={}", session_id, buyer, seller, amount);
