@@ -224,14 +224,14 @@ impl SkillsyncContract {
 
     // Helper function to get a session from storage
     fn get_session(env: &Env, session_id: &Bytes32) -> Session {
-        let session_key = Symbol::from_str(env, &format!("{}{}", SESSION_PREFIX, hex::encode(session_id.to_array())));
-        env.storage().persistent().get(&session_key).expect("Session not found")
+        // Use session_id directly as part of the storage key tuple for uniqueness
+        env.storage().persistent().get(&(SESSION_PREFIX, session_id)).expect("Session not found")
     }
 
     // Helper function to save a session to storage
     fn save_session(env: &Env, session_id: &Bytes32, session: Session) {
-        let session_key = Symbol::from_str(env, &format!("{}{}", SESSION_PREFIX, hex::encode(session_id.to_array())));
-        env.storage().persistent().set(&session_key, &session);
+        // Use session_id directly as part of the storage key tuple for uniqueness
+        env.storage().persistent().set(&(SESSION_PREFIX, session_id), &session);
     }
 
     pub fn hello(env: Env) -> Symbol {
