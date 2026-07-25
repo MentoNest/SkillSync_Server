@@ -6,17 +6,34 @@ use soroban_sdk::{contract, contractimpl, Address, Bytes32, Env, panic_with_erro
 #[repr(u32)]
 pub enum SessionStatus {
     Locked = 0,
-    Released = 1,
-    Refunded = 2,
+    Completed = 1,
+    Approved = 2,
+    Refunded = 3,
+    Disputed = 4,
+    Resolved = 5,
 }
 
 #[derive(Debug, Clone)]
-pub struct EscrowSession {
-    pub session_id: Bytes32,
+pub struct Session {
     pub buyer: Address,
     pub seller: Address,
     pub amount: i128,
     pub status: SessionStatus,
+    pub created_at: u64,
+    pub completed_at: Option<u64>,
+    pub dispute_resolved_at: Option<u64>,
+}
+
+/// Helper to get a session from storage by its ID
+pub fn get_session(env: &Env, session_id: &Bytes32) -> Option<Session> {
+    let session_key = (symbol_short!("session"), session_id);
+    env.storage().persistent().get(&session_key)
+}
+
+/// Helper to save a session to storage
+pub fn save_session(env: &Env, session_id: &Bytes32, session: &Session) {
+    let session_key = (symbol_short!("session"), session_id);
+    env.storage().persistent().set(&session_key, session);
 }
 
 #[contract]
