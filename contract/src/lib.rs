@@ -163,13 +163,16 @@ mod test {
         // Call lock_funds
         client.lock_funds(session_id.clone(), seller.clone(), amount);
 
-        // Check that the session is stored
-        let session_key = (symbol_short!("session"), session_id);
-        let session: EscrowSession = env.storage().persistent().get(&session_key).unwrap();
-        assert_eq!(session.status, SessionStatus::Locked);
-        assert_eq!(session.buyer, buyer);
-        assert_eq!(session.seller, seller);
-        assert_eq!(session.amount, amount);
+        // Check that the session is stored using our helper
+        let stored_session = get_session(&env, &session_id).unwrap();
+        assert_eq!(stored_session.status, SessionStatus::Locked);
+        assert_eq!(stored_session.buyer, buyer);
+        assert_eq!(stored_session.seller, seller);
+        assert_eq!(stored_session.amount, amount);
+        // Verify timestamp fields are properly set
+        assert!(stored_session.created_at > 0);
+        assert!(stored_session.completed_at.is_none());
+        assert!(stored_session.dispute_resolved_at.is_none());
 
         // Check balances: buyer should have 1000 - 100 = 900, contract should have 100
         assert_eq!(env.ledger().balance_native(&buyer), 900);
