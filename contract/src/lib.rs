@@ -121,8 +121,8 @@ impl SkillsyncContract {
         amount: u64,
         token_address: Address,
     ) {
-        // Create session storage key
-        let session_key = Symbol::from_str(&env, &format!("{}{}", SESSION_PREFIX, hex::encode(session_id.to_array())));
+        // Create session storage key using tuple for uniqueness
+        let session_key = (SESSION_PREFIX, session_id);
         
         // Check if session already exists
         if env.storage().persistent().has(&session_key) {
