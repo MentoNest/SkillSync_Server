@@ -46,7 +46,7 @@ const typeOrmConfig: TypeOrmModuleOptions = {
   maxQueryExecutionTime: parseInt(process.env.DB_SLOW_QUERY_MS || '1000', 10),
 
   // Connection timeout
-  connectTimeout: parseInt(process.env.DB_CONNECT_TIMEOUT || '10000', 10),
+  connectTimeoutMS: parseInt(process.env.DB_CONNECT_TIMEOUT || '10000', 10),
 };
 
 export default typeOrmConfig;

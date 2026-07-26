@@ -61,68 +61,74 @@ export class RedisService {
    * Get a value by key.
    * Returns null if key doesn't exist or has expired.
    */
-  async get(key: string): Promise<string | null> {
+  get(key: string): Promise<string | null> {
     const fullKey = this.prefixedKey(key);
     const entry = this.store.get(fullKey);
-    if (!entry) return null;
+    if (!entry) return Promise.resolve(null);
     if (entry.expiresAt && Date.now() > entry.expiresAt) {
       this.store.delete(fullKey);
-      return null;
+      return Promise.resolve(null);
     }
-    return entry.value;
+    return Promise.resolve(entry.value);
   }
 
   /**
    * Set a key with optional TTL in seconds.
    */
-  async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
+  set(key: string, value: string, ttlSeconds?: number): Promise<void> {
     const fullKey = this.prefixedKey(key);
     const expiresAt = ttlSeconds ? Date.now() + ttlSeconds * 1000 : undefined;
     this.store.set(fullKey, { value, expiresAt });
+    return Promise.resolve();
   }
 
   /**
    * Delete a key.
    */
-  async del(key: string): Promise<void> {
+  del(key: string): Promise<void> {
     this.store.delete(this.prefixedKey(key));
+    return Promise.resolve();
   }
 
   /**
    * Set expiration on an existing key.
    */
-  async expire(key: string, ttlSeconds: number): Promise<void> {
+  expire(key: string, ttlSeconds: number): Promise<void> {
     const fullKey = this.prefixedKey(key);
     const entry = this.store.get(fullKey);
     if (entry) {
       entry.expiresAt = Date.now() + ttlSeconds * 1000;
     }
+    return Promise.resolve();
   }
 
   /**
    * Increment a counter key (atomic).
    */
-  async incr(key: string): Promise<number> {
+  incr(key: string): Promise<number> {
     const fullKey = this.prefixedKey(key);
     const entry = this.store.get(fullKey);
     const current = entry ? parseInt(entry.value, 10) || 0 : 0;
     const next = current + 1;
-    this.store.set(fullKey, { value: String(next), expiresAt: entry?.expiresAt });
-    return next;
+    this.store.set(fullKey, {
+      value: String(next),
+      expiresAt: entry?.expiresAt,
+    });
+    return Promise.resolve(next);
   }
 
   /**
    * Health check — verifies connectivity.
    */
-  async ping(): Promise<boolean> {
-    return this.connected;
+  ping(): Promise<boolean> {
+    return Promise.resolve(this.connected);
   }
 
   /**
    * Check if a key exists.
    */
-  async exists(key: string): Promise<boolean> {
-    return this.store.has(this.prefixedKey(key));
+  exists(key: string): Promise<boolean> {
+    return Promise.resolve(this.store.has(this.prefixedKey(key)));
   }
 
   private prefixedKey(key: string): string {
