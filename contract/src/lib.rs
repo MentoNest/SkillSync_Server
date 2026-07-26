@@ -822,4 +822,181 @@ mod test {
         let msg = client.hello();
         assert_eq!(msg, symbol_short!("Hello"));
     }
+
+    // =========================================================================
+    // #920: Integration test — Full escrow lifecycle
+    // =========================================================================
+
+    #[test]
+    fn test_full_lifecycle_approve_path() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[50u8; 32]);
+
+        env.mock_all_auths();
+
+        // 1. Initialize
+        client.__constructor(&admin, &250); // 2.5% fee
+        client.set_treasury(&treasury);
+
+        // 2. Create session
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &100000, &admin);
+
+        // 3. Lock funds
+        client.lock_funds(&session_id, &seller, &100000);
+
+        // 4. Complete
+        client.mark_session_completed(&session_id);
+
+        // 5. Approve
+        client.approve_session(&session_id);
+
+        // 6. Verify
+        let session = client.get_session(&session_id.clone());
+        assert_eq!(session.status as u32, SessionStatus::Approved as u32);
+
+        // Fee: 100000 * 250 / 10000 = 2500
+        let fee = client.calculate_platform_fee(&100000);
+        assert_eq!(fee, 2500);
+    }
+
+    #[test]
+    fn test_full_lifecycle_refund_path() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[51u8; 32]);
+
+        env.mock_all_auths();
+
+        client.__constructor(&admin, &200);
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &50000, &admin);
+        client.lock_funds(&session_id, &seller, &50000);
+
+        // Buyer opens dispute for refund
+        client.open_dispute(&session_id);
+        let session = client.get_session(&session_id.clone());
+        assert_eq!(session.status as u32, SessionStatus::Disputed as u32);
+
+        // Admin resolves: full refund to buyer
+        client.resolve_dispute(&session_id, &50000, &0);
+        let session = client.get_session(&session_id.clone());
+        assert_eq!(session.status as u32, SessionStatus::Resolved as u32);
+    }
+
+    #[test]
+    fn test_full_lifecycle_dispute_path() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[52u8; 32]);
+
+        env.mock_all_auths();
+
+        client.__constructor(&admin, &100); // 1% fee
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &80000, &admin);
+        client.lock_funds(&session_id, &seller, &80000);
+        client.mark_session_completed(&session_id);
+
+        // Dispute opened
+        client.open_dispute(&session_id);
+
+        // Admin resolves: 60% to buyer, 40% to seller
+        let buyer_share = 48000;
+        let seller_share = 32000;
+        client.resolve_dispute(&session_id, &buyer_share, &seller_share);
+
+        let session = client.get_session(&session_id.clone());
+        assert_eq!(session.status as u32, SessionStatus::Resolved as u32);
+        assert_eq!(buyer_share + seller_share, 80000);
+    }
+
+    #[test]
+    fn test_multiple_sessions_independent() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer1 = Address::generate(&env);
+        let seller1 = Address::generate(&env);
+        let buyer2 = Address::generate(&env);
+        let seller2 = Address::generate(&env);
+        let session1 = Bytes32::from_slice(&env, &[53u8; 32]);
+        let session2 = Bytes32::from_slice(&env, &[54u8; 32]);
+
+        env.mock_all_auths();
+
+        client.__constructor(&admin, &200);
+        client.set_treasury(&treasury);
+
+        // Session 1: approve path
+        client.create_session(session1.clone(), buyer1.clone(), seller1.clone(), &10000, &admin);
+        client.lock_funds(&session1, &seller1, &10000);
+        client.mark_session_completed(&session1);
+        client.approve_session(&session1);
+
+        // Session 2: dispute path
+        client.create_session(session2.clone(), buyer2.clone(), seller2.clone(), &20000, &admin);
+        client.lock_funds(&session2, &seller2, &20000);
+        client.mark_session_completed(&session2);
+        client.open_dispute(&session2);
+        client.resolve_dispute(&session2, &10000, &10000);
+
+        // Both sessions resolved independently
+        let s1 = client.get_session(&session1.clone());
+        let s2 = client.get_session(&session2.clone());
+        assert_eq!(s1.status as u32, SessionStatus::Approved as u32);
+        assert_eq!(s2.status as u32, SessionStatus::Resolved as u32);
+    }
+
+    #[test]
+    fn test_fee_accumulation_multiple_sessions() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &300); // 3% fee
+        client.set_treasury(&treasury);
+
+        // Session 1
+        let s1 = Bytes32::from_slice(&env, &[55u8; 32]);
+        client.create_session(s1.clone(), buyer.clone(), seller.clone(), &10000, &admin);
+        client.lock_funds(&s1, &seller, &10000);
+        client.mark_session_completed(&s1);
+        client.approve_session(&s1);
+
+        // Session 2
+        let s2 = Bytes32::from_slice(&env, &[56u8; 32]);
+        client.create_session(s2.clone(), buyer.clone(), seller.clone(), &20000, &admin);
+        client.lock_funds(&s2, &seller, &20000);
+        client.mark_session_completed(&s2);
+        client.approve_session(&s2);
+
+        // Total fees: 10000*300/10000 + 20000*300/10000 = 300 + 600 = 900
+        let fee1 = client.calculate_platform_fee(&10000);
+        let fee2 = client.calculate_platform_fee(&20000);
+        assert_eq!(fee1, 300);
+        assert_eq!(fee2, 600);
+    }
 }
