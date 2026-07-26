@@ -22,6 +22,7 @@ describe('UsersService', () => {
     create: jest.fn(),
     save: jest.fn(),
     increment: jest.fn(),
+    findAndCount: jest.fn(),
   };
 
   const mockRoleRepo = {
@@ -480,6 +481,47 @@ describe('UsersService', () => {
     });
   });
 
+  describe('updateUser', () => {
+    it('should update user fields and save', async () => {
+      const existingUser = { ...mockUser, email: undefined };
+      mockUserRepo.findOne
+        .mockResolvedValueOnce(existingUser)
+        .mockResolvedValueOnce(null);
+      mockUserRepo.save.mockImplementation((u) => Promise.resolve(u));
+
+      const result = await service.updateUser('user-1', {
+        displayName: 'New Name',
+        email: 'new@example.com',
+      });
+
+      expect(result.displayName).toBe('New Name');
+      expect(result.email).toBe('new@example.com');
+      expect(mockUserRepo.save).toHaveBeenCalled();
+    });
+
+    it('should throw ConflictException when email is already taken', async () => {
+      const existingUser = { ...mockUser, email: undefined };
+      mockUserRepo.findOne
+        .mockResolvedValueOnce(existingUser)
+        .mockResolvedValueOnce({
+          id: 'other-user',
+          email: 'taken@example.com',
+        });
+
+      await expect(
+        service.updateUser('user-1', { email: 'taken@example.com' }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('should throw NotFoundException when user does not exist', async () => {
+      mockUserRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.updateUser('missing-user', { displayName: 'X' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('getTokenVersion', () => {
     it('should return the token version for an existing user', async () => {
       mockUserRepo.findOne.mockResolvedValue({
@@ -496,6 +538,58 @@ describe('UsersService', () => {
 
       const result = await service.getTokenVersion('missing');
       expect(result).toBeNull();
+    });
+  });
+
+  describe('deactivateUser', () => {
+    it('should set status to deleted and save', async () => {
+      const existingUser = { ...mockUser, status: UserStatus.ACTIVE };
+      mockUserRepo.findOne.mockResolvedValue(existingUser);
+      mockUserRepo.save.mockImplementation((u) => Promise.resolve(u));
+
+      const result = await service.deactivateUser('user-1');
+
+      expect(result.status).toBe(UserStatus.DELETED);
+    });
+  });
+
+  describe('findAll', () => {
+    it('should return paginated users', async () => {
+      mockUserRepo.findAndCount.mockResolvedValue([[mockUser], 1]);
+
+      const result = await service.findAll({ page: 1, limit: 20 });
+
+      expect(result).toEqual({
+        data: [mockUser],
+        total: 1,
+        page: 1,
+        limit: 20,
+      });
+      expect(mockUserRepo.findAndCount).toHaveBeenCalledWith({
+        where: {},
+        relations: ['roles'],
+        skip: 0,
+        take: 20,
+        order: { createdAt: 'DESC' },
+      });
+    });
+
+    it('should filter by status when provided', async () => {
+      mockUserRepo.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.findAll({
+        status: UserStatus.SUSPENDED,
+        page: 2,
+        limit: 10,
+      });
+
+      expect(mockUserRepo.findAndCount).toHaveBeenCalledWith({
+        where: { status: UserStatus.SUSPENDED },
+        relations: ['roles'],
+        skip: 10,
+        take: 10,
+        order: { createdAt: 'DESC' },
+      });
     });
   });
 });
