@@ -48,6 +48,78 @@ export class UsersService {
     return user;
   }
 
+  async createUser(walletAddress: string): Promise<User> {
+    const user = this.userRepo.create({ walletAddress });
+    const saved = await this.userRepo.save(user);
+
+    const defaultRole = this.roleRepo.create({
+      name: AuthRole.MENTEE,
+      user: saved,
+    });
+    await this.roleRepo.save(defaultRole);
+
+    return this.findById(saved.id);
+  }
+
+  async assignRole(userId: string, role: AuthRole): Promise<User> {
+    const user = await this.findById(userId);
+
+    const hasRole = user.roles?.some((r) => r.name === role);
+    if (hasRole) {
+      throw new ConflictException(`User already has the ${role} role`);
+    }
+
+    const newRole = this.roleRepo.create({ name: role, user });
+    await this.roleRepo.save(newRole);
+    await this.incrementTokenVersion(userId);
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'ROLE_ASSIGNED',
+        userId,
+        role,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+
+    return this.findById(userId);
+  }
+
+  async revokeRole(userId: string, role: AuthRole): Promise<User> {
+    const user = await this.findById(userId);
+
+    const existing = user.roles?.find((r) => r.name === role);
+    if (!existing) {
+      throw new NotFoundException(`User does not have the ${role} role`);
+    }
+
+    await this.roleRepo.delete({ id: existing.id });
+    await this.incrementTokenVersion(userId);
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'ROLE_REVOKED',
+        userId,
+        role,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+
+    return this.findById(userId);
+  }
+
+  async getTokenVersion(userId: string): Promise<number | null> {
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+      select: ['id', 'tokenVersion'],
+    });
+    return user ? user.tokenVersion : null;
+  }
+
+  async incrementTokenVersion(userId: string): Promise<void> {
+    await this.userRepo.increment({ id: userId }, 'tokenVersion', 1);
+  }
+
   async createMentorProfile(
     userId: string,
     dto: CreateMentorProfileDto,
