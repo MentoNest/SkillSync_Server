@@ -133,8 +133,8 @@ export class AuthController {
   @ApiOperation({ summary: 'Logout and invalidate current session', description: 'Revokes the current access token and optional refresh token.' })
   @ApiResponse({ status: 200, description: 'Logged out successfully' })
   @ApiResponse({ status: 401, description: 'Authentication required' })
-  logout(@Request() req: { user?: { jti?: string } }) {
-    this.authService.logout(req.user?.jti || '');
+  async logout(@Request() req: { user?: { jti?: string; exp?: number } }) {
+    await this.authService.logout(req.user?.jti || '', req.user?.exp);
     return { message: 'Logged out successfully' };
   }
 

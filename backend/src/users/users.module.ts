@@ -10,6 +10,7 @@ import { MentorProfile } from './entities/mentor-profile.entity.js';
 import { MenteeProfile } from './entities/mentee-profile.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
+import { TokenBlacklistService } from '../auth/services/token-blacklist.service.js';
 
 @Module({
   imports: [
@@ -25,7 +26,7 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
     ConfigModule,
   ],
   controllers: [UsersController],
-  providers: [UsersService, JwtAuthGuard, RolesGuard],
+  providers: [UsersService, JwtAuthGuard, RolesGuard, TokenBlacklistService],
   exports: [UsersService],
 })
 export class UsersModule {}

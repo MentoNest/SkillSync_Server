@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { JwtAccessTokenPayload } from '../interfaces/jwt-payload.interface';
+import { TokenBlacklistService } from '../services/token-blacklist.service';
 
 /**
  * #981: Enhanced JWT Auth Guard.
@@ -26,7 +27,7 @@ export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
-    private readonly blacklistCheck?: (jti: string) => Promise<boolean>,
+    private readonly tokenBlacklistService: TokenBlacklistService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -46,8 +47,8 @@ export class JwtAuthGuard implements CanActivate {
       });
 
       // #981: Check Redis blacklist for revoked tokens
-      if (this.blacklistCheck && payload.jti) {
-        const isRevoked = await this.blacklistCheck(payload.jti);
+      if (payload.jti) {
+        const isRevoked = await this.tokenBlacklistService.isBlacklisted(payload.jti);
         if (isRevoked) {
           throw new UnauthorizedException({
             message: 'Token has been revoked',
