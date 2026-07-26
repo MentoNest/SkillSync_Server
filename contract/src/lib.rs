@@ -1,12 +1,68 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, Address, Bytes32, Env, String, symbol_short, Symbol};
+use soroban_sdk::{contract, contractimpl, Address, Bytes32, Env, String, symbol_short, Symbol, contracttype, contractevent};
 
 // Storage symbols
 symbol_short! {TREASURY_UPDATED}
 symbol_short! {ADMIN}
 symbol_short! {TREASURY}
 symbol_short! {DISPUTE_OPENED}
+symbol_short! {DISPUTE_RESOLVED}
+symbol_short! {INITIALIZED}
+symbol_short! {FUNDS_LOCKED}
+symbol_short! {SESSION_COMPLETED}
+symbol_short! {SESSION_APPROVED}
+
+// Event types
+#[contractevent]
+pub struct Initialized {
+    pub admin: Address,
+    pub treasury: Address,
+    pub dispute_window: u32,
+}
+
+#[contractevent]
+pub struct DisputeOpened {
+    pub session_id: Bytes32,
+    pub opened_by: Address,
+    pub opened_at: u64,
+}
+
+#[contractevent]
+pub struct DisputeResolved {
+    pub session_id: Bytes32,
+    pub resolved_by: Address,
+    pub buyer_share: i128,
+    pub seller_share: i128,
+    pub fee: i128,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+pub struct FundsLocked {
+    pub session_id: Bytes32,
+    pub buyer: Address,
+    pub seller: Address,
+    pub amount: i128,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+pub struct SessionCompletedEvent {
+    pub session_id: Bytes32,
+    pub seller: Address,
+    pub completed_at: u64,
+}
+
+#[contractevent]
+pub struct SessionApprovedEvent {
+    pub session_id: Bytes32,
+    pub buyer: Address,
+    pub seller: Address,
+    pub amount: i128,
+    pub fee: i128,
+    pub timestamp: u64,
+}
 
 // Session status enum
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,6 +204,16 @@ impl SkillsyncContract {
         // Store admin and initial treasury
         env.storage().instance().set(&ADMIN, &admin);
         env.storage().instance().set(&TREASURY, &initial_treasury);
+
+        // Emit Initialized event (#924)
+        env.events().publish(
+            (INITIALIZED,),
+            Initialized {
+                admin: admin.clone(),
+                treasury: initial_treasury.clone(),
+                dispute_window: 0,
+            },
+        );
     }
 
     pub fn set_treasury(env: Env, new_treasury: Address) {
