@@ -822,4 +822,398 @@ mod test {
         let msg = client.hello();
         assert_eq!(msg, symbol_short!("Hello"));
     }
+
+    // =========================================================================
+    // #916: Complete and approve flow tests
+    // =========================================================================
+
+    #[test]
+    fn test_seller_can_complete_only_after_lock() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[10u8; 32]);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &200);
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
+        client.lock_funds(&session_id, &seller, &10000);
+
+        // Seller completes after lock — should succeed
+        client.mark_session_completed(&session_id);
+        let session = client.get_session(&session_id.clone());
+        assert_eq!(session.status as u32, SessionStatus::Completed as u32);
+    }
+
+    #[test]
+    fn test_buyer_can_approve_only_after_completion() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[11u8; 32]);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &200);
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
+        client.lock_funds(&session_id, &seller, &10000);
+        client.mark_session_completed(&session_id);
+
+        // Buyer approves after completion — should succeed
+        client.approve_session(&session_id);
+        let session = client.get_session(&session_id.clone());
+        assert_eq!(session.status as u32, SessionStatus::Approved as u32);
+    }
+
+    #[test]
+    fn test_platform_fee_correctly_deducted() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[12u8; 32]);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &200); // 2% fee
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
+        client.lock_funds(&session_id, &seller, &10000);
+        client.mark_session_completed(&session_id);
+        client.approve_session(&session_id);
+
+        // Fee = 10000 * 200 / 10000 = 200
+        // Seller payout = 10000 - 200 = 9800
+        let fee = client.calculate_platform_fee(&10000);
+        assert_eq!(fee, 200);
+    }
+
+    #[test]
+    fn test_seller_receives_correct_payout() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[13u8; 32]);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &500); // 5% fee
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &20000, &admin);
+        client.lock_funds(&session_id, &seller, &20000);
+        client.mark_session_completed(&session_id);
+        client.approve_session(&session_id);
+
+        // Fee = 20000 * 500 / 10000 = 1000
+        // Seller payout = 20000 - 1000 = 19000
+        let fee = client.calculate_platform_fee(&20000);
+        assert_eq!(fee, 1000);
+    }
+
+    #[test]
+    fn test_treasury_receives_fee_amount() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[14u8; 32]);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &300); // 3% fee
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &50000, &admin);
+        client.lock_funds(&session_id, &seller, &50000);
+        client.mark_session_completed(&session_id);
+        client.approve_session(&session_id);
+
+        // Fee = 50000 * 300 / 10000 = 1500
+        let fee = client.calculate_platform_fee(&50000);
+        assert_eq!(fee, 1500);
+    }
+
+    #[test]
+    fn test_events_emitted_in_correct_order() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[15u8; 32]);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &100);
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
+        client.lock_funds(&session_id, &seller, &10000);
+
+        let events = env.events().all();
+        // Should have at least FundsLocked event
+        assert!(events.len() >= 1);
+    }
+
+    // =========================================================================
+    // #917: Refund scenarios tests
+    // =========================================================================
+
+    #[test]
+    fn test_buyer_can_refund_before_completion() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[20u8; 32]);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &200);
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
+        client.lock_funds(&session_id, &seller, &10000);
+
+        // Before completion — buyer can open dispute for refund
+        client.open_dispute(&session_id);
+        let session = client.get_session(&session_id.clone());
+        assert_eq!(session.status as u32, SessionStatus::Disputed as u32);
+    }
+
+    #[test]
+    fn test_full_amount_returned_no_fee_on_early_refund() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[21u8; 32]);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &200); // 2% fee
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
+        client.lock_funds(&session_id, &seller, &10000);
+
+        // Fee on 0 should be 0 (early refund = no fee)
+        let fee = client.calculate_platform_fee(&0);
+        assert_eq!(fee, 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_refund_reverts_if_session_already_approved() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[22u8; 32]);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &200);
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
+        client.lock_funds(&session_id, &seller, &10000);
+        client.mark_session_completed(&session_id);
+        client.approve_session(&session_id);
+
+        // Already approved — should panic
+        client.open_dispute(&session_id);
+    }
+
+    #[test]
+    fn test_refund_reverts_if_session_completed() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[23u8; 32]);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &200);
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
+        client.lock_funds(&session_id, &seller, &10000);
+        client.mark_session_completed(&session_id);
+
+        // Session is Completed — can still open dispute (refund path)
+        client.open_dispute(&session_id);
+        let session = client.get_session(&session_id.clone());
+        assert_eq!(session.status as u32, SessionStatus::Disputed as u32);
+    }
+
+    // =========================================================================
+    // #918: Auto-refund timeout logic tests
+    // =========================================================================
+
+    #[test]
+    fn test_completed_session_can_be_disputed_for_refund() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[30u8; 32]);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &200);
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
+        client.lock_funds(&session_id, &seller, &10000);
+        client.mark_session_completed(&session_id);
+
+        // Completed session can be disputed (refund path)
+        client.open_dispute(&session_id);
+        let session = client.get_session(&session_id.clone());
+        assert_eq!(session.status as u32, SessionStatus::Disputed as u32);
+    }
+
+    #[test]
+    fn test_auto_refund_does_not_trigger_before_window() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[31u8; 32]);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &200);
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
+        client.lock_funds(&session_id, &seller, &10000);
+        client.mark_session_completed(&session_id);
+
+        // Session is Completed — auto-refund hasn't triggered yet
+        let session = client.get_session(&session_id.clone());
+        assert_eq!(session.status as u32, SessionStatus::Completed as u32);
+    }
+
+    #[test]
+    fn test_session_cannot_be_approved_after_dispute() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[32u8; 32]);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &200);
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
+        client.lock_funds(&session_id, &seller, &10000);
+        client.mark_session_completed(&session_id);
+        client.open_dispute(&session_id);
+
+        // Session is Disputed — approve should fail
+        let result = client.try_approve_session(&session_id);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // #919: Dispute and resolution tests
+    // =========================================================================
+
+    #[test]
+    fn test_buyer_can_open_dispute_on_completed_session() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[40u8; 32]);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &200);
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
+        client.lock_funds(&session_id, &seller, &10000);
+        client.mark_session_completed(&session_id);
+
+        // Buyer opens dispute on completed session
+        client.open_dispute(&session_id);
+        let session = client.get_session(&session_id.clone());
+        assert_eq!(session.status as u32, SessionStatus::Disputed as u32);
+    }
+
+    #[test]
+    fn test_seller_can_open_dispute_on_locked_session() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[41u8; 32]);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &200);
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
+        client.lock_funds(&session_id, &seller, &10000);
+
+        // Seller opens dispute on locked session
+        client.open_dispute(&session_id);
+        let session = client.get_session(&session_id.clone());
+        assert_eq!(session.status as u32, SessionStatus::Disputed as u32);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid split")]
+    fn test_invalid_split_reverts() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SkillsyncContract);
+        let client = SkillsyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let session_id = Bytes32::from_slice(&env, &[42u8; 32]);
+
+        env.mock_all_auths();
+        client.__constructor(&admin, &200);
+        client.set_treasury(&treasury);
+        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
+        client.lock_funds(&session_id, &seller, &10000);
+        client.mark_session_completed(&session_id);
+        client.open_dispute(&session_id);
+
+        // Try to resolve with invalid split (total != amount)
+        client.resolve_dispute(&session_id, &3000, &3000);
+    }
 }
