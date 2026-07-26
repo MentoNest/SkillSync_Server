@@ -1,40 +1,3 @@
-import { Controller, Post, Body, HttpCode, HttpStatus, Get, UseGuards, Request } from '@nestjs/common';
-import { AuthService } from './auth.service';
-import { RequestNonceDto } from './dto/request-nonce.dto';
-import { WalletLoginDto } from './dto/wallet-login.dto';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
-
-/**
- * #971: Auth controller with endpoints for nonce-based wallet authentication,
- * token refresh, and logout.
- */
-@Controller('auth')
-export class AuthController {
-  constructor(private readonly authService: AuthService) {}
-
-  /**
-   * #972: Request a nonce for wallet-based login.
-   */
-  @Post('nonce')
-  requestNonce(@Body() dto: RequestNonceDto) {
-    return this.authService.requestNonce(dto.walletAddress);
-  }
-
-  /**
-   * #973-974: Login with wallet signature, returns JWT tokens.
-   */
-  @Post('login')
-  @HttpCode(HttpStatus.OK)
-  async login(@Body() dto: WalletLoginDto) {
-    return this.authService.login(dto.walletAddress, dto.nonce);
-  }
-
-  /**
-   * #975: Refresh access token.
-   */
-  @Post('refresh')
-  @HttpCode(HttpStatus.OK)
 import {
   Controller,
   Post,
@@ -47,15 +10,21 @@ import {
   Request,
   BadRequestException,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
-import { AuthService } from './auth.service';
-import { SessionRevokeService } from './services/session-revoke.service';
-import { SuspiciousLoginService } from './services/suspicious-login.service';
-import { RequestNonceDto } from './dto/request-nonce.dto';
-import { WalletLoginDto } from './dto/wallet-login.dto';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { normalizeWalletAddress } from '../common/utils/wallet.utils';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+} from '@nestjs/swagger';
+import { AuthService } from './auth.service.js';
+import { SessionRevokeService } from './services/session-revoke.service.js';
+import { SuspiciousLoginService } from './services/suspicious-login.service.js';
+import { RequestNonceDto } from './dto/request-nonce.dto.js';
+import { WalletLoginDto } from './dto/wallet-login.dto.js';
+import { RefreshTokenDto } from './dto/refresh-token.dto.js';
+import { normalizeWalletAddress } from '../common/utils/wallet.utils.js';
+import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 
 /**
  * #984-985: Auth controller with Swagger documentation and session management.
@@ -73,8 +42,18 @@ export class AuthController {
    * #972 + #985: Request a nonce for wallet login.
    */
   @Post('nonce')
-  @ApiOperation({ summary: 'Request a nonce for wallet-based login', description: 'Generates a time-limited nonce (5 minutes) that must be signed by the wallet to prove ownership.' })
-  @ApiResponse({ status: 200, description: 'Nonce generated successfully', schema: { example: { nonce: 'Sign this message...', expiresAt: 1700000000000 } } })
+  @ApiOperation({
+    summary: 'Request a nonce for wallet-based login',
+    description:
+      'Generates a time-limited nonce (5 minutes) that must be signed by the wallet to prove ownership.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Nonce generated successfully',
+    schema: {
+      example: { nonce: 'Sign this message...', expiresAt: 1700000000000 },
+    },
+  })
   @ApiResponse({ status: 400, description: 'Invalid wallet address format' })
   requestNonce(@Body() dto: RequestNonceDto) {
     const walletAddress = normalizeWalletAddress(dto.walletAddress);
@@ -86,15 +65,36 @@ export class AuthController {
    */
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Login with Stellar wallet signature', description: 'Verifies wallet signature against the nonce and returns JWT tokens. Tracks failed attempts for suspicious login detection.' })
-  @ApiResponse({ status: 200, description: 'Login successful', schema: { example: { accessToken: 'eyJhbGci...', refreshToken: 'eyJhbGci...', expiresIn: 900 } } })
-  @ApiResponse({ status: 401, description: 'Invalid signature, expired nonce, or suspicious activity detected' })
+  @ApiOperation({
+    summary: 'Login with Stellar wallet signature',
+    description:
+      'Verifies wallet signature against the nonce and returns JWT tokens. Tracks failed attempts for suspicious login detection.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Login successful',
+    schema: {
+      example: {
+        accessToken: 'eyJhbGci...',
+        refreshToken: 'eyJhbGci...',
+        expiresIn: 900,
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description:
+      'Invalid signature, expired nonce, or suspicious activity detected',
+  })
   async login(@Body() dto: WalletLoginDto, @Request() req: { ip?: string }) {
     const walletAddress = normalizeWalletAddress(dto.walletAddress);
     const ipAddress = req.ip || 'unknown';
 
     // #983: Check for suspicious activity
-    const suspicious = await this.suspiciousLoginService.recordFailedAttempt(walletAddress, ipAddress);
+    const suspicious = await this.suspiciousLoginService.recordFailedAttempt(
+      walletAddress,
+      ipAddress,
+    );
     if (suspicious.isSuspicious && suspicious.shouldLock) {
       throw new BadRequestException({
         message: 'Account temporarily locked due to suspicious activity',
@@ -106,7 +106,10 @@ export class AuthController {
     const result = await this.authService.login(walletAddress, dto.nonce);
 
     // Record successful login
-    await this.suspiciousLoginService.recordSuccessfulLogin(walletAddress, ipAddress);
+    await this.suspiciousLoginService.recordSuccessfulLogin(
+      walletAddress,
+      ipAddress,
+    );
 
     return result;
   }
@@ -116,8 +119,22 @@ export class AuthController {
    */
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Refresh access token', description: 'Exchange a valid refresh token for a new access + refresh token pair. Old refresh token is revoked (rotation).' })
-  @ApiResponse({ status: 200, description: 'Tokens refreshed', schema: { example: { accessToken: 'eyJhbGci...', refreshToken: 'eyJhbGci...', expiresIn: 900 } } })
+  @ApiOperation({
+    summary: 'Refresh access token',
+    description:
+      'Exchange a valid refresh token for a new access + refresh token pair. Old refresh token is revoked (rotation).',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Tokens refreshed',
+    schema: {
+      example: {
+        accessToken: 'eyJhbGci...',
+        refreshToken: 'eyJhbGci...',
+        expiresIn: 900,
+      },
+    },
+  })
   @ApiResponse({ status: 401, description: 'Invalid or revoked refresh token' })
   async refresh(@Body() dto: RefreshTokenDto) {
     return this.authService.refresh(dto.refreshToken);
@@ -130,7 +147,10 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Logout and invalidate current session', description: 'Revokes the current access token and optional refresh token.' })
+  @ApiOperation({
+    summary: 'Logout and invalidate current session',
+    description: 'Revokes the current access token and optional refresh token.',
+  })
   @ApiResponse({ status: 200, description: 'Logged out successfully' })
   @ApiResponse({ status: 401, description: 'Authentication required' })
   async logout(@Request() req: { user?: { jti?: string; exp?: number } }) {
@@ -145,12 +165,33 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Revoke all active sessions', description: 'Invalidates all refresh tokens and access tokens for the authenticated user. Essential for security when a device is lost or compromised.' })
-  @ApiResponse({ status: 200, description: 'All sessions revoked', schema: { example: { revokedCount: 3, walletAddress: 'GABC...', timestamp: 1700000000000 } } })
+  @ApiOperation({
+    summary: 'Revoke all active sessions',
+    description:
+      'Invalidates all refresh tokens and access tokens for the authenticated user. Essential for security when a device is lost or compromised.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'All sessions revoked',
+    schema: {
+      example: {
+        revokedCount: 3,
+        walletAddress: 'GABC...',
+        timestamp: 1700000000000,
+      },
+    },
+  })
   @ApiResponse({ status: 401, description: 'Authentication required' })
-  async revokeAll(@Request() req: { user?: { wallet?: string; sub?: string } }) {
-    const walletAddress = normalizeWalletAddress(req.user?.wallet || req.user?.sub || '');
-    return this.sessionRevokeService.revokeAllSessions(walletAddress, walletAddress);
+  async revokeAll(
+    @Request() req: { user?: { wallet?: string; sub?: string } },
+  ) {
+    const walletAddress = normalizeWalletAddress(
+      req.user?.wallet || req.user?.sub || '',
+    );
+    return this.sessionRevokeService.revokeAllSessions(
+      walletAddress,
+      walletAddress,
+    );
   }
 
   /**
@@ -159,7 +200,10 @@ export class AuthController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get current authenticated user', description: 'Returns the decoded JWT payload for the authenticated user.' })
+  @ApiOperation({
+    summary: 'Get current authenticated user',
+    description: 'Returns the decoded JWT payload for the authenticated user.',
+  })
   @ApiResponse({ status: 200, description: 'User info returned' })
   @ApiResponse({ status: 401, description: 'Authentication required' })
   me(@Request() req: { user?: Record<string, unknown> }) {
@@ -172,11 +216,21 @@ export class AuthController {
   @Get('suspicious/:wallet')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get suspicious activity summary (admin)', description: 'Returns failed login attempts, known IPs, and lockdown status for a wallet.' })
-  @ApiParam({ name: 'wallet', description: 'Stellar wallet address (G...)', example: 'GABC123...' })
+  @ApiOperation({
+    summary: 'Get suspicious activity summary (admin)',
+    description:
+      'Returns failed login attempts, known IPs, and lockdown status for a wallet.',
+  })
+  @ApiParam({
+    name: 'wallet',
+    description: 'Stellar wallet address (G...)',
+    example: 'GABC123...',
+  })
   @ApiResponse({ status: 200, description: 'Suspicious activity summary' })
   async getSuspiciousActivity(@Param('wallet') wallet: string) {
     const walletAddress = normalizeWalletAddress(wallet);
-    return this.suspiciousLoginService.getSuspiciousActivitySummary(walletAddress);
+    return this.suspiciousLoginService.getSuspiciousActivitySummary(
+      walletAddress,
+    );
   }
 }

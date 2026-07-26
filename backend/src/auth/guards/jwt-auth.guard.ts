@@ -7,14 +7,14 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
-import { JwtAccessTokenPayload } from '../interfaces/jwt-payload.interface';
-import { TokenBlacklistService } from '../services/token-blacklist.service';
+import { JwtAccessTokenPayload } from '../interfaces/jwt-payload.interface.js';
+import { TokenBlacklistService } from '../services/token-blacklist.service.js';
 
 /**
  * #981: Enhanced JWT Auth Guard.
  *
- * Validates Bearer tokens, checks Redis blacklist for revoked tokens,
- * supports optional authentication mode, and attaches decoded payload to request.
+ * Validates Bearer tokens, supports optional authentication mode, and
+ * attaches the decoded payload to the request.
  */
 
 export interface JwtGuardOptions {
@@ -42,13 +42,18 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     try {
-      const payload = await this.jwtService.verifyAsync<JwtAccessTokenPayload>(token, {
-        secret: this.configService.get<string>('JWT_SECRET', 'dev-secret'),
-      });
+      const payload = await this.jwtService.verifyAsync<JwtAccessTokenPayload>(
+        token,
+        {
+          secret: this.configService.get<string>('JWT_SECRET', 'dev-secret'),
+        },
+      );
 
       // #981: Check Redis blacklist for revoked tokens
       if (payload.jti) {
-        const isRevoked = await this.tokenBlacklistService.isBlacklisted(payload.jti);
+        const isRevoked = await this.tokenBlacklistService.isBlacklisted(
+          payload.jti,
+        );
         if (isRevoked) {
           throw new UnauthorizedException({
             message: 'Token has been revoked',
