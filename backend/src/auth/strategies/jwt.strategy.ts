@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
-import { JwtAccessTokenPayload } from '../interfaces/jwt-payload.interface';
+import { JwtAccessTokenPayload } from '../interfaces/jwt-payload.interface.js';
 
 /**
  * #973-974: JWT strategy for validating Bearer tokens.
@@ -18,7 +18,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: JwtAccessTokenPayload): Promise<JwtAccessTokenPayload> {
+  validate(payload: JwtAccessTokenPayload): JwtAccessTokenPayload {
     if (!payload.sub) {
       throw new UnauthorizedException('Invalid token payload');
     }
