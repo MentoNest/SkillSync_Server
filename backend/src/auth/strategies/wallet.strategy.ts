@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 /**
@@ -19,7 +19,7 @@ export class WalletStrategy {
    * @param signature - The base64-encoded signature
    * @returns true if signature is valid for the given wallet and message
    */
-  async verify(walletAddress: string, message: string, signature: string): Promise<boolean> {
+  verify(walletAddress: string, message: string, signature: string): boolean {
     try {
       // In production, use @stellar/stellar-sdk:
       // import { Keypair } from '@stellar/stellar-sdk';
