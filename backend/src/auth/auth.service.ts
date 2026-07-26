@@ -4,6 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 import { JwtAccessTokenPayload } from '../interfaces/jwt-payload.interface';
 import { WalletStrategy } from '../strategies/wallet.strategy';
+import { AuthRole } from '../common/enums/auth-role.enum.js';
+import { ROLE_PERMISSIONS } from '../common/constants/role-permissions.constant.js';
 
 /**
  * #971-978: Auth service handling wallet login, JWT lifecycle, and session management.
@@ -106,6 +108,7 @@ export class AuthService {
     const refreshTtl = parseInt(this.configService.get('JWT_REFRESH_TTL', '604800'), 10); // 7 days
 
     const roles = await this.resolveRoles(walletAddress);
+    const permissions = this.resolvePermissions(roles);
 
     const accessPayload: JwtAccessTokenPayload = {
       sub: walletAddress,
@@ -114,6 +117,7 @@ export class AuthService {
       iat: Math.floor(Date.now() / 1000),
       exp: Math.floor(Date.now() / 1000) + accessTtl,
       roles,
+      permissions,
     };
 
     const accessToken = await this.jwtService.signAsync(accessPayload);
@@ -199,10 +203,23 @@ export class AuthService {
     // In production: persist to database via UsersService
   }
 
-  private async resolveRoles(walletAddress: string): Promise<string[]> {
+  private async resolveRoles(walletAddress: string): Promise<AuthRole[]> {
     // In production: query from database
     // Default role for all authenticated users
-    return ['MENTEE'];
+    return [AuthRole.MENTEE];
+  }
+
+  /**
+   * #974: Resolve the union of permissions granted by a set of roles.
+   */
+  private resolvePermissions(roles: AuthRole[]): string[] {
+    const permissions = new Set<string>();
+    for (const role of roles) {
+      for (const permission of ROLE_PERMISSIONS[role] ?? []) {
+        permissions.add(permission);
+      }
+    }
+    return Array.from(permissions);
   }
 
   private cleanExpiredNonces(): void {

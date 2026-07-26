@@ -5,4 +5,5 @@ export interface JwtAccessTokenPayload {
   iat: number;
   exp: number;
   roles?: string[];
+  permissions?: string[];
 }

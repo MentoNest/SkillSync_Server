@@ -4,7 +4,6 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { JwtAccessTokenPayload } from '../interfaces/jwt-payload.interface';
@@ -25,7 +24,6 @@ export interface JwtGuardOptions {
 export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
     private readonly blacklistCheck?: (jti: string) => Promise<boolean>,
   ) {}
 
@@ -41,9 +39,8 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     try {
-      const payload = await this.jwtService.verifyAsync<JwtAccessTokenPayload>(token, {
-        secret: this.configService.get<string>('JWT_SECRET', 'dev-secret'),
-      });
+      const payload =
+        await this.jwtService.verifyAsync<JwtAccessTokenPayload>(token);
 
       // #981: Check Redis blacklist for revoked tokens
       if (this.blacklistCheck && payload.jti) {
