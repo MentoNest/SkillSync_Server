@@ -2,19 +2,13 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
-import { JwtStrategy } from './strategies/jwt.strategy';
-import { WalletStrategy } from './strategies/wallet.strategy';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { RolesGuard } from './guards/roles.guard';
+import { AuthController } from './auth.controller.js';
+import { AuthService } from './auth.service.js';
+import { JwtStrategy } from './strategies/jwt.strategy.js';
+import { WalletStrategy } from './strategies/wallet.strategy.js';
+import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
+import { RolesGuard } from './guards/roles.guard.js';
 
-/**
- * #971: Self-contained Auth module.
- *
- * Exports guards and strategies for use in other modules.
- * Handles wallet authentication, JWT lifecycle, session management, and RBAC.
- */
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),

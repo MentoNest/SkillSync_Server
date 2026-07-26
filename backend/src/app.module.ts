@@ -6,6 +6,8 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { AvailabilityModule } from './availability/availability.module.js';
+import { VerificationModule } from './verification/verification.module.js';
 import typeOrmConfig from './config/typeorm.config.js';
 
 @Module({
@@ -15,6 +17,8 @@ import typeOrmConfig from './config/typeorm.config.js';
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     UsersModule,
     AuthModule,
+    AvailabilityModule,
+    VerificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

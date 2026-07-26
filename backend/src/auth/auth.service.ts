@@ -2,8 +2,8 @@ import { Injectable, UnauthorizedException, ConflictException, Logger } from '@n
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
-import { JwtAccessTokenPayload } from '../interfaces/jwt-payload.interface';
-import { WalletStrategy } from '../strategies/wallet.strategy';
+import { JwtAccessTokenPayload } from './interfaces/jwt-payload.interface.js';
+import { WalletStrategy } from './strategies/wallet.strategy.js';
 
 /**
  * #971-978: Auth service handling wallet login, JWT lifecycle, and session management.

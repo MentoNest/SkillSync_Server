@@ -50,9 +50,9 @@ export class ThrottlerGuard implements CanActivate {
     const req = context.switchToHttp().getRequest<Request>();
     const res = context.switchToHttp().getResponse<Response>();
 
-    const isAuthenticated = !!(req as Record<string, unknown>).user;
+    const isAuthenticated = !!(req as unknown as Record<string, unknown>).user;
     const clientId = isAuthenticated
-      ? `user:${(req as Record<string, unknown>).user && JSON.stringify((req as Record<string, unknown>).user).slice(0, 20)}`
+      ? `user:${(req as unknown as Record<string, unknown>).user && JSON.stringify((req as unknown as Record<string, unknown>).user).slice(0, 20)}`
       : `ip:${req.ip || req.socket?.remoteAddress || 'unknown'}`;
 
     // Skip rate limiting for trusted IPs

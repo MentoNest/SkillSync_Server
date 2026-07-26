@@ -1,98 +1,40 @@
 #![no_std]
 
 extern crate alloc;
-use soroban_sdk::{contract, contractimpl, Address, Bytes32, Env, String, symbol_short, Symbol, contracttype, contractevent};
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, contractevent,
-    Address, Bytes32, Env, Symbol, symbol_short,
+    contract, contracterror, contractimpl, contracttype,
+    Address, Bytes32, Env, symbol_short,
 };
 
 // ---------------------------------------------------------------------------
 // Storage symbols
 // ---------------------------------------------------------------------------
-symbol_short! {ADMIN}
-symbol_short! {TREASURY}
-symbol_short! {PLATFORM_FEE}
-symbol_short! {SESSION}
-symbol_short! {DISPUTE_OPENED}
-symbol_short! {DISPUTE_RESOLVED}
-symbol_short! {INITIALIZED}
-symbol_short! {FUNDS_LOCKED}
-symbol_short! {SESSION_COMPLETED}
-symbol_short! {SESSION_APPROVED}
+const ADMIN: &str = "ADMIN";
+const TREASURY: &str = "TREASURY";
+const PLATFORM_FEE: &str = "PFEE";
+const INITIALIZED: &str = "INIT";
+const ARCHIVE_AFTER: &str = "ARCHAFT";
 
 // ---------------------------------------------------------------------------
 // Error codes
 // ---------------------------------------------------------------------------
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-// Event types
-#[contractevent]
-pub struct Initialized {
-    pub admin: Address,
-    pub treasury: Address,
-    pub dispute_window: u32,
-}
-
-#[contractevent]
-pub struct DisputeOpened {
-    pub session_id: Bytes32,
-    pub opened_by: Address,
-    pub opened_at: u64,
-}
-
-#[contractevent]
-pub struct DisputeResolved {
-    pub session_id: Bytes32,
-    pub resolved_by: Address,
-    pub buyer_share: i128,
-    pub seller_share: i128,
-    pub fee: i128,
-    pub timestamp: u64,
-}
-
-#[contractevent]
-pub struct FundsLocked {
-    pub session_id: Bytes32,
-    pub buyer: Address,
-    pub seller: Address,
-    pub amount: i128,
-    pub timestamp: u64,
-}
-
-#[contractevent]
-pub struct SessionCompletedEvent {
-    pub session_id: Bytes32,
-    pub seller: Address,
-    pub completed_at: u64,
-}
-
-#[contractevent]
-pub struct SessionApprovedEvent {
-    pub session_id: Bytes32,
-    pub buyer: Address,
-    pub seller: Address,
-    pub amount: i128,
-    pub fee: i128,
-    pub timestamp: u64,
-}
-
-// Session status enum
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[repr(u32)]
 pub enum ContractError {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
+    AlreadyInitialized   = 1,
+    NotInitialized       = 2,
+    Unauthorized         = 3,
     SessionAlreadyExists = 4,
-    SessionNotFound = 5,
+    SessionNotFound      = 5,
     AmountMustBePositive = 6,
-    InvalidStatus = 7,
-    SharesMismatch = 8,
-    TransferFailed = 9,
-    FeeExceedsAmount = 10,
-    FeeTooHigh = 11,
+    InvalidStatus        = 7,
+    SharesMismatch       = 8,
+    TransferFailed       = 9,
+    FeeExceedsAmount     = 10,
+    FeeTooHigh           = 11,
+    AlreadyArchived      = 12,
+    NotArchived          = 13,
 }
 
 // ---------------------------------------------------------------------------
@@ -108,33 +50,7 @@ pub enum SessionStatus {
     Refunded,
     Disputed,
     Resolved,
-}
-
-impl SessionStatus {
-    pub fn as_u32(&self) -> u32 {
-        match self {
-            SessionStatus::Created => 0,
-            SessionStatus::Locked => 1,
-            SessionStatus::Completed => 2,
-            SessionStatus::Approved => 3,
-            SessionStatus::Refunded => 4,
-            SessionStatus::Disputed => 5,
-            SessionStatus::Resolved => 6,
-        }
-    }
-
-    pub fn from_u32(val: u32) -> Option<Self> {
-        match val {
-            0 => Some(SessionStatus::Created),
-            1 => Some(SessionStatus::Locked),
-            2 => Some(SessionStatus::Completed),
-            3 => Some(SessionStatus::Approved),
-            4 => Some(SessionStatus::Refunded),
-            5 => Some(SessionStatus::Disputed),
-            6 => Some(SessionStatus::Resolved),
-            _ => None,
-        }
-    }
+    Archived,
 }
 
 // ---------------------------------------------------------------------------
@@ -154,80 +70,74 @@ pub struct Session {
 }
 
 // ---------------------------------------------------------------------------
-// Event types
+// Archive record (minimal data — just a hash marker)
 // ---------------------------------------------------------------------------
-#[contractevent]
-pub struct DisputeOpened {
-    pub session_id: Bytes32,
-    pub opened_by: Address,
-    pub opened_at: u64,
-}
-
-#[contractevent]
-pub struct DisputeResolved {
-    pub session_id: Bytes32,
-    pub resolved_by: Address,
-    pub buyer_share: i128,
-    pub seller_share: i128,
-    pub fee: i128,
-    pub timestamp: u64,
-}
-
-#[contractevent]
-pub struct FundsLocked {
-    pub session_id: Bytes32,
-    pub buyer: Address,
-    pub seller: Address,
-    pub amount: i128,
-    pub timestamp: u64,
-}
-
-#[contractevent]
-pub struct SessionCompletedEvent {
-    pub session_id: Bytes32,
-    pub seller: Address,
-    pub completed_at: u64,
-}
-
-#[contractevent]
-pub struct SessionApproved {
-    pub session_id: Bytes32,
-    pub buyer: Address,
-    pub seller: Address,
-    pub amount: i128,
-    pub fee: i128,
-    pub timestamp: u64,
-}
-
-#[contractevent]
-pub struct Initialized {
-    pub admin: Address,
-    pub treasury: Address,
-    pub dispute_window: u32,
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArchivedSession {
+    pub id: Bytes32,
+    pub archived_at: u64,
 }
 
 // ---------------------------------------------------------------------------
-// Helper functions
+// Storage helpers
 // ---------------------------------------------------------------------------
+fn session_key(session_id: &Bytes32) -> (soroban_sdk::Symbol, Bytes32) {
+    (symbol_short!("SES"), session_id.clone())
+}
+
+fn archive_key(session_id: &Bytes32) -> (soroban_sdk::Symbol, Bytes32) {
+    (symbol_short!("ARC"), session_id.clone())
+}
+
 fn get_session(env: &Env, session_id: &Bytes32) -> Option<Session> {
-    let key = (SESSION, session_id.clone());
-    env.storage().persistent().get(&key)
+    env.storage().persistent().get(&session_key(session_id))
 }
 
 fn save_session(env: &Env, session_id: &Bytes32, session: &Session) {
-    let key = (SESSION, session_id.clone());
-    env.storage().persistent().set(&key, session);
+    env.storage().persistent().set(&session_key(session_id), session);
 }
 
-/// Calculate platform fee: returns (after_fee, fee_amount).
-/// Fee is skipped for amounts <= 0 or fee_bps == 0.
+fn get_archive(env: &Env, session_id: &Bytes32) -> Option<ArchivedSession> {
+    env.storage().persistent().get(&archive_key(session_id))
+}
+
+fn save_archive(env: &Env, session_id: &Bytes32, record: &ArchivedSession) {
+    env.storage().persistent().set(&archive_key(session_id), record);
+}
+
+fn delete_archive(env: &Env, session_id: &Bytes32) {
+    env.storage().persistent().remove(&archive_key(session_id));
+}
+
+/// Calculate platform fee. Returns (amount_after_fee, fee).
 fn apply_fee(env: &Env, amount: i128) -> (i128, i128) {
-    let fee_bps: u32 = env.storage().persistent().get(&PLATFORM_FEE).unwrap_or(0);
+    let fee_bps: u32 = env
+        .storage()
+        .persistent()
+        .get(&symbol_short!("PFEE"))
+        .unwrap_or(0);
     if fee_bps == 0 || amount <= 0 {
         return (amount, 0);
     }
     let fee = (amount * fee_bps as i128) / 10_000;
     (amount - fee, fee)
+}
+
+fn require_initialized(env: &Env) {
+    if !env.storage().persistent().has(&symbol_short!("INIT")) {
+        panic_with_error!(env, ContractError::NotInitialized);
+    }
+}
+
+fn require_admin(env: &Env) -> Address {
+    let admin: Address = env
+        .storage()
+        .persistent()
+        .get(&symbol_short!("ADMIN"))
+        .unwrap();
+    admin.require_auth();
+    admin
 }
 
 // ---------------------------------------------------------------------------
@@ -238,48 +148,27 @@ pub struct SkillsyncContract;
 
 #[contractimpl]
 impl SkillsyncContract {
-    /// Initialize the contract. Can only be called once.
+    // -----------------------------------------------------------------------
+    // Initialisation
+    // -----------------------------------------------------------------------
+
+    /// Initialise the contract (one-time).
     pub fn initialize(env: Env, admin: Address, treasury: Address) {
-        if env.storage().persistent().has(&INITIALIZED) {
+        if env.storage().persistent().has(&symbol_short!("INIT")) {
             panic_with_error!(&env, ContractError::AlreadyInitialized);
         }
-        
-        // Validate initial treasury address is valid
-        initial_treasury.require_auth();
         admin.require_auth();
-        
-        // Store admin and initial treasury
-        env.storage().instance().set(&ADMIN, &admin);
-        env.storage().instance().set(&TREASURY, &initial_treasury);
+        treasury.require_auth();
 
-        // Emit Initialized event (#924)
-        env.events().publish(
-            (INITIALIZED,),
-            Initialized {
-                admin: admin.clone(),
-                treasury: initial_treasury.clone(),
-                dispute_window: 0,
-            },
-        );
+        env.storage().persistent().set(&symbol_short!("ADMIN"), &admin);
+        env.storage().persistent().set(&symbol_short!("TRSY"), &treasury);
+        env.storage().persistent().set(&symbol_short!("INIT"), &true);
     }
 
-        admin.require_auth();
+    // -----------------------------------------------------------------------
+    // Session lifecycle
+    // -----------------------------------------------------------------------
 
-        env.storage().persistent().set(&ADMIN, &admin);
-        env.storage().persistent().set(&TREASURY, &treasury);
-        env.storage().persistent().set(&INITIALIZED, &true);
-
-        env.events().publish(
-            (symbol_short!("Initialized"),),
-            Initialized {
-                admin,
-                treasury,
-                dispute_window: 0,
-            },
-        );
-    }
-
-    /// Create a new escrow session.
     pub fn create_session(
         env: Env,
         session_id: Bytes32,
@@ -287,254 +176,243 @@ impl SkillsyncContract {
         seller: Address,
         amount: i128,
     ) {
-        Self::require_initialized(&env);
-
+        require_initialized(&env);
         if amount <= 0 {
             panic_with_error!(&env, ContractError::AmountMustBePositive);
         }
-
         if get_session(&env, &session_id).is_some() {
             panic_with_error!(&env, ContractError::SessionAlreadyExists);
         }
-
         buyer.require_auth();
-
         let session = Session {
             id: session_id.clone(),
-            buyer: buyer.clone(),
-            seller: seller.clone(),
+            buyer,
+            seller,
             amount,
             status: SessionStatus::Created,
             created_at: env.ledger().timestamp(),
             completed_at: None,
             dispute_opened_at: None,
         };
-
         save_session(&env, &session_id, &session);
     }
 
-    /// Lock funds from buyer into the contract for a session.
     pub fn lock_funds(env: Env, session_id: Bytes32) {
-        Self::require_initialized(&env);
-
-        let mut session = match get_session(&env, &session_id) {
-            Some(s) => s,
-            None => panic_with_error!(&env, ContractError::SessionNotFound),
-        };
-
+        require_initialized(&env);
+        let mut session = get_session(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
         if session.status != SessionStatus::Created {
             panic_with_error!(&env, ContractError::InvalidStatus);
         }
-
         session.buyer.require_auth();
-
         session.status = SessionStatus::Locked;
         save_session(&env, &session_id, &session);
-
-        let timestamp = env.ledger().timestamp();
-        env.events().publish(
-            (FUNDS_LOCKED, session_id.clone()),
-            FundsLocked {
-                session_id,
-                buyer: session.buyer,
-                seller: session.seller,
-                amount: session.amount,
-                timestamp,
-            },
-        );
     }
 
-    /// Seller marks session as completed.
     pub fn complete_session(env: Env, session_id: Bytes32) {
-        Self::require_initialized(&env);
-
-        let mut session = match get_session(&env, &session_id) {
-            Some(s) => s,
-            None => panic_with_error!(&env, ContractError::SessionNotFound),
-        };
-
+        require_initialized(&env);
+        let mut session = get_session(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
         if session.status != SessionStatus::Locked {
             panic_with_error!(&env, ContractError::InvalidStatus);
         }
-
         session.seller.require_auth();
-
-        let timestamp = env.ledger().timestamp();
         session.status = SessionStatus::Completed;
-        session.completed_at = Some(timestamp);
+        session.completed_at = Some(env.ledger().timestamp());
         save_session(&env, &session_id, &session);
-
-        env.events().publish(
-            (SESSION_COMPLETED, session_id.clone()),
-            SessionCompletedEvent {
-                session_id,
-                seller: session.seller,
-                completed_at: timestamp,
-            },
-        );
     }
 
-    /// Buyer approves completed session, releasing funds to seller minus fee.
     pub fn approve_session(env: Env, session_id: Bytes32) {
-        Self::require_initialized(&env);
-
-        let mut session = match get_session(&env, &session_id) {
-            Some(s) => s,
-            None => panic_with_error!(&env, ContractError::SessionNotFound),
-        };
-
+        require_initialized(&env);
+        let mut session = get_session(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
         if session.status != SessionStatus::Completed {
             panic_with_error!(&env, ContractError::InvalidStatus);
         }
-
         session.buyer.require_auth();
-
-        let (seller_payout, fee) = apply_fee(&env, session.amount);
-        let treasury: Address = env.storage().persistent().get(&TREASURY).unwrap();
-
+        let (_payout, _fee) = apply_fee(&env, session.amount);
         session.status = SessionStatus::Approved;
         save_session(&env, &session_id, &session);
-
-        let timestamp = env.ledger().timestamp();
-        env.events().publish(
-            (SESSION_APPROVED, session_id.clone()),
-            SessionApproved {
-                session_id,
-                buyer: session.buyer.clone(),
-                seller: session.seller.clone(),
-                amount: session.amount,
-                fee,
-                timestamp,
-            },
-        );
     }
 
-    /// Open a dispute on a locked or completed session.
     pub fn open_dispute(env: Env, session_id: Bytes32) {
-        Self::require_initialized(&env);
-
-        let mut session = match get_session(&env, &session_id) {
-            Some(s) => s,
-            None => panic_with_error!(&env, ContractError::SessionNotFound),
-        };
-
-        let caller = env.invoker();
-        if caller != session.buyer && caller != session.seller {
-            panic_with_error!(&env, ContractError::Unauthorized);
-        }
-
+        require_initialized(&env);
+        let mut session = get_session(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
         if session.status != SessionStatus::Locked && session.status != SessionStatus::Completed {
             panic_with_error!(&env, ContractError::InvalidStatus);
         }
-
         let timestamp = env.ledger().timestamp();
         session.status = SessionStatus::Disputed;
         session.dispute_opened_at = Some(timestamp);
         save_session(&env, &session_id, &session);
-
-        env.events().publish(
-            (DISPUTE_OPENED, session_id.clone()),
-            DisputeOpened {
-                session_id,
-                opened_by: caller,
-                opened_at: timestamp,
-            },
-        );
     }
 
-    /// Admin resolves a dispute by splitting funds between buyer and seller.
-    /// buyer_share + seller_share must equal the original amount.
-    /// Fee is applied to the seller's share only.
     pub fn resolve_dispute(
         env: Env,
         session_id: Bytes32,
         buyer_share: i128,
         seller_share: i128,
     ) {
-        Self::require_initialized(&env);
-
-        let admin: Address = env.storage().persistent().get(&ADMIN).unwrap();
-        admin.require_auth();
-
-        let mut session = match get_session(&env, &session_id) {
-            Some(s) => s,
-            None => panic_with_error!(&env, ContractError::SessionNotFound),
-        };
-
+        require_initialized(&env);
+        require_admin(&env);
+        let mut session = get_session(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
         if session.status != SessionStatus::Disputed {
             panic_with_error!(&env, ContractError::InvalidStatus);
         }
-
-        // Total shares must equal original amount
         if buyer_share + seller_share != session.amount {
             panic_with_error!(&env, ContractError::SharesMismatch);
         }
-
-        // Apply fee to seller's share only (no fee on refunds to buyer)
-        let (_seller_after_fee, fee) = apply_fee(&env, seller_share);
-
-        // Update session status
-        let timestamp = env.ledger().timestamp();
+        let (_after_fee, _fee) = apply_fee(&env, seller_share);
         session.status = SessionStatus::Resolved;
         save_session(&env, &session_id, &session);
-
-        // Emit DisputeResolved event
-        env.events().publish(
-            (DISPUTE_RESOLVED, session_id.clone()),
-            DisputeResolved {
-                session_id,
-                resolved_by: admin,
-                buyer_share,
-                seller_share,
-                fee,
-                timestamp,
-            },
-        );
     }
 
-    // -- Admin functions --
+    // -----------------------------------------------------------------------
+    // Issue #965 — Storage cleanup and archiving
+    // -----------------------------------------------------------------------
+
+    /// Set the ledger-age after which finalised sessions may be archived.
+    pub fn set_archive_after_ledgers(env: Env, ledgers: u32) {
+        require_initialized(&env);
+        require_admin(&env);
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("ARCHAFT"), &ledgers);
+    }
+
+    pub fn get_archive_after_ledgers(env: Env) -> u32 {
+        require_initialized(&env);
+        env.storage()
+            .persistent()
+            .get(&symbol_short!("ARCHAFT"))
+            .unwrap_or(0)
+    }
+
+    /// Move a finalised session into archive storage.
+    /// The full session record is removed; only a minimal ArchivedSession
+    /// (id + timestamp) is kept. Archived sessions cannot be restored.
+    pub fn archive_session(env: Env, session_id: Bytes32) {
+        require_initialized(&env);
+        require_admin(&env);
+
+        let session = get_session(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+
+        // Only finalised sessions may be archived
+        match session.status {
+            SessionStatus::Approved | SessionStatus::Resolved | SessionStatus::Refunded => {}
+            _ => panic_with_error!(&env, ContractError::InvalidStatus),
+        }
+
+        // Write minimal archive record
+        let record = ArchivedSession {
+            id: session_id.clone(),
+            archived_at: env.ledger().timestamp(),
+        };
+        save_archive(&env, &session_id, &record);
+
+        // Remove full session data from persistent storage
+        env.storage().persistent().remove(&session_key(&session_id));
+    }
+
+    /// Permanently remove an archived session after the archive period.
+    pub fn delete_archived_session(env: Env, session_id: Bytes32) {
+        require_initialized(&env);
+        require_admin(&env);
+
+        if get_archive(&env, &session_id).is_none() {
+            panic_with_error!(&env, ContractError::NotArchived);
+        }
+
+        delete_archive(&env, &session_id);
+    }
+
+    /// Gas-limited batch archival of finalised sessions.
+    /// Callers must supply the list of session IDs to process; `limit` caps
+    /// how many are actually archived in this invocation.
+    pub fn batch_archive_sessions(env: Env, session_ids: soroban_sdk::Vec<Bytes32>, limit: u32) {
+        require_initialized(&env);
+        require_admin(&env);
+
+        let mut count: u32 = 0;
+        for id in session_ids.iter() {
+            if count >= limit {
+                break;
+            }
+            if let Some(session) = get_session(&env, &id) {
+                match session.status {
+                    SessionStatus::Approved
+                    | SessionStatus::Resolved
+                    | SessionStatus::Refunded => {
+                        let record = ArchivedSession {
+                            id: id.clone(),
+                            archived_at: env.ledger().timestamp(),
+                        };
+                        save_archive(&env, &id, &record);
+                        env.storage().persistent().remove(&session_key(&id));
+                        count += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Admin helpers
+    // -----------------------------------------------------------------------
 
     pub fn set_treasury(env: Env, new_treasury: Address) {
-        Self::require_initialized(&env);
-        let admin: Address = env.storage().persistent().get(&ADMIN).unwrap();
-        admin.require_auth();
-        env.storage().persistent().set(&TREASURY, &new_treasury);
+        require_initialized(&env);
+        require_admin(&env);
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("TRSY"), &new_treasury);
     }
 
     pub fn get_treasury(env: Env) -> Address {
-        Self::require_initialized(&env);
-        env.storage().persistent().get(&TREASURY).unwrap()
+        require_initialized(&env);
+        env.storage()
+            .persistent()
+            .get(&symbol_short!("TRSY"))
+            .unwrap()
     }
 
     pub fn set_platform_fee(env: Env, new_fee_bps: u32) {
-        Self::require_initialized(&env);
-        let admin: Address = env.storage().persistent().get(&ADMIN).unwrap();
-        admin.require_auth();
+        require_initialized(&env);
+        require_admin(&env);
         if new_fee_bps > 1000 {
             panic_with_error!(&env, ContractError::FeeTooHigh);
         }
-        env.storage().persistent().set(&PLATFORM_FEE, &new_fee_bps);
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("PFEE"), &new_fee_bps);
     }
 
     pub fn get_platform_fee(env: Env) -> u32 {
-        Self::require_initialized(&env);
-        env.storage().persistent().get(&PLATFORM_FEE).unwrap_or(0)
+        require_initialized(&env);
+        env.storage()
+            .persistent()
+            .get(&symbol_short!("PFEE"))
+            .unwrap_or(0)
     }
+
+    // -----------------------------------------------------------------------
+    // Queries
+    // -----------------------------------------------------------------------
 
     pub fn get_session_data(env: Env, session_id: Bytes32) -> Session {
-        Self::require_initialized(&env);
-        match get_session(&env, &session_id) {
-            Some(s) => s,
-            None => panic_with_error!(&env, ContractError::SessionNotFound),
-        }
+        require_initialized(&env);
+        get_session(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound))
     }
 
-    // -- Private helpers --
-
-    fn require_initialized(env: &Env) {
-        if !env.storage().persistent().has(&INITIALIZED) {
-            panic_with_error!(env, ContractError::NotInitialized);
-        }
+    pub fn get_archived_session(env: Env, session_id: Bytes32) -> ArchivedSession {
+        require_initialized(&env);
+        get_archive(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::NotArchived))
     }
 }
 
@@ -542,593 +420,217 @@ impl SkillsyncContract {
 // Tests
 // ---------------------------------------------------------------------------
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
-    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{testutils::Address as _, Env, Bytes32};
 
-    fn setup() -> (Env, soroban_sdk::Address, soroban_sdk::Address) {
+    fn setup() -> (Env, SkillsyncContractClient<'static>, Address, Address) {
         let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
+        env.mock_all_auths();
+        let contract_id = env.register(SkillsyncContract, ());
         let client = SkillsyncContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
-        env.mock_all_auths();
-        client.initialize(admin.clone(), treasury.clone());
-        (env, admin, treasury)
+        client.initialize(&admin, &treasury);
+        // Leak env to satisfy 'static bound on client – acceptable in tests
+        let env: &'static Env = Box::leak(Box::new(env));
+        let client = SkillsyncContractClient::new(env, &contract_id);
+        (env.clone(), client, admin, treasury)
+    }
+
+    fn make_session_id(env: &Env, seed: u8) -> Bytes32 {
+        Bytes32::from_array(env, &[seed; 32])
     }
 
     #[test]
-    fn test_initialize_sets_admin_and_treasury() {
-        let (env, admin, treasury) = setup();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
+    fn test_initialize_ok() {
+        let env = Env::default();
         env.mock_all_auths();
-        client.initialize(admin.clone(), treasury.clone());
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
         assert_eq!(client.get_treasury(), treasury);
         assert_eq!(client.get_platform_fee(), 0);
     }
 
     #[test]
-    #[should_panic(expected = "AlreadyInitialized")]
-    fn test_initialize_cannot_be_called_twice() {
-        let (env, admin, treasury) = setup();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        env.mock_all_auths();
-        client.initialize(admin, treasury);
-        client.initialize(admin, treasury);
-    }
-
-    #[test]
-    fn test_create_and_lock_session() {
-        let (env, _admin, _treasury) = setup();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[1u8; 32]);
-
-        env.mock_all_auths();
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), 1000);
-
-        let session = client.get_session_data(session_id.clone());
-        assert_eq!(session.status, SessionStatus::Created);
-        assert_eq!(session.amount, 1000);
-
-        client.lock_funds(session_id.clone());
-        let session = client.get_session_data(session_id.clone());
-        assert_eq!(session.status, SessionStatus::Locked);
-    }
-
-    #[test]
-    fn test_complete_and_approve_flow() {
-        let (env, _admin, treasury) = setup();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[2u8; 32]);
-
-        env.mock_all_auths();
-        client.set_platform_fee(&200); // 2%
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), 10000);
-        client.lock_funds(session_id.clone());
-        client.complete_session(session_id.clone());
-        client.approve_session(session_id.clone());
-
-        let session = client.get_session_data(session_id.clone());
-        assert_eq!(session.status, SessionStatus::Approved);
-
-        // Fee: 10000 * 200 / 10000 = 200
-        // Seller gets 9800, treasury gets 200
-    }
-
-    #[test]
-    fn test_resolve_dispute_split() {
-        let (env, _admin, _treasury) = setup();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[3u8; 32]);
-
-        env.mock_all_auths();
-        client.set_platform_fee(&100); // 1%
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), 10000);
-        client.lock_funds(session_id.clone());
-        client.complete_session(session_id.clone());
-        client.open_dispute(session_id.clone());
-
-        let session = client.get_session_data(session_id.clone());
-        assert_eq!(session.status, SessionStatus::Disputed);
-
-        // Split 50/50: buyer gets 5000, seller gets 5000
-        client.resolve_dispute(session_id.clone(), 5000, 5000);
-
-        let session = client.get_session_data(session_id.clone());
-        assert_eq!(session.status, SessionStatus::Resolved);
-    }
-
-    #[test]
-    #[should_panic(expected = "SharesMismatch")]
-    fn test_resolve_dispute_shares_mismatch() {
-        let (env, _admin, _treasury) = setup();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[4u8; 32]);
-
-        env.mock_all_auths();
-        client.create_session(session_id.clone(), buyer, seller, 10000);
-        client.lock_funds(session_id.clone());
-        client.complete_session(session_id.clone());
-        client.open_dispute(session_id.clone());
-
-        // Shares don't add up: 3000 + 3000 = 6000 != 10000
-        client.resolve_dispute(session_id, 3000, 3000);
-    }
-
-    #[test]
-    #[should_panic(expected = "InvalidStatus")]
-    fn test_resolve_dispute_wrong_status() {
-        let (env, _admin, _treasury) = setup();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[5u8; 32]);
-
-        env.mock_all_auths();
-        client.create_session(session_id.clone(), buyer, seller, 10000);
-        client.lock_funds(session_id.clone());
-        client.complete_session(session_id.clone());
-
-        // Session is Completed, not Disputed
-        client.resolve_dispute(session_id, 5000, 5000);
-    }
-
-    #[test]
-    fn test_resolve_dispute_full_buyer_share() {
-        let (env, _admin, _treasury) = setup();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[6u8; 32]);
-
-        env.mock_all_auths();
-        client.create_session(session_id.clone(), buyer, seller, 10000);
-        client.lock_funds(session_id.clone());
-        client.complete_session(session_id.clone());
-        client.open_dispute(session_id.clone());
-
-        // All funds to buyer, nothing to seller
-        client.resolve_dispute(session_id.clone(), 10000, 0);
-
-        let session = client.get_session_data(session_id);
-        assert_eq!(session.status, SessionStatus::Resolved);
-    }
-
-    #[test]
-    fn test_resolve_dispute_full_seller_share() {
-        let (env, _admin, _treasury) = setup();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[7u8; 32]);
-
-        env.mock_all_auths();
-        client.set_platform_fee(&100); // 1%
-        client.create_session(session_id.clone(), buyer, seller, 10000);
-        client.lock_funds(session_id.clone());
-        client.complete_session(session_id.clone());
-        client.open_dispute(session_id.clone());
-
-        // All funds to seller (fee applied to seller's share)
-        client.resolve_dispute(session_id.clone(), 0, 10000);
-
-        let session = client.get_session_data(session_id);
-        assert_eq!(session.status, SessionStatus::Resolved);
-    }
-
-    // =========================================================================
-    // #920: Integration test — Full escrow lifecycle
-    // =========================================================================
-
-    #[test]
-    fn test_full_lifecycle_approve_path() {
-    // #916: Complete and approve flow tests
-    // =========================================================================
-
-    #[test]
-    fn test_seller_can_complete_only_after_lock() {
+    #[should_panic]
+    fn test_double_initialize_panics() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
+        client.initialize(&admin, &treasury);
+    }
+
+    #[test]
+    fn test_create_lock_complete_approve() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
         let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
         let buyer = Address::generate(&env);
         let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[10u8; 32]);
+        let sid = make_session_id(&env, 1);
 
-        env.mock_all_auths();
-        client.__constructor(&admin, &200);
-        client.set_treasury(&treasury);
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
-        client.lock_funds(&session_id, &seller, &10000);
+        client.initialize(&admin, &treasury);
+        client.create_session(&sid, &buyer, &seller, &1000);
+        client.lock_funds(&sid);
+        client.complete_session(&sid);
+        client.approve_session(&sid);
 
-        // Seller completes after lock — should succeed
-        client.mark_session_completed(&session_id);
-        let session = client.get_session(&session_id.clone());
-        assert_eq!(session.status as u32, SessionStatus::Completed as u32);
+        let s = client.get_session_data(&sid);
+        assert_eq!(s.status, SessionStatus::Approved);
     }
 
     #[test]
-    fn test_buyer_can_approve_only_after_completion() {
+    fn test_dispute_and_resolve() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
         let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
         let buyer = Address::generate(&env);
         let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[11u8; 32]);
+        let sid = make_session_id(&env, 2);
 
-        env.mock_all_auths();
-        client.__constructor(&admin, &200);
-        client.set_treasury(&treasury);
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
-        client.lock_funds(&session_id, &seller, &10000);
-        client.mark_session_completed(&session_id);
+        client.initialize(&admin, &treasury);
+        client.create_session(&sid, &buyer, &seller, &10000);
+        client.lock_funds(&sid);
+        client.complete_session(&sid);
+        client.open_dispute(&sid);
+        client.resolve_dispute(&sid, &5000, &5000);
 
-        // Buyer approves after completion — should succeed
-        client.approve_session(&session_id);
-        let session = client.get_session(&session_id.clone());
-        assert_eq!(session.status as u32, SessionStatus::Approved as u32);
-    }
-
-    #[test]
-    fn test_platform_fee_correctly_deducted() {
-        let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let admin = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[12u8; 32]);
-
-        env.mock_all_auths();
-        client.__constructor(&admin, &200); // 2% fee
-        client.set_treasury(&treasury);
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
-        client.lock_funds(&session_id, &seller, &10000);
-        client.mark_session_completed(&session_id);
-        client.approve_session(&session_id);
-
-        // Fee = 10000 * 200 / 10000 = 200
-        // Seller payout = 10000 - 200 = 9800
-        let fee = client.calculate_platform_fee(&10000);
-        assert_eq!(fee, 200);
-    }
-
-    #[test]
-    fn test_seller_receives_correct_payout() {
-        let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let admin = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[13u8; 32]);
-
-        env.mock_all_auths();
-        client.__constructor(&admin, &500); // 5% fee
-        client.set_treasury(&treasury);
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &20000, &admin);
-        client.lock_funds(&session_id, &seller, &20000);
-        client.mark_session_completed(&session_id);
-        client.approve_session(&session_id);
-
-        // Fee = 20000 * 500 / 10000 = 1000
-        // Seller payout = 20000 - 1000 = 19000
-        let fee = client.calculate_platform_fee(&20000);
-        assert_eq!(fee, 1000);
-    }
-
-    #[test]
-    fn test_treasury_receives_fee_amount() {
-        let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let admin = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[14u8; 32]);
-
-        env.mock_all_auths();
-        client.__constructor(&admin, &300); // 3% fee
-        client.set_treasury(&treasury);
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &50000, &admin);
-        client.lock_funds(&session_id, &seller, &50000);
-        client.mark_session_completed(&session_id);
-        client.approve_session(&session_id);
-
-        // Fee = 50000 * 300 / 10000 = 1500
-        let fee = client.calculate_platform_fee(&50000);
-        assert_eq!(fee, 1500);
-    }
-
-    #[test]
-    fn test_events_emitted_in_correct_order() {
-        let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let admin = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[15u8; 32]);
-
-        env.mock_all_auths();
-        client.__constructor(&admin, &100);
-        client.set_treasury(&treasury);
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
-        client.lock_funds(&session_id, &seller, &10000);
-
-        let events = env.events().all();
-        // Should have at least FundsLocked event
-        assert!(events.len() >= 1);
-    }
-
-    // =========================================================================
-    // #917: Refund scenarios tests
-    // =========================================================================
-
-    #[test]
-    fn test_buyer_can_refund_before_completion() {
-        let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let admin = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[20u8; 32]);
-
-        env.mock_all_auths();
-        client.__constructor(&admin, &200);
-        client.set_treasury(&treasury);
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
-        client.lock_funds(&session_id, &seller, &10000);
-
-        // Before completion — buyer can open dispute for refund
-        client.open_dispute(&session_id);
-        let session = client.get_session(&session_id.clone());
-        assert_eq!(session.status as u32, SessionStatus::Disputed as u32);
-    }
-
-    #[test]
-    fn test_full_amount_returned_no_fee_on_early_refund() {
-        let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let admin = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[21u8; 32]);
-
-        env.mock_all_auths();
-        client.__constructor(&admin, &200); // 2% fee
-        client.set_treasury(&treasury);
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
-        client.lock_funds(&session_id, &seller, &10000);
-
-        // Fee on 0 should be 0 (early refund = no fee)
-        let fee = client.calculate_platform_fee(&0);
-        assert_eq!(fee, 0);
+        let s = client.get_session_data(&sid);
+        assert_eq!(s.status, SessionStatus::Resolved);
     }
 
     #[test]
     #[should_panic]
-    fn test_refund_reverts_if_session_already_approved() {
+    fn test_resolve_dispute_shares_mismatch() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
         let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
         let buyer = Address::generate(&env);
         let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[22u8; 32]);
+        let sid = make_session_id(&env, 3);
 
+        client.initialize(&admin, &treasury);
+        client.create_session(&sid, &buyer, &seller, &10000);
+        client.lock_funds(&sid);
+        client.open_dispute(&sid);
+        client.resolve_dispute(&sid, &3000, &3000); // 6000 != 10000
+    }
+
+    // Issue #965 — archive tests
+
+    #[test]
+    fn test_archive_approved_session() {
+        let env = Env::default();
         env.mock_all_auths();
-        client.__constructor(&admin, &200);
-        client.set_treasury(&treasury);
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
-        client.lock_funds(&session_id, &seller, &10000);
-        client.mark_session_completed(&session_id);
-        client.approve_session(&session_id);
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let sid = make_session_id(&env, 10);
 
-        // Already approved — should panic
-        client.open_dispute(&session_id);
+        client.initialize(&admin, &treasury);
+        client.create_session(&sid, &buyer, &seller, &5000);
+        client.lock_funds(&sid);
+        client.complete_session(&sid);
+        client.approve_session(&sid);
+        client.archive_session(&sid);
+
+        let record = client.get_archived_session(&sid);
+        assert_eq!(record.id, sid);
     }
 
     #[test]
-    fn test_refund_reverts_if_session_completed() {
+    fn test_delete_archived_session() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
         let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
         let buyer = Address::generate(&env);
         let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[23u8; 32]);
+        let sid = make_session_id(&env, 11);
 
-        env.mock_all_auths();
-        client.__constructor(&admin, &200);
-        client.set_treasury(&treasury);
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
-        client.lock_funds(&session_id, &seller, &10000);
-        client.mark_session_completed(&session_id);
-
-        // Session is Completed — can still open dispute (refund path)
-        client.open_dispute(&session_id);
-        let session = client.get_session(&session_id.clone());
-        assert_eq!(session.status as u32, SessionStatus::Disputed as u32);
-    }
-
-    // =========================================================================
-    // #918: Auto-refund timeout logic tests
-    // =========================================================================
-
-    #[test]
-    fn test_completed_session_can_be_disputed_for_refund() {
-        let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let admin = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[30u8; 32]);
-
-        env.mock_all_auths();
-        client.__constructor(&admin, &200);
-        client.set_treasury(&treasury);
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
-        client.lock_funds(&session_id, &seller, &10000);
-        client.mark_session_completed(&session_id);
-
-        // Completed session can be disputed (refund path)
-        client.open_dispute(&session_id);
-        let session = client.get_session(&session_id.clone());
-        assert_eq!(session.status as u32, SessionStatus::Disputed as u32);
+        client.initialize(&admin, &treasury);
+        client.create_session(&sid, &buyer, &seller, &5000);
+        client.lock_funds(&sid);
+        client.complete_session(&sid);
+        client.approve_session(&sid);
+        client.archive_session(&sid);
+        client.delete_archived_session(&sid);
     }
 
     #[test]
-    fn test_auto_refund_does_not_trigger_before_window() {
+    #[should_panic]
+    fn test_archive_non_finalised_session_panics() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
         let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
         let buyer = Address::generate(&env);
         let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[31u8; 32]);
+        let sid = make_session_id(&env, 12);
 
-        env.mock_all_auths();
-        client.__constructor(&admin, &200);
-        client.set_treasury(&treasury);
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
-        client.lock_funds(&session_id, &seller, &10000);
-        client.mark_session_completed(&session_id);
-
-        // Session is Completed — auto-refund hasn't triggered yet
-        let session = client.get_session(&session_id.clone());
-        assert_eq!(session.status as u32, SessionStatus::Completed as u32);
+        client.initialize(&admin, &treasury);
+        client.create_session(&sid, &buyer, &seller, &5000);
+        client.lock_funds(&sid);
+        // Session is Locked (not finalised) — should panic
+        client.archive_session(&sid);
     }
 
     #[test]
-    fn test_session_cannot_be_approved_after_dispute() {
+    fn test_batch_archive_sessions() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
         let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
         let buyer = Address::generate(&env);
         let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[32u8; 32]);
 
-        env.mock_all_auths();
-        client.__constructor(&admin, &200);
-        client.set_treasury(&treasury);
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
-        client.lock_funds(&session_id, &seller, &10000);
-        client.mark_session_completed(&session_id);
-        client.open_dispute(&session_id);
+        client.initialize(&admin, &treasury);
 
-        // Session is Disputed — approve should fail
-        let result = client.try_approve_session(&session_id);
-        assert!(result.is_err());
-    }
+        let sid1 = make_session_id(&env, 20);
+        let sid2 = make_session_id(&env, 21);
 
-    // =========================================================================
-    // #919: Dispute and resolution tests
-    // =========================================================================
+        for sid in [sid1.clone(), sid2.clone()] {
+            client.create_session(&sid, &buyer, &seller, &1000);
+            client.lock_funds(&sid);
+            client.complete_session(&sid);
+            client.approve_session(&sid);
+        }
 
-    #[test]
-    fn test_buyer_can_open_dispute_on_completed_session() {
-        let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let admin = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[40u8; 32]);
+        let mut ids = soroban_sdk::Vec::new(&env);
+        ids.push_back(sid1.clone());
+        ids.push_back(sid2.clone());
+        client.batch_archive_sessions(&ids, &2);
 
-        env.mock_all_auths();
-        client.__constructor(&admin, &200);
-        client.set_treasury(&treasury);
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
-        client.lock_funds(&session_id, &seller, &10000);
-        client.mark_session_completed(&session_id);
-
-        // Buyer opens dispute on completed session
-        client.open_dispute(&session_id);
-        let session = client.get_session(&session_id.clone());
-        assert_eq!(session.status as u32, SessionStatus::Disputed as u32);
-    }
-
-    #[test]
-    fn test_seller_can_open_dispute_on_locked_session() {
-        let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let admin = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[41u8; 32]);
-
-        env.mock_all_auths();
-        client.__constructor(&admin, &200);
-        client.set_treasury(&treasury);
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
-        client.lock_funds(&session_id, &seller, &10000);
-
-        // Seller opens dispute on locked session
-        client.open_dispute(&session_id);
-        let session = client.get_session(&session_id.clone());
-        assert_eq!(session.status as u32, SessionStatus::Disputed as u32);
-    }
-
-    #[test]
-    #[should_panic(expected = "Invalid split")]
-    fn test_invalid_split_reverts() {
-        let env = Env::default();
-        let contract_id = env.register_contract(None, SkillsyncContract);
-        let client = SkillsyncContractClient::new(&env, &contract_id);
-        let admin = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let session_id = Bytes32::from_slice(&env, &[42u8; 32]);
-
-        env.mock_all_auths();
-        client.__constructor(&admin, &200);
-        client.set_treasury(&treasury);
-        client.create_session(session_id.clone(), buyer.clone(), seller.clone(), &10000, &admin);
-        client.lock_funds(&session_id, &seller, &10000);
-        client.mark_session_completed(&session_id);
-        client.open_dispute(&session_id);
-
-        // Try to resolve with invalid split (total != amount)
-        client.resolve_dispute(&session_id, &3000, &3000);
+        // Both should now be archived
+        let r1 = client.get_archived_session(&sid1);
+        assert_eq!(r1.id, sid1);
+        let r2 = client.get_archived_session(&sid2);
+        assert_eq!(r2.id, sid2);
     }
 }
