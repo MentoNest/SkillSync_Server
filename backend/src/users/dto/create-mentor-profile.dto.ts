@@ -11,6 +11,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsAfterDate } from '../../common/validators/is-after-date.validator.js';
 
 export class EducationDto {
   @IsString()
@@ -41,6 +42,9 @@ export class CertificationDto {
 
   @IsString()
   @IsOptional()
+  @IsAfterDate('issueDate', {
+    message: 'expirationDate must be after issueDate',
+  })
   expirationDate?: string;
 }
 

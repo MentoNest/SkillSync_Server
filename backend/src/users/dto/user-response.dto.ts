@@ -8,10 +8,12 @@ export class UserResponseDto {
   username: string | null;
   displayName: string | null;
   email: string | null;
+  avatarUrl: string | null;
   status: UserStatus;
   roles: AuthRole[];
   createdAt: Date;
   updatedAt: Date;
+  completenessScore?: number;
 
   static fromEntity(user: User): UserResponseDto {
     const dto = new UserResponseDto();
@@ -20,6 +22,7 @@ export class UserResponseDto {
     dto.username = user.username ?? null;
     dto.displayName = user.displayName ?? null;
     dto.email = user.email ?? null;
+    dto.avatarUrl = user.avatarUrl ?? null;
     dto.status = user.status;
     dto.roles = (user.roles ?? []).map((role) => role.name);
     dto.createdAt = user.createdAt;
