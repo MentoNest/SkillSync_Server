@@ -44,7 +44,12 @@ the range 0-255. Codes are grouped into reserved ranges by category:
 
 ## Session validation (300-399)
 
-| Code | Variant                | Meaning                          |
-|------|--------------------------|-------------------------------------|
-| 300  | `SessionNotFound`      | Session ID does not exist.        |
-| 301  | `SessionAlreadyExists` | Session ID already exists.        |
+| Code | Variant                    | Meaning                                  |
+|------|------------------------------|---------------------------------------------|
+| 300  | `SessionNotFound`          | Session ID does not exist.                |
+| 301  | `DuplicateSessionId`       | Session ID already exists.                |
+| 302  | `InvalidSessionState`      | Operation not allowed in current state.   |
+| 303  | `SessionAlreadyCompleted`  | Cannot complete again.                    |
+| 304  | `SessionAlreadyApproved`   | Cannot approve twice.                     |
+| 305  | `SessionAlreadyRefunded`   | Session already refunded.                 |
+| 306  | `SessionInDispute`         | Cannot act while disputed.                |

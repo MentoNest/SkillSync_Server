@@ -54,8 +54,13 @@ pub enum ContractError {
     NotSeller            = 203,
 
     // -- Session validation (300-399) --
-    SessionNotFound      = 300,
-    SessionAlreadyExists = 301,
+    SessionNotFound          = 300,
+    DuplicateSessionId       = 301,
+    InvalidSessionState      = 302,
+    SessionAlreadyCompleted  = 303,
+    SessionAlreadyApproved   = 304,
+    SessionAlreadyRefunded   = 305,
+    SessionInDispute         = 306,
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +207,7 @@ impl SkillsyncContract {
             panic_with_error!(&env, ContractError::AmountMustBePositive);
         }
         if get_session(&env, &session_id).is_some() {
-            panic_with_error!(&env, ContractError::SessionAlreadyExists);
+            panic_with_error!(&env, ContractError::DuplicateSessionId);
         }
         buyer.require_auth();
         let session = Session {
