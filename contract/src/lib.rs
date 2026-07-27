@@ -18,15 +18,20 @@ const ARCHIVE_AFTER: &str = "ARCHAFT";
 
 // ---------------------------------------------------------------------------
 // Error codes
+//
+// Standard error codes for the contract. Codes are unique across the whole
+// enum and grouped into reserved ranges by category; see
+// `contract/docs/errors.md` for the full spec.
+//
+//   0-99    General / uncategorized errors
+//   100-199 Initialization errors
+//   200-299 Authorization errors
+//   300-399 Session validation errors
 // ---------------------------------------------------------------------------
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub enum ContractError {
-    AlreadyInitialized   = 1,
-    NotInitialized       = 2,
-    Unauthorized         = 3,
-    SessionAlreadyExists = 4,
-    SessionNotFound      = 5,
+    // -- General (0-99) --
     AmountMustBePositive = 6,
     InvalidStatus        = 7,
     SharesMismatch       = 8,
@@ -35,6 +40,17 @@ pub enum ContractError {
     FeeTooHigh           = 11,
     AlreadyArchived      = 12,
     NotArchived          = 13,
+
+    // -- Initialization (100-199) --
+    AlreadyInitialized   = 100,
+    NotInitialized       = 101,
+
+    // -- Authorization (200-299) --
+    Unauthorized         = 200,
+
+    // -- Session validation (300-399) --
+    SessionNotFound      = 300,
+    SessionAlreadyExists = 301,
 }
 
 // ---------------------------------------------------------------------------
