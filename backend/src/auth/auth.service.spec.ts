@@ -52,6 +52,19 @@ describe('AuthService', () => {
     jest.clearAllMocks();
   });
 
+  describe('requestNonce', () => {
+    it('should return a nonce and expiry', () => {
+      mockWalletStrategy.generateNonce.mockReturnValue({
+        nonce: 'nonce-1',
+        expiresAt: Date.now() + 60_000,
+      });
+
+      const result = service.requestNonce('GABC');
+      expect(result).toHaveProperty('nonce');
+      expect(result).toHaveProperty('expiresAt');
+    });
+  });
+
   describe('login', () => {
     it('should issue an access and refresh token pair for a valid signature', async () => {
       mockWalletStrategy.generateNonce.mockReturnValue({
@@ -166,6 +179,11 @@ describe('AuthService', () => {
         'access-jti',
         900,
       );
+    });
+
+    it('isTokenRevoked should return true after logout', async () => {
+      await service.logout('jti-abc');
+      expect(service.isTokenRevoked('jti-abc')).toBe(true);
     });
 
     it('should mark a stored refresh token as revoked', async () => {

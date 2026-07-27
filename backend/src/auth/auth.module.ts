@@ -10,12 +10,6 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { RolesGuard } from './guards/roles.guard.js';
 import { TokenBlacklistService } from './services/token-blacklist.service.js';
 
-/**
- * #971: Self-contained Auth module.
- *
- * Exports guards and strategies for use in other modules.
- * Handles wallet authentication, JWT lifecycle, session management, and RBAC.
- */
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
