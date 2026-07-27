@@ -10,6 +10,8 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { IsValidTimezone } from '../../common/validators/is-valid-timezone.validator.js';
+import { IsValidAvailabilitySlot } from '../../common/validators/is-valid-availability-slot.validator.js';
 
 const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -27,10 +29,12 @@ export class CreateAvailabilitySlotDto {
 
   @IsString()
   @Matches(TIME_REGEX, { message: 'endTime must be HH:MM (24-hour)' })
+  @IsValidAvailabilitySlot()
   endTime: string;
 
   @IsString()
   @IsNotEmpty()
+  @IsValidTimezone()
   timezone: string;
 }
 
@@ -49,10 +53,12 @@ export class UpdateAvailabilitySlotDto {
   @IsOptional()
   @IsString()
   @Matches(TIME_REGEX, { message: 'endTime must be HH:MM (24-hour)' })
+  @IsValidAvailabilitySlot()
   endTime?: string;
 
   @IsOptional()
   @IsString()
+  @IsValidTimezone()
   timezone?: string;
 
   @IsOptional()
