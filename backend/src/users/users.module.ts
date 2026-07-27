@@ -8,12 +8,21 @@ import { User } from './entities/user.entity.js';
 import { Role } from './entities/role.entity.js';
 import { MentorProfile } from './entities/mentor-profile.entity.js';
 import { MenteeProfile } from './entities/mentee-profile.entity.js';
+import { PortfolioLink } from './entities/portfolio-link.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
+import { AvailabilityModule } from '../availability/availability.module.js';
+import { ProfileCompletenessService } from './profile-completeness.service.js';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, Role, MentorProfile, MenteeProfile]),
+    TypeOrmModule.forFeature([
+      User,
+      Role,
+      MentorProfile,
+      MenteeProfile,
+      PortfolioLink,
+    ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -23,9 +32,15 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
       }),
     }),
     ConfigModule,
+    AvailabilityModule,
   ],
   controllers: [UsersController],
-  providers: [UsersService, JwtAuthGuard, RolesGuard],
-  exports: [UsersService],
+  providers: [
+    UsersService,
+    JwtAuthGuard,
+    RolesGuard,
+    ProfileCompletenessService,
+  ],
+  exports: [UsersService, ProfileCompletenessService],
 })
 export class UsersModule {}
