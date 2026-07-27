@@ -7,6 +7,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import {
+  PaginatedResponse,
+  PaginationService,
+} from '../common/pagination/index.js';
 import { User } from './entities/user.entity.js';
 import { Role } from './entities/role.entity.js';
 import { MentorProfile } from './entities/mentor-profile.entity.js';
@@ -38,6 +42,7 @@ export class UsersService {
     private readonly mentorProfileRepo: Repository<MentorProfile>,
     @InjectRepository(MenteeProfile)
     private readonly menteeProfileRepo: Repository<MenteeProfile>,
+    private readonly paginationService: PaginationService,
   ) {}
 
   async findById(id: string): Promise<User> {
@@ -325,20 +330,16 @@ export class UsersService {
     return saved;
   }
 
-  async findAll(
-    query: UserQueryDto,
-  ): Promise<{ data: User[]; total: number; page: number; limit: number }> {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
+  async findAll(query: UserQueryDto): Promise<PaginatedResponse<User>> {
+    const qb = this.userRepo
+      .createQueryBuilder('user')
+      .leftJoinAndSelect('user.roles', 'roles')
+      .orderBy('user.createdAt', 'DESC');
 
-    const [data, total] = await this.userRepo.findAndCount({
-      where: query.status ? { status: query.status } : {},
-      relations: ['roles'],
-      skip: (page - 1) * limit,
-      take: limit,
-      order: { createdAt: 'DESC' },
-    });
+    if (query.status) {
+      qb.andWhere('user.status = :status', { status: query.status });
+    }
 
-    return { data, total, page, limit };
+    return this.paginationService.paginate(qb, query.page, query.limit);
   }
 }

@@ -1,4 +1,5 @@
-import { IsString, IsNotEmpty, Matches } from 'class-validator';
+import { IsString, IsNotEmpty } from 'class-validator';
+import { IsValidWalletAddress } from '../../common/validators/is-valid-wallet-address.validator.js';
 
 /**
  * #973: DTO for wallet-based login via signature verification.
@@ -6,7 +7,7 @@ import { IsString, IsNotEmpty, Matches } from 'class-validator';
 export class WalletLoginDto {
   @IsString()
   @IsNotEmpty()
-  @Matches(/^G[A-Z0-9]{55}$/, { message: 'Invalid Stellar public key format' })
+  @IsValidWalletAddress()
   walletAddress: string;
 
   @IsString()

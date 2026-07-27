@@ -29,6 +29,9 @@ export class User {
   @Column({ type: 'varchar', nullable: true })
   displayName: string;
 
+  @Column({ type: 'varchar', length: 2048, nullable: true })
+  avatarUrl: string | null;
+
   @Column({
     type: 'enum',
     enum: UserStatus,
@@ -40,13 +43,13 @@ export class User {
   tokenVersion: number;
 
   @Column({ type: 'varchar', nullable: true })
-  avatarUrl: string | null;
-
-  @Column({ type: 'varchar', nullable: true })
   avatarThumbnailUrl: string | null;
 
   @Column({ type: 'varchar', nullable: true })
   avatarStorageKey: string | null;
+
+  @Column({ type: 'varchar', length: 64, default: 'UTC' })
+  timezone: string;
 
   @OneToMany(() => Role, (role) => role.user, { cascade: true, eager: true })
   roles: Role[];
