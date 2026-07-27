@@ -26,10 +26,12 @@ the range 0-255. Codes are grouped into reserved ranges by category:
 
 ## Initialization (100-199)
 
-| Code | Variant              | Meaning                              |
-|------|-----------------------|----------------------------------------|
-| 100  | `AlreadyInitialized` | Contract already initialized.         |
-| 101  | `NotInitialized`     | Contract not initialized yet.         |
+| Code | Variant              | Meaning                                |
+|------|-----------------------|------------------------------------------|
+| 100  | `AlreadyInitialized` | Contract already initialized.           |
+| 101  | `NotInitialized`     | Contract not initialized yet.           |
+| 102  | `InvalidAdmin`       | Admin address is zero or invalid.       |
+| 103  | `InvalidTreasury`    | Treasury address is zero or invalid.    |
 
 ## Authorization (200-299)
 

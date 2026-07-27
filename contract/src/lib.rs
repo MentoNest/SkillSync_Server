@@ -44,6 +44,8 @@ pub enum ContractError {
     // -- Initialization (100-199) --
     AlreadyInitialized   = 100,
     NotInitialized       = 101,
+    InvalidAdmin         = 102,
+    InvalidTreasury      = 103,
 
     // -- Authorization (200-299) --
     Unauthorized         = 200,
