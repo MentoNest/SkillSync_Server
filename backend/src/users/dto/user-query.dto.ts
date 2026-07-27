@@ -1,22 +1,9 @@
-import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsEnum, IsOptional } from 'class-validator';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 import { UserStatus } from '../enums/user-status.enum.js';
 
-export class UserQueryDto {
+export class UserQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(UserStatus)
   status?: UserStatus;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page?: number = 1;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number = 20;
 }
