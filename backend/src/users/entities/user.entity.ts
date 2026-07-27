@@ -37,6 +37,9 @@ export class User {
   @Column({ type: 'varchar', nullable: true })
   displayName: string;
 
+  @Column({ type: 'varchar', length: 2048, nullable: true })
+  avatarUrl: string | null;
+
   @Index()
   @Column({
     type: 'enum',
@@ -48,11 +51,8 @@ export class User {
   @Column({ default: 0 })
   tokenVersion: number;
 
-  @Column({ type: 'varchar', nullable: true })
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
-  timezone: string | null;
+  @Column({ type: 'varchar', length: 64, default: 'UTC' })
+  timezone: string;
 
   @Column({ type: 'varchar', nullable: true })
   @IsOptional()

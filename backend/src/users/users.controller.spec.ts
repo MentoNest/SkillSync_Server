@@ -2,12 +2,19 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UsersController } from './users.controller.js';
 import { UsersService } from './users.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { ThrottlerGuard } from '@nestjs/throttler';
+import { UserStatus } from './enums/user-status.enum.js';
+import { AuthRole } from '../common/enums/auth-role.enum.js';
 
 describe('UsersController', () => {
   let controller: UsersController;
 
   const mockUsersService = {
+    findById: jest.fn(),
+    updateUser: jest.fn(),
+    deactivateUser: jest.fn(),
+    findAll: jest.fn(),
     createMentorProfile: jest.fn(),
     createMenteeProfile: jest.fn(),
     updateMentorProfile: jest.fn(),
@@ -34,6 +41,8 @@ describe('UsersController', () => {
     })
       .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })
+      .overrideGuard(RolesGuard)
+      .useValue({ canActivate: () => true })
       .overrideGuard(ThrottlerGuard)
       .useValue({ canActivate: () => true })
       .compile();
@@ -43,6 +52,87 @@ describe('UsersController', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  const mockUserEntity = {
+    id: 'user-1',
+    walletAddress: 'test-wallet',
+    username: 'skillsync-user',
+    displayName: 'Skillsync User',
+    email: 'user@example.com',
+    status: UserStatus.ACTIVE,
+    roles: [{ name: AuthRole.MENTOR }],
+    tokenVersion: 0,
+    createdAt: new Date('2024-01-01'),
+    updatedAt: new Date('2024-01-02'),
+  };
+
+  describe('getMe', () => {
+    it('should return the requesting user', async () => {
+      mockUsersService.findById.mockResolvedValue(mockUserEntity);
+
+      const result = await controller.getMe(mockRequest('user-1') as any);
+
+      expect(mockUsersService.findById).toHaveBeenCalledWith('user-1');
+      expect(result).toMatchObject({
+        id: 'user-1',
+        walletAddress: 'test-wallet',
+        email: 'user@example.com',
+        roles: [AuthRole.MENTOR],
+      });
+    });
+  });
+
+  describe('updateMe', () => {
+    it('should update and return the requesting user', async () => {
+      const dto = { displayName: 'New Name' };
+      mockUsersService.updateUser.mockResolvedValue({
+        ...mockUserEntity,
+        displayName: 'New Name',
+      });
+
+      const result = await controller.updateMe(
+        dto,
+        mockRequest('user-1') as any,
+      );
+
+      expect(mockUsersService.updateUser).toHaveBeenCalledWith('user-1', dto);
+      expect(result.displayName).toBe('New Name');
+    });
+  });
+
+  describe('deleteMe', () => {
+    it('should deactivate the requesting user', async () => {
+      mockUsersService.deactivateUser.mockResolvedValue({
+        ...mockUserEntity,
+        status: UserStatus.DELETED,
+      });
+
+      const result = await controller.deleteMe(mockRequest('user-1') as any);
+
+      expect(mockUsersService.deactivateUser).toHaveBeenCalledWith('user-1');
+      expect(result.status).toBe(UserStatus.DELETED);
+    });
+  });
+
+  describe('listUsers', () => {
+    it('should return a paginated, mapped list of users', async () => {
+      mockUsersService.findAll.mockResolvedValue({
+        data: [mockUserEntity],
+        total: 1,
+        page: 1,
+        limit: 20,
+      });
+
+      const result = await controller.listUsers({ page: 1, limit: 20 });
+
+      expect(mockUsersService.findAll).toHaveBeenCalledWith({
+        page: 1,
+        limit: 20,
+      });
+      expect(result.total).toBe(1);
+      expect(result.data[0]).toMatchObject({ id: 'user-1' });
+    });
   });
 
   describe('createProfile', () => {

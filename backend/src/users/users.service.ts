@@ -7,6 +7,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import {
+  PaginatedResponse,
+  PaginationService,
+} from '../common/pagination/index.js';
 import { User } from './entities/user.entity.js';
 import { Role } from './entities/role.entity.js';
 import { MentorProfile } from './entities/mentor-profile.entity.js';
@@ -15,6 +19,9 @@ import { CreateMentorProfileDto } from './dto/create-mentor-profile.dto.js';
 import { CreateMenteeProfileDto } from './dto/create-mentee-profile.dto.js';
 import { UpdateMentorProfileDto } from './dto/update-mentor-profile.dto.js';
 import { UpdateMenteeProfileDto } from './dto/update-mentee-profile.dto.js';
+import { UpdateUserDto } from './dto/update-user.dto.js';
+import { UserQueryDto } from './dto/user-query.dto.js';
+import { UserStatus } from './enums/user-status.enum.js';
 import { AuthRole } from '../common/enums/auth-role.enum.js';
 
 interface FieldChange {
@@ -35,6 +42,7 @@ export class UsersService {
     private readonly mentorProfileRepo: Repository<MentorProfile>,
     @InjectRepository(MenteeProfile)
     private readonly menteeProfileRepo: Repository<MenteeProfile>,
+    private readonly paginationService: PaginationService,
   ) {}
 
   async findById(id: string): Promise<User> {
@@ -271,5 +279,67 @@ export class UsersService {
       throw new NotFoundException('Mentee profile not found');
     }
     return profile;
+  }
+
+  async updateUser(userId: string, dto: UpdateUserDto): Promise<User> {
+    const user = await this.findById(userId);
+
+    if (dto.email && dto.email !== user.email) {
+      const existing = await this.userRepo.findOne({
+        where: { email: dto.email },
+      });
+      if (existing && existing.id !== userId) {
+        throw new ConflictException('Email is already in use');
+      }
+    }
+
+    const changes = this.applyChanges(
+      user as unknown as Record<string, unknown>,
+      dto as Record<string, unknown>,
+    );
+
+    const saved = await this.userRepo.save(user);
+
+    if (Object.keys(changes).length > 0) {
+      this.logger.log(
+        JSON.stringify({
+          event: 'USER_UPDATED',
+          userId,
+          changes,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+    }
+
+    return saved;
+  }
+
+  async deactivateUser(userId: string): Promise<User> {
+    const user = await this.findById(userId);
+    user.status = UserStatus.DELETED;
+    const saved = await this.userRepo.save(user);
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'USER_DEACTIVATED',
+        userId,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+
+    return saved;
+  }
+
+  async findAll(query: UserQueryDto): Promise<PaginatedResponse<User>> {
+    const qb = this.userRepo
+      .createQueryBuilder('user')
+      .leftJoinAndSelect('user.roles', 'roles')
+      .orderBy('user.createdAt', 'DESC');
+
+    if (query.status) {
+      qb.andWhere('user.status = :status', { status: query.status });
+    }
+
+    return this.paginationService.paginate(qb, query.page, query.limit);
   }
 }
