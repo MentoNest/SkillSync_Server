@@ -51,7 +51,11 @@ export class PaginationService {
         take: safeLimit,
       });
     } else {
-      [data, total] = await source.clone().skip(skip).take(safeLimit).getManyAndCount();
+      [data, total] = await source
+        .clone()
+        .skip(skip)
+        .take(safeLimit)
+        .getManyAndCount();
     }
 
     const totalPages = total === 0 ? 0 : Math.ceil(total / safeLimit);
@@ -103,7 +107,8 @@ export class PaginationService {
     const rows = await query.getMany();
     const hasNext = rows.length > limit;
     const data = hasNext ? rows.slice(0, limit) : rows;
-    const lastRow = data[data.length - 1] as Record<string, unknown> | undefined;
+    const lastRow = data[data.length - 1] as
+      Record<string, unknown> | undefined;
 
     return {
       data,

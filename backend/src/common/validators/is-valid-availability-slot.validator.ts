@@ -16,13 +16,12 @@ const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
  * it composes with @IsOptional() on partial/update DTOs.
  */
 @ValidatorConstraint({ name: 'IsValidAvailabilitySlot', async: false })
-export class IsValidAvailabilitySlotConstraint
-  implements ValidatorConstraintInterface
-{
+export class IsValidAvailabilitySlotConstraint implements ValidatorConstraintInterface {
   validate(endTime: unknown, args: ValidationArguments): boolean {
     const startTime = (args.object as Record<string, unknown>).startTime;
     if (startTime === undefined || endTime === undefined) return true;
-    if (typeof startTime !== 'string' || typeof endTime !== 'string') return false;
+    if (typeof startTime !== 'string' || typeof endTime !== 'string')
+      return false;
     if (!TIME_REGEX.test(startTime) || !TIME_REGEX.test(endTime)) return false;
     return startTime < endTime;
   }

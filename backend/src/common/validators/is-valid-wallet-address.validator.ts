@@ -12,11 +12,11 @@ import { tryNormalizeWalletAddress } from '../utils/wallet.utils.js';
  * validation and service-level normalization never drift apart.
  */
 @ValidatorConstraint({ name: 'IsValidWalletAddress', async: false })
-export class IsValidWalletAddressConstraint
-  implements ValidatorConstraintInterface
-{
+export class IsValidWalletAddressConstraint implements ValidatorConstraintInterface {
   validate(value: unknown): boolean {
-    return typeof value === 'string' && tryNormalizeWalletAddress(value) !== null;
+    return (
+      typeof value === 'string' && tryNormalizeWalletAddress(value) !== null
+    );
   }
 
   defaultMessage(): string {
