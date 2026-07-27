@@ -10,6 +10,7 @@ import {
   Post,
   Query,
   Req,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -19,6 +20,8 @@ import { UpdateMentorProfileDto } from './dto/update-mentor-profile.dto.js';
 import { UpdateMenteeProfileDto } from './dto/update-mentee-profile.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
+import { UpdateUsernameDto } from './dto/update-username.dto.js';
+import { UsernameAvailabilityQueryDto } from './dto/username-availability-query.dto.js';
 import { UserQueryDto } from './dto/user-query.dto.js';
 import { UserResponseDto } from './dto/user-response.dto.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
@@ -81,6 +84,33 @@ export class UsersController {
       id,
       dto.status,
       req.user.sub,
+    );
+    return UserResponseDto.fromEntity(user);
+  }
+
+  @Get('username/available')
+  async checkUsernameAvailability(
+    @Query() query: UsernameAvailabilityQueryDto,
+    @Req() req: Request & { user?: JwtAccessTokenPayload },
+  ): Promise<{ available: boolean }> {
+    const available = await this.usersService.isUsernameAvailable(
+      query.username,
+      req.user?.sub,
+    );
+    return { available };
+  }
+
+  @Patch('username')
+  async updateUsername(
+    @Body() dto: UpdateUsernameDto,
+    @Req() req: Request & { user?: JwtAccessTokenPayload },
+  ): Promise<UserResponseDto> {
+    if (!req.user) {
+      throw new UnauthorizedException();
+    }
+    const user = await this.usersService.updateUsername(
+      req.user.sub,
+      dto.username,
     );
     return UserResponseDto.fromEntity(user);
   }

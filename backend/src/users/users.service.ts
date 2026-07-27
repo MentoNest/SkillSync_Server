@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Not, Repository } from 'typeorm';
 import { User } from './entities/user.entity.js';
 import { Role } from './entities/role.entity.js';
 import { MentorProfile } from './entities/mentor-profile.entity.js';
@@ -65,8 +65,76 @@ export class UsersService {
       return existing;
     }
 
-    const created = this.userRepo.create({ walletAddress });
+    const created = this.userRepo.create({
+      walletAddress,
+      displayName: walletAddress.slice(0, 10),
+    });
     return this.userRepo.save(created);
+  }
+
+  /** #1003: Case-sensitive availability check against the unique username column. */
+  async isUsernameAvailable(
+    username: string,
+    excludeUserId?: string,
+  ): Promise<boolean> {
+    const existing = await this.userRepo.findOne({
+      where: excludeUserId
+        ? { username, id: Not(excludeUserId) }
+        : { username },
+    });
+    return !existing;
+  }
+
+  async findByUsername(username: string): Promise<User | null> {
+    return this.userRepo.findOne({
+      where: { username },
+      relations: ['roles'],
+    });
+  }
+
+  private static readonly USERNAME_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
+
+  /** #1003: Change username, enforcing uniqueness and a 30-day cooldown. */
+  async updateUsername(userId: string, newUsername: string): Promise<User> {
+    const user = await this.findById(userId);
+
+    if (user.username === newUsername) {
+      return user;
+    }
+
+    if (user.usernameChangedAt) {
+      const elapsed = Date.now() - user.usernameChangedAt.getTime();
+      if (elapsed < UsersService.USERNAME_COOLDOWN_MS) {
+        const daysLeft = Math.ceil(
+          (UsersService.USERNAME_COOLDOWN_MS - elapsed) / (24 * 60 * 60 * 1000),
+        );
+        throw new ForbiddenException(
+          `Username can be changed again in ${daysLeft} day(s)`,
+        );
+      }
+    }
+
+    const available = await this.isUsernameAvailable(newUsername, userId);
+    if (!available) {
+      throw new ConflictException('Username is already taken');
+    }
+
+    const oldUsername = user.username;
+    user.username = newUsername;
+    user.usernameChangedAt = new Date();
+    const saved = await this.userRepo.save(user);
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'USERNAME_CHANGED',
+        userId,
+        oldUsername,
+        newUsername,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+
+    return saved;
   }
 
   async createMentorProfile(
