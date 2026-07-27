@@ -63,8 +63,8 @@ export class UsersController {
   async listUsers(@Query() query: UserQueryDto) {
     const result = await this.usersService.findAll(query);
     return {
-      ...result,
       data: result.data.map((user) => UserResponseDto.fromEntity(user)),
+      meta: result.meta,
     };
   }
 
