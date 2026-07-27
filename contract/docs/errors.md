@@ -38,6 +38,9 @@ the range 0-255. Codes are grouped into reserved ranges by category:
 | Code | Variant        | Meaning                          |
 |------|-----------------|-----------------------------------|
 | 200  | `Unauthorized` | Generic unauthorized access.      |
+| 201  | `NotAdmin`     | Caller is not contract admin.     |
+| 202  | `NotBuyer`     | Caller is not session buyer.      |
+| 203  | `NotSeller`    | Caller is not session seller.     |
 
 ## Session validation (300-399)
 

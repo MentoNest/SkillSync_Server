@@ -49,6 +49,9 @@ pub enum ContractError {
 
     // -- Authorization (200-299) --
     Unauthorized         = 200,
+    NotAdmin             = 201,
+    NotBuyer             = 202,
+    NotSeller            = 203,
 
     // -- Session validation (300-399) --
     SessionNotFound      = 300,
