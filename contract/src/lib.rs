@@ -27,14 +27,33 @@ pub enum ContractError {
     Unauthorized         = 3,
     SessionAlreadyExists = 4,
     SessionNotFound      = 5,
-    AmountMustBePositive = 6,
     InvalidStatus        = 7,
-    SharesMismatch       = 8,
     TransferFailed       = 9,
     FeeExceedsAmount     = 10,
-    FeeTooHigh           = 11,
     AlreadyArchived      = 12,
     NotArchived          = 13,
+
+    // -- Financial validation errors (#940) --------------------------------
+    /// Amount is zero or negative.
+    InvalidAmount           = 400,
+    /// Buyer has insufficient funds.
+    InsufficientBalance     = 401,
+    /// Fee exceeds maximum (1000 bps).
+    FeeTooHigh              = 402,
+    /// Dispute split does not sum to amount.
+    InvalidSplit            = 403,
+    /// Arithmetic overflow detected.
+    Overflow                = 404,
+
+    // -- Timeout and dispute errors (#941) ----------------------------------
+    /// Cannot auto-refund yet.
+    DisputeWindowNotElapsed = 500,
+    /// Dispute already exists for session.
+    DisputeAlreadyOpen      = 501,
+    /// No open dispute to resolve.
+    DisputeNotOpen          = 502,
+    /// Session not eligible for resolution.
+    ResolutionNotAllowed    = 503,
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +197,7 @@ impl SkillsyncContract {
     ) {
         require_initialized(&env);
         if amount <= 0 {
-            panic_with_error!(&env, ContractError::AmountMustBePositive);
+            panic_with_error!(&env, ContractError::InvalidAmount);
         }
         if get_session(&env, &session_id).is_some() {
             panic_with_error!(&env, ContractError::SessionAlreadyExists);
@@ -239,6 +258,9 @@ impl SkillsyncContract {
         require_initialized(&env);
         let mut session = get_session(&env, &session_id)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+        if session.status == SessionStatus::Disputed {
+            panic_with_error!(&env, ContractError::DisputeAlreadyOpen);
+        }
         if session.status != SessionStatus::Locked && session.status != SessionStatus::Completed {
             panic_with_error!(&env, ContractError::InvalidStatus);
         }
@@ -259,10 +281,10 @@ impl SkillsyncContract {
         let mut session = get_session(&env, &session_id)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
         if session.status != SessionStatus::Disputed {
-            panic_with_error!(&env, ContractError::InvalidStatus);
+            panic_with_error!(&env, ContractError::DisputeNotOpen);
         }
         if buyer_share + seller_share != session.amount {
-            panic_with_error!(&env, ContractError::SharesMismatch);
+            panic_with_error!(&env, ContractError::InvalidSplit);
         }
         let (_after_fee, _fee) = apply_fee(&env, seller_share);
         session.status = SessionStatus::Resolved;
