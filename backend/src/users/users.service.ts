@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -49,6 +50,23 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
     return user;
+  }
+
+  /**
+   * Find the user for a wallet address, creating one with default status
+   * if this is their first login.
+   */
+  async findOrCreateByWallet(walletAddress: string): Promise<User> {
+    const existing = await this.userRepo.findOne({
+      where: { walletAddress },
+      relations: ['roles'],
+    });
+    if (existing) {
+      return existing;
+    }
+
+    const created = this.userRepo.create({ walletAddress });
+    return this.userRepo.save(created);
   }
 
   async createMentorProfile(
@@ -305,6 +323,52 @@ export class UsersService {
         }),
       );
     }
+
+    return saved;
+  }
+
+  private static readonly ALLOWED_STATUS_TRANSITIONS: Record<
+    UserStatus,
+    UserStatus[]
+  > = {
+    [UserStatus.PENDING_VERIFICATION]: [UserStatus.ACTIVE, UserStatus.DELETED],
+    [UserStatus.ACTIVE]: [UserStatus.SUSPENDED, UserStatus.DELETED],
+    [UserStatus.SUSPENDED]: [UserStatus.ACTIVE, UserStatus.DELETED],
+    [UserStatus.DELETED]: [],
+  };
+
+  async updateStatus(
+    userId: string,
+    newStatus: UserStatus,
+    adminId: string,
+  ): Promise<User> {
+    const user = await this.findById(userId);
+
+    if (user.status === newStatus) {
+      return user;
+    }
+
+    const allowed = UsersService.ALLOWED_STATUS_TRANSITIONS[user.status] ?? [];
+    if (!allowed.includes(newStatus)) {
+      throw new BadRequestException(
+        `Cannot transition user status from '${user.status}' to '${newStatus}'`,
+      );
+    }
+
+    const oldStatus = user.status;
+    user.status = newStatus;
+    const saved = await this.userRepo.save(user);
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'USER_STATUS_CHANGED',
+        userId,
+        oldStatus,
+        newStatus,
+        changedBy: adminId,
+        timestamp: new Date().toISOString(),
+      }),
+    );
 
     return saved;
   }

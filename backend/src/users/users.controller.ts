@@ -18,6 +18,7 @@ import { CreateProfileDto } from './dto/create-profile.dto.js';
 import { UpdateMentorProfileDto } from './dto/update-mentor-profile.dto.js';
 import { UpdateMenteeProfileDto } from './dto/update-mentee-profile.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
+import { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
 import { UserQueryDto } from './dto/user-query.dto.js';
 import { UserResponseDto } from './dto/user-response.dto.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
@@ -66,6 +67,22 @@ export class UsersController {
       ...result,
       data: result.data.map((user) => UserResponseDto.fromEntity(user)),
     };
+  }
+
+  @Patch('admin/:id/status')
+  @UseGuards(RolesGuard)
+  @Roles(AuthRole.ADMIN)
+  async updateUserStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateUserStatusDto,
+    @Req() req: Request & { user: JwtAccessTokenPayload },
+  ): Promise<UserResponseDto> {
+    const user = await this.usersService.updateStatus(
+      id,
+      dto.status,
+      req.user.sub,
+    );
+    return UserResponseDto.fromEntity(user);
   }
 
   @Post('profile')
