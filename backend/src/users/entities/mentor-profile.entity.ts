@@ -11,6 +11,7 @@ import {
 import { User } from './user.entity.js';
 
 @Entity('mentor_profiles')
+@Index(['isFeatured', 'featuredOrder'])
 export class MentorProfile {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -72,6 +73,20 @@ export class MentorProfile {
 
   @Column({ type: 'int', default: 1 })
   profileVersion: number;
+
+  @Index()
+  @Column({ type: 'boolean', default: false })
+  isFeatured: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  featuredAt: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  featuredExpiresAt: Date | null;
+
+  @Index()
+  @Column({ type: 'int', default: 0 })
+  featuredOrder: number;
 
   @CreateDateColumn()
   createdAt: Date;
