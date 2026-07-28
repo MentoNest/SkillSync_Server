@@ -3,9 +3,12 @@
 extern crate alloc;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype,
-    Address, Bytes32, Env, symbol_short,
+    contract, contracterror, contractimpl, contracttype, panic_with_error,
+    Address, BytesN, Env, Symbol, symbol_short,
 };
+
+/// 32-byte identifier / wasm hash alias used across the contract API.
+pub type Bytes32 = BytesN<32>;
 
 // ---------------------------------------------------------------------------
 // Storage symbols
@@ -16,8 +19,20 @@ const PLATFORM_FEE: &str = "PFEE";
 const INITIALIZED: &str = "INIT";
 const ARCHIVE_AFTER: &str = "ARCHAFT";
 
+/// Default dispute window (seconds) before a completed session may auto-refund.
+const DEFAULT_DISPUTE_WINDOW: u64 = 86_400;
+
 // ---------------------------------------------------------------------------
 // Error codes
+//
+// Standard error codes for the contract. Codes are unique across the whole
+// enum and grouped into reserved ranges by category; see
+// `contract/docs/errors.md` for the full spec.
+//
+//   0-99    General / uncategorized errors
+//   100-199 Initialization errors
+//   200-299 Authorization errors
+//   300-399 Session validation errors
 // ---------------------------------------------------------------------------
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -27,6 +42,8 @@ pub enum ContractError {
     Unauthorized         = 3,
     SessionAlreadyExists = 4,
     SessionNotFound      = 5,
+    // -- General (0-99) --
+    AmountMustBePositive = 6,
     InvalidStatus        = 7,
     TransferFailed       = 9,
     FeeExceedsAmount     = 10,
@@ -54,6 +71,26 @@ pub enum ContractError {
     DisputeNotOpen          = 502,
     /// Session not eligible for resolution.
     ResolutionNotAllowed    = 503,
+    // -- Initialization (100-199) --
+    AlreadyInitialized   = 100,
+    NotInitialized       = 101,
+    InvalidAdmin         = 102,
+    InvalidTreasury      = 103,
+
+    // -- Authorization (200-299) --
+    Unauthorized         = 200,
+    NotAdmin             = 201,
+    NotBuyer             = 202,
+    NotSeller            = 203,
+
+    // -- Session validation (300-399) --
+    SessionNotFound          = 300,
+    DuplicateSessionId       = 301,
+    InvalidSessionState      = 302,
+    SessionAlreadyCompleted  = 303,
+    SessionAlreadyApproved   = 304,
+    SessionAlreadyRefunded   = 305,
+    SessionInDispute         = 306,
 }
 
 // ---------------------------------------------------------------------------
@@ -96,6 +133,110 @@ pub struct Session {
 pub struct ArchivedSession {
     pub id: Bytes32,
     pub archived_at: u64,
+}
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
+
+/// Emitted when the contract WASM is upgraded (admin-only).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractUpgraded {
+    pub old_wasm_hash: Bytes32,
+    pub new_wasm_hash: Bytes32,
+    pub upgraded_by: Address,
+    pub timestamp: u64,
+}
+
+/// Emitted when a buyer successfully refunds a session (manual or auto).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SessionRefunded {
+    pub session_id: Bytes32,
+    pub buyer: Address,
+    pub amount: i128,
+    pub timestamp: u64,
+}
+
+/// Distinct event for timeout-based auto-refunds.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AutoRefundExecuted {
+    pub session_id: Bytes32,
+    pub buyer: Address,
+    pub amount: i128,
+    pub completed_at: u64,
+    pub refunded_at: u64,
+}
+
+/// Emitted when admin changes the treasury wallet.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TreasuryUpdated {
+    pub old_treasury: Address,
+    pub new_treasury: Address,
+    pub updated_by: Address,
+}
+
+fn emit_contract_upgraded(
+    env: &Env,
+    old_wasm_hash: Bytes32,
+    new_wasm_hash: Bytes32,
+    upgraded_by: Address,
+) {
+    let event = ContractUpgraded {
+        old_wasm_hash,
+        new_wasm_hash,
+        upgraded_by,
+        timestamp: env.ledger().timestamp(),
+    };
+    env.events()
+        .publish((Symbol::new(env, "ContractUpgraded"),), event);
+}
+
+fn emit_session_refunded(env: &Env, session_id: Bytes32, buyer: Address, amount: i128) {
+    let event = SessionRefunded {
+        session_id,
+        buyer,
+        amount,
+        timestamp: env.ledger().timestamp(),
+    };
+    env.events()
+        .publish((Symbol::new(env, "SessionRefunded"),), event);
+}
+
+fn emit_auto_refund_executed(
+    env: &Env,
+    session_id: Bytes32,
+    buyer: Address,
+    amount: i128,
+    completed_at: u64,
+) {
+    let event = AutoRefundExecuted {
+        session_id,
+        buyer,
+        amount,
+        completed_at,
+        refunded_at: env.ledger().timestamp(),
+    };
+    env.events()
+        .publish((Symbol::new(env, "AutoRefundExecuted"),), event);
+}
+
+fn emit_treasury_updated(
+    env: &Env,
+    old_treasury: Address,
+    new_treasury: Address,
+    updated_by: Address,
+) {
+    let event = TreasuryUpdated {
+        old_treasury,
+        new_treasury,
+        updated_by,
+    };
+    env.events()
+        .publish((Symbol::new(env, "TreasuryUpdated"),), event);
 }
 
 // ---------------------------------------------------------------------------
@@ -200,7 +341,7 @@ impl SkillsyncContract {
             panic_with_error!(&env, ContractError::InvalidAmount);
         }
         if get_session(&env, &session_id).is_some() {
-            panic_with_error!(&env, ContractError::SessionAlreadyExists);
+            panic_with_error!(&env, ContractError::DuplicateSessionId);
         }
         buyer.require_auth();
         let session = Session {
@@ -289,6 +430,73 @@ impl SkillsyncContract {
         let (_after_fee, _fee) = apply_fee(&env, seller_share);
         session.status = SessionStatus::Resolved;
         save_session(&env, &session_id, &session);
+    }
+
+    // -----------------------------------------------------------------------
+    // Refunds
+    // -----------------------------------------------------------------------
+
+    /// Buyer-initiated refund while the session is still Locked.
+    /// Emits `SessionRefunded`.
+    pub fn refund_session(env: Env, session_id: Bytes32) {
+        require_initialized(&env);
+        let mut session = get_session(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+
+        if session.status == SessionStatus::Refunded {
+            panic_with_error!(&env, ContractError::SessionAlreadyRefunded);
+        }
+        if session.status != SessionStatus::Locked {
+            panic_with_error!(&env, ContractError::InvalidStatus);
+        }
+
+        session.buyer.require_auth();
+
+        let buyer = session.buyer.clone();
+        let amount = session.amount;
+        session.status = SessionStatus::Refunded;
+        save_session(&env, &session_id, &session);
+
+        emit_session_refunded(&env, session_id, buyer, amount);
+    }
+
+    /// Timeout auto-refund for sessions stuck in Completed beyond the dispute window.
+    /// Emits both `SessionRefunded` and `AutoRefundExecuted`.
+    pub fn auto_refund(env: Env, session_id: Bytes32) {
+        require_initialized(&env);
+        let mut session = get_session(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+
+        if session.status == SessionStatus::Refunded {
+            panic_with_error!(&env, ContractError::SessionAlreadyRefunded);
+        }
+        if session.status != SessionStatus::Completed {
+            panic_with_error!(&env, ContractError::InvalidStatus);
+        }
+
+        let completed_at = session
+            .completed_at
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::InvalidSessionState));
+
+        let dispute_window: u64 = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("DSPWND"))
+            .unwrap_or(DEFAULT_DISPUTE_WINDOW);
+
+        let now = env.ledger().timestamp();
+        if now <= completed_at + dispute_window {
+            panic_with_error!(&env, ContractError::InvalidStatus);
+        }
+
+        let buyer = session.buyer.clone();
+        let amount = session.amount;
+        session.status = SessionStatus::Refunded;
+        save_session(&env, &session_id, &session);
+
+        // SessionRefunded is emitted for both manual and auto refunds.
+        emit_session_refunded(&env, session_id.clone(), buyer.clone(), amount);
+        emit_auto_refund_executed(&env, session_id, buyer, amount, completed_at);
     }
 
     // -----------------------------------------------------------------------
@@ -386,12 +594,44 @@ impl SkillsyncContract {
     // Admin helpers
     // -----------------------------------------------------------------------
 
+    /// Upgrade contract WASM. Admin only. Emits `ContractUpgraded`.
+    pub fn upgrade(env: Env, new_wasm_hash: Bytes32) {
+        require_initialized(&env);
+        let admin = require_admin(&env);
+
+        let old_wasm_hash: Bytes32 = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("WASMHASH"))
+            .unwrap_or_else(|| BytesN::from_array(&env, &[0; 32]));
+
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("WASMHASH"), &new_wasm_hash);
+
+        emit_contract_upgraded(
+            &env,
+            old_wasm_hash,
+            new_wasm_hash.clone(),
+            admin,
+        );
+
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash);
+    }
+
     pub fn set_treasury(env: Env, new_treasury: Address) {
         require_initialized(&env);
-        require_admin(&env);
+        let updated_by = require_admin(&env);
+        let old_treasury: Address = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("TRSY"))
+            .unwrap();
         env.storage()
             .persistent()
             .set(&symbol_short!("TRSY"), &new_treasury);
+        emit_treasury_updated(&env, old_treasury, new_treasury, updated_by);
     }
 
     pub fn get_treasury(env: Env) -> Address {
@@ -444,7 +684,7 @@ impl SkillsyncContract {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, Env, Bytes32};
+    use soroban_sdk::{testutils::Address as _, Env};
 
     fn setup() -> (Env, SkillsyncContractClient<'static>, Address, Address) {
         let env = Env::default();

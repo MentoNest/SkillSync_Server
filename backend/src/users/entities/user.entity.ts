@@ -32,6 +32,9 @@ export class User {
   @Column({ type: 'varchar', length: 50, nullable: true })
   displayName: string;
 
+  @Column({ type: 'varchar', length: 2048, nullable: true })
+  avatarUrl: string | null;
+
   @Column({
     type: 'enum',
     enum: UserStatus,
