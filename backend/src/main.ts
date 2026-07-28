@@ -3,12 +3,6 @@ import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { ValidationError } from 'class-validator';
 import { AppModule } from './app.module.js';
 
-/**
- * #1006: Flattens class-validator's nested ValidationError tree into a
- * simple { field, code, message }[] shape. `code` is the class-validator
- * constraint name (e.g. "isEmail"), kept stable/machine-readable so clients
- * can map it to a localized string; `message` is the English fallback.
- */
 function flattenValidationErrors(
   errors: ValidationError[],
   parentPath = '',
@@ -33,6 +27,24 @@ function flattenValidationErrors(
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // -----------------------------------------------------------------------
+  // #1017: CORS configuration
+  // -----------------------------------------------------------------------
+  const allowedOrigins = (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+
+  app.enableCors({
+    origin: allowedOrigins.length > 0 ? allowedOrigins : true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Accept'],
+    credentials: true,
+  });
+
+  // -----------------------------------------------------------------------
+  // Global pipes
+  // -----------------------------------------------------------------------
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
