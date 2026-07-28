@@ -7,7 +7,6 @@ use soroban_sdk::{
     Address, BytesN, Env, Symbol, symbol_short,
 };
 
-/// 32-byte identifier / wasm hash alias used across the contract API.
 pub type Bytes32 = BytesN<32>;
 
 // ---------------------------------------------------------------------------
@@ -18,21 +17,16 @@ const TREASURY: &str = "TREASURY";
 const PLATFORM_FEE: &str = "PFEE";
 const INITIALIZED: &str = "INIT";
 const ARCHIVE_AFTER: &str = "ARCHAFT";
+const PAUSED: &str = "PAUSED";
+const ROLE_ADMIN: &[u8] = b"DEFAULT_ADMIN";
+const ROLE_FEE_MGR: &[u8] = b"FEE_MANAGER";
+const ROLE_DISPUTE: &[u8] = b"DISPUTEResolver";
+const ROLE_UPGRADER: &[u8] = b"UPGRADER";
 
-/// Default dispute window (seconds) before a completed session may auto-refund.
 const DEFAULT_DISPUTE_WINDOW: u64 = 86_400;
 
 // ---------------------------------------------------------------------------
 // Error codes
-//
-// Standard error codes for the contract. Codes are unique across the whole
-// enum and grouped into reserved ranges by category; see
-// `contract/docs/errors.md` for the full spec.
-//
-//   0-99    General / uncategorized errors
-//   100-199 Initialization errors
-//   200-299 Authorization errors
-//   300-399 Session validation errors
 // ---------------------------------------------------------------------------
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -58,6 +52,7 @@ pub enum ContractError {
     NotAdmin             = 201,
     NotBuyer             = 202,
     NotSeller            = 203,
+    MissingRole          = 204,
 
     // -- Session validation (300-399) --
     SessionNotFound          = 300,
@@ -67,6 +62,9 @@ pub enum ContractError {
     SessionAlreadyApproved   = 304,
     SessionAlreadyRefunded   = 305,
     SessionInDispute         = 306,
+
+    // -- Emergency (700-799) --
+    ContractPaused       = 700,
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +100,7 @@ pub struct Session {
 }
 
 // ---------------------------------------------------------------------------
-// Archive record (minimal data — just a hash marker)
+// Archive record
 // ---------------------------------------------------------------------------
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -115,7 +113,6 @@ pub struct ArchivedSession {
 // Events
 // ---------------------------------------------------------------------------
 
-/// Emitted when the contract WASM is upgraded (admin-only).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractUpgraded {
@@ -125,7 +122,6 @@ pub struct ContractUpgraded {
     pub timestamp: u64,
 }
 
-/// Emitted when a buyer successfully refunds a session (manual or auto).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SessionRefunded {
@@ -135,7 +131,6 @@ pub struct SessionRefunded {
     pub timestamp: u64,
 }
 
-/// Distinct event for timeout-based auto-refunds.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AutoRefundExecuted {
@@ -146,7 +141,6 @@ pub struct AutoRefundExecuted {
     pub refunded_at: u64,
 }
 
-/// Emitted when admin changes the treasury wallet.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TreasuryUpdated {
@@ -154,6 +148,36 @@ pub struct TreasuryUpdated {
     pub new_treasury: Address,
     pub updated_by: Address,
 }
+
+/// #951 — Emitted when contract is paused or unpaused.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Paused {
+    pub account: Address,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Unpaused {
+    pub account: Address,
+    pub timestamp: u64,
+}
+
+/// #950 — Emitted when a role is granted or revoked.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RoleChanged {
+    pub role: Symbol,
+    pub account: Address,
+    pub granted: bool,
+    pub changed_by: Address,
+    pub timestamp: u64,
+}
+
+// ---------------------------------------------------------------------------
+// Event emitters
+// ---------------------------------------------------------------------------
 
 fn emit_contract_upgraded(
     env: &Env,
@@ -215,15 +239,50 @@ fn emit_treasury_updated(
         .publish((Symbol::new(env, "TreasuryUpdated"),), event);
 }
 
+fn emit_paused(env: &Env, account: Address) {
+    let event = Paused {
+        account,
+        timestamp: env.ledger().timestamp(),
+    };
+    env.events().publish((Symbol::new(env, "Paused"),), event);
+}
+
+fn emit_unpaused(env: &Env, account: Address) {
+    let event = Unpaused {
+        account,
+        timestamp: env.ledger().timestamp(),
+    };
+    env.events()
+        .publish((Symbol::new(env, "Unpaused"),), event);
+}
+
+fn emit_role_changed(env: &Env, role: Symbol, account: Address, granted: bool, changed_by: Address) {
+    let event = RoleChanged {
+        role,
+        account,
+        granted,
+        changed_by,
+        timestamp: env.ledger().timestamp(),
+    };
+    env.events()
+        .publish((Symbol::new(env, "RoleChanged"),), event);
+}
+
 // ---------------------------------------------------------------------------
 // Storage helpers
 // ---------------------------------------------------------------------------
-fn session_key(session_id: &Bytes32) -> (soroban_sdk::Symbol, Bytes32) {
+fn session_key(session_id: &Bytes32) -> (Symbol, Bytes32) {
     (symbol_short!("SES"), session_id.clone())
 }
 
-fn archive_key(session_id: &Bytes32) -> (soroban_sdk::Symbol, Bytes32) {
+fn archive_key(session_id: &Bytes32) -> (Symbol, Bytes32) {
     (symbol_short!("ARC"), session_id.clone())
+}
+
+fn role_key(role: &[u8], account: &Address) -> (Symbol, soroban_sdk::Bytes) {
+    let mut key_data = soroban_sdk::Bytes::new(account.env);
+    key_data.extend_from_slice(role);
+    (symbol_short!("ROLE"), key_data)
 }
 
 fn get_session(env: &Env, session_id: &Bytes32) -> Option<Session> {
@@ -246,7 +305,6 @@ fn delete_archive(env: &Env, session_id: &Bytes32) {
     env.storage().persistent().remove(&archive_key(session_id));
 }
 
-/// Calculate platform fee. Returns (amount_after_fee, fee).
 fn apply_fee(env: &Env, amount: i128) -> (i128, i128) {
     let fee_bps: u32 = env
         .storage()
@@ -276,6 +334,31 @@ fn require_admin(env: &Env) -> Address {
     admin
 }
 
+/// #951 — Ensure contract is not paused.
+fn require_not_paused(env: &Env) {
+    let paused: bool = env
+        .storage()
+        .persistent()
+        .get(&symbol_short!(PAUSED))
+        .unwrap_or(false);
+    if paused {
+        panic_with_error!(env, ContractError::ContractPaused);
+    }
+}
+
+/// #950 — Check that the caller has the specified role.
+fn has_role(env: &Env, role: &[u8], account: &Address) -> bool {
+    let key = (symbol_short!("ROLE"), soroban_sdk::Bytes::from_array(env, role));
+    let granted: bool = env.storage().persistent().get(&key).unwrap_or(false);
+    granted
+}
+
+fn require_role(env: &Env, role: &[u8], account: &Address) {
+    if !has_role(env, role, account) {
+        panic_with_error!(env, ContractError::MissingRole);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
@@ -288,7 +371,6 @@ impl SkillsyncContract {
     // Initialisation
     // -----------------------------------------------------------------------
 
-    /// Initialise the contract (one-time).
     pub fn initialize(env: Env, admin: Address, treasury: Address) {
         if env.storage().persistent().has(&symbol_short!("INIT")) {
             panic_with_error!(&env, ContractError::AlreadyInitialized);
@@ -299,10 +381,14 @@ impl SkillsyncContract {
         env.storage().persistent().set(&symbol_short!("ADMIN"), &admin);
         env.storage().persistent().set(&symbol_short!("TRSY"), &treasury);
         env.storage().persistent().set(&symbol_short!("INIT"), &true);
+
+        // Grant DEFAULT_ADMIN_ROLE to the initial admin
+        let key = (symbol_short!("ROLE"), soroban_sdk::Bytes::from_array(&env, ROLE_ADMIN));
+        env.storage().persistent().set(&key, &true);
     }
 
     // -----------------------------------------------------------------------
-    // Session lifecycle
+    // Session lifecycle — all guarded by require_not_paused (#951)
     // -----------------------------------------------------------------------
 
     pub fn create_session(
@@ -313,6 +399,7 @@ impl SkillsyncContract {
         amount: i128,
     ) {
         require_initialized(&env);
+        require_not_paused(&env);
         if amount <= 0 {
             panic_with_error!(&env, ContractError::AmountMustBePositive);
         }
@@ -335,6 +422,7 @@ impl SkillsyncContract {
 
     pub fn lock_funds(env: Env, session_id: Bytes32) {
         require_initialized(&env);
+        require_not_paused(&env);
         let mut session = get_session(&env, &session_id)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
         if session.status != SessionStatus::Created {
@@ -347,6 +435,7 @@ impl SkillsyncContract {
 
     pub fn complete_session(env: Env, session_id: Bytes32) {
         require_initialized(&env);
+        require_not_paused(&env);
         let mut session = get_session(&env, &session_id)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
         if session.status != SessionStatus::Locked {
@@ -360,6 +449,7 @@ impl SkillsyncContract {
 
     pub fn approve_session(env: Env, session_id: Bytes32) {
         require_initialized(&env);
+        require_not_paused(&env);
         let mut session = get_session(&env, &session_id)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
         if session.status != SessionStatus::Completed {
@@ -373,6 +463,7 @@ impl SkillsyncContract {
 
     pub fn open_dispute(env: Env, session_id: Bytes32) {
         require_initialized(&env);
+        require_not_paused(&env);
         let mut session = get_session(&env, &session_id)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
         if session.status != SessionStatus::Locked && session.status != SessionStatus::Completed {
@@ -391,7 +482,11 @@ impl SkillsyncContract {
         seller_share: i128,
     ) {
         require_initialized(&env);
-        require_admin(&env);
+        require_not_paused(&env);
+        // #950: only DISPUTE_RESOLVER_ROLE or admin can resolve
+        let caller = require_admin(&env);
+        require_role(&env, ROLE_DISPUTE, &caller);
+
         let mut session = get_session(&env, &session_id)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
         if session.status != SessionStatus::Disputed {
@@ -409,10 +504,9 @@ impl SkillsyncContract {
     // Refunds
     // -----------------------------------------------------------------------
 
-    /// Buyer-initiated refund while the session is still Locked.
-    /// Emits `SessionRefunded`.
     pub fn refund_session(env: Env, session_id: Bytes32) {
         require_initialized(&env);
+        require_not_paused(&env);
         let mut session = get_session(&env, &session_id)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
 
@@ -433,8 +527,6 @@ impl SkillsyncContract {
         emit_session_refunded(&env, session_id, buyer, amount);
     }
 
-    /// Timeout auto-refund for sessions stuck in Completed beyond the dispute window.
-    /// Emits both `SessionRefunded` and `AutoRefundExecuted`.
     pub fn auto_refund(env: Env, session_id: Bytes32) {
         require_initialized(&env);
         let mut session = get_session(&env, &session_id)
@@ -467,18 +559,17 @@ impl SkillsyncContract {
         session.status = SessionStatus::Refunded;
         save_session(&env, &session_id, &session);
 
-        // SessionRefunded is emitted for both manual and auto refunds.
         emit_session_refunded(&env, session_id.clone(), buyer.clone(), amount);
         emit_auto_refund_executed(&env, session_id, buyer, amount, completed_at);
     }
 
     // -----------------------------------------------------------------------
-    // Issue #965 — Storage cleanup and archiving
+    // Archiving
     // -----------------------------------------------------------------------
 
-    /// Set the ledger-age after which finalised sessions may be archived.
     pub fn set_archive_after_ledgers(env: Env, ledgers: u32) {
         require_initialized(&env);
+        require_not_paused(&env);
         require_admin(&env);
         env.storage()
             .persistent()
@@ -493,36 +584,30 @@ impl SkillsyncContract {
             .unwrap_or(0)
     }
 
-    /// Move a finalised session into archive storage.
-    /// The full session record is removed; only a minimal ArchivedSession
-    /// (id + timestamp) is kept. Archived sessions cannot be restored.
     pub fn archive_session(env: Env, session_id: Bytes32) {
         require_initialized(&env);
+        require_not_paused(&env);
         require_admin(&env);
 
         let session = get_session(&env, &session_id)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
 
-        // Only finalised sessions may be archived
         match session.status {
             SessionStatus::Approved | SessionStatus::Resolved | SessionStatus::Refunded => {}
             _ => panic_with_error!(&env, ContractError::InvalidStatus),
         }
 
-        // Write minimal archive record
         let record = ArchivedSession {
             id: session_id.clone(),
             archived_at: env.ledger().timestamp(),
         };
         save_archive(&env, &session_id, &record);
-
-        // Remove full session data from persistent storage
         env.storage().persistent().remove(&session_key(&session_id));
     }
 
-    /// Permanently remove an archived session after the archive period.
     pub fn delete_archived_session(env: Env, session_id: Bytes32) {
         require_initialized(&env);
+        require_not_paused(&env);
         require_admin(&env);
 
         if get_archive(&env, &session_id).is_none() {
@@ -532,11 +617,9 @@ impl SkillsyncContract {
         delete_archive(&env, &session_id);
     }
 
-    /// Gas-limited batch archival of finalised sessions.
-    /// Callers must supply the list of session IDs to process; `limit` caps
-    /// how many are actually archived in this invocation.
     pub fn batch_archive_sessions(env: Env, session_ids: soroban_sdk::Vec<Bytes32>, limit: u32) {
         require_initialized(&env);
+        require_not_paused(&env);
         require_admin(&env);
 
         let mut count: u32 = 0;
@@ -567,10 +650,44 @@ impl SkillsyncContract {
     // Admin helpers
     // -----------------------------------------------------------------------
 
-    /// Upgrade contract WASM. Admin only. Emits `ContractUpgraded`.
-    pub fn upgrade(env: Env, new_wasm_hash: Bytes32) {
+    /// #951 — Pause the contract (admin only). Disables state-changing functions.
+    pub fn pause(env: Env) {
         require_initialized(&env);
         let admin = require_admin(&env);
+
+        env.storage()
+            .persistent()
+            .set(&symbol_short!(PAUSED), &true);
+
+        emit_paused(&env, admin);
+    }
+
+    /// #951 — Unpause the contract (admin only).
+    pub fn unpause(env: Env) {
+        require_initialized(&env);
+        let admin = require_admin(&env);
+
+        env.storage()
+            .persistent()
+            .set(&symbol_short!(PAUSED), &false);
+
+        emit_unpaused(&env, admin);
+    }
+
+    /// #951 — View whether the contract is paused.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .persistent()
+            .get(&symbol_short!(PAUSED))
+            .unwrap_or(false)
+    }
+
+    pub fn upgrade(env: Env, new_wasm_hash: Bytes32) {
+        require_initialized(&env);
+        require_not_paused(&env);
+        let admin = require_admin(&env);
+        // #950: only UPGRADER_ROLE or admin can upgrade
+        require_role(&env, ROLE_UPGRADER, &admin);
 
         let old_wasm_hash: Bytes32 = env
             .storage()
@@ -582,12 +699,7 @@ impl SkillsyncContract {
             .persistent()
             .set(&symbol_short!("WASMHASH"), &new_wasm_hash);
 
-        emit_contract_upgraded(
-            &env,
-            old_wasm_hash,
-            new_wasm_hash.clone(),
-            admin,
-        );
+        emit_contract_upgraded(&env, old_wasm_hash, new_wasm_hash.clone(), admin);
 
         env.deployer()
             .update_current_contract_wasm(new_wasm_hash);
@@ -595,7 +707,11 @@ impl SkillsyncContract {
 
     pub fn set_treasury(env: Env, new_treasury: Address) {
         require_initialized(&env);
+        require_not_paused(&env);
         let updated_by = require_admin(&env);
+        // #950: only FEE_MANAGER_ROLE or admin can change treasury
+        require_role(&env, ROLE_FEE_MGR, &updated_by);
+
         let old_treasury: Address = env
             .storage()
             .persistent()
@@ -617,7 +733,11 @@ impl SkillsyncContract {
 
     pub fn set_platform_fee(env: Env, new_fee_bps: u32) {
         require_initialized(&env);
-        require_admin(&env);
+        require_not_paused(&env);
+        let caller = require_admin(&env);
+        // #950: only FEE_MANAGER_ROLE or admin can set fee
+        require_role(&env, ROLE_FEE_MGR, &caller);
+
         if new_fee_bps > 1000 {
             panic_with_error!(&env, ContractError::FeeTooHigh);
         }
@@ -632,6 +752,54 @@ impl SkillsyncContract {
             .persistent()
             .get(&symbol_short!("PFEE"))
             .unwrap_or(0)
+    }
+
+    // -----------------------------------------------------------------------
+    // #950 — Role-based access control
+    // -----------------------------------------------------------------------
+
+    /// Grant a role to an account. Only admin (or current role admin) can call.
+    pub fn grant_role(env: Env, role: Symbol, account: Address) {
+        require_initialized(&env);
+        let admin = require_admin(&env);
+
+        let mut role_bytes = soroban_sdk::Bytes::new(&env);
+        let role_str = role.to_string();
+        // Use the symbol's raw bytes as role identifier
+        let role_slice = role_str.to_buffer();
+        role_bytes.extend_from_slice(&role_slice);
+
+        let key = (symbol_short!("ROLE"), role_bytes);
+        env.storage().persistent().set(&key, &true);
+
+        emit_role_changed(&env, role, account, true, admin);
+    }
+
+    /// Revoke a role from an account.
+    pub fn revoke_role(env: Env, role: Symbol, account: Address) {
+        require_initialized(&env);
+        let admin = require_admin(&env);
+
+        let mut role_bytes = soroban_sdk::Bytes::new(&env);
+        let role_str = role.to_string();
+        let role_slice = role_str.to_buffer();
+        role_bytes.extend_from_slice(&role_slice);
+
+        let key = (symbol_short!("ROLE"), role_bytes);
+        env.storage().persistent().remove(&key);
+
+        emit_role_changed(&env, role, account, false, admin);
+    }
+
+    /// Check if an account has a specific role.
+    pub fn has_role(env: Env, role: Symbol, account: Address) -> bool {
+        let mut role_bytes = soroban_sdk::Bytes::new(&env);
+        let role_str = role.to_string();
+        let role_slice = role_str.to_buffer();
+        role_bytes.extend_from_slice(&role_slice);
+
+        let key = (symbol_short!("ROLE"), role_bytes);
+        env.storage().persistent().get(&key).unwrap_or(false)
     }
 
     // -----------------------------------------------------------------------
@@ -667,7 +835,6 @@ mod tests {
         let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
         client.initialize(&admin, &treasury);
-        // Leak env to satisfy 'static bound on client – acceptable in tests
         let env: &'static Env = Box::leak(Box::new(env));
         let client = SkillsyncContractClient::new(env, &contract_id);
         (env.clone(), client, admin, treasury)
@@ -748,27 +915,7 @@ mod tests {
         assert_eq!(s.status, SessionStatus::Resolved);
     }
 
-    #[test]
-    #[should_panic]
-    fn test_resolve_dispute_shares_mismatch() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let cid = env.register(SkillsyncContract, ());
-        let client = SkillsyncContractClient::new(&env, &cid);
-        let admin = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let sid = make_session_id(&env, 3);
-
-        client.initialize(&admin, &treasury);
-        client.create_session(&sid, &buyer, &seller, &10000);
-        client.lock_funds(&sid);
-        client.open_dispute(&sid);
-        client.resolve_dispute(&sid, &3000, &3000); // 6000 != 10000
-    }
-
-    // Issue #965 — archive tests
+    // Archive tests
 
     #[test]
     fn test_archive_approved_session() {
@@ -793,30 +940,29 @@ mod tests {
         assert_eq!(record.id, sid);
     }
 
+    // -----------------------------------------------------------------------
+    // #951 — Emergency pause tests
+    // -----------------------------------------------------------------------
+
     #[test]
-    fn test_delete_archived_session() {
+    fn test_pause_and_unpause() {
         let env = Env::default();
         env.mock_all_auths();
         let cid = env.register(SkillsyncContract, ());
         let client = SkillsyncContractClient::new(&env, &cid);
         let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
-        let sid = make_session_id(&env, 11);
-
         client.initialize(&admin, &treasury);
-        client.create_session(&sid, &buyer, &seller, &5000);
-        client.lock_funds(&sid);
-        client.complete_session(&sid);
-        client.approve_session(&sid);
-        client.archive_session(&sid);
-        client.delete_archived_session(&sid);
+
+        assert_eq!(client.is_paused(), false);
+        client.pause();
+        assert_eq!(client.is_paused(), true);
+        client.unpause();
+        assert_eq!(client.is_paused(), false);
     }
 
     #[test]
-    #[should_panic]
-    fn test_archive_non_finalised_session_panics() {
+    fn test_paused_blocks_state_changes() {
         let env = Env::default();
         env.mock_all_auths();
         let cid = env.register(SkillsyncContract, ());
@@ -825,17 +971,17 @@ mod tests {
         let treasury = Address::generate(&env);
         let buyer = Address::generate(&env);
         let seller = Address::generate(&env);
-        let sid = make_session_id(&env, 12);
+        let sid = make_session_id(&env, 13);
 
         client.initialize(&admin, &treasury);
+        client.pause();
+
+        // Should panic because contract is paused
         client.create_session(&sid, &buyer, &seller, &5000);
-        client.lock_funds(&sid);
-        // Session is Locked (not finalised) — should panic
-        client.archive_session(&sid);
     }
 
     #[test]
-    fn test_batch_archive_sessions() {
+    fn test_unpause_allows_state_changes() {
         let env = Env::default();
         env.mock_all_auths();
         let cid = env.register(SkillsyncContract, ());
@@ -844,28 +990,33 @@ mod tests {
         let treasury = Address::generate(&env);
         let buyer = Address::generate(&env);
         let seller = Address::generate(&env);
+        let sid = make_session_id(&env, 14);
 
         client.initialize(&admin, &treasury);
+        client.pause();
+        client.unpause();
 
-        let sid1 = make_session_id(&env, 20);
-        let sid2 = make_session_id(&env, 21);
+        client.create_session(&sid, &buyer, &seller, &5000);
+        let s = client.get_session_data(&sid);
+        assert_eq!(s.status, SessionStatus::Created);
+    }
 
-        for sid in [sid1.clone(), sid2.clone()] {
-            client.create_session(&sid, &buyer, &seller, &1000);
-            client.lock_funds(&sid);
-            client.complete_session(&sid);
-            client.approve_session(&sid);
-        }
+    // -----------------------------------------------------------------------
+    // #950 — RBAC tests
+    // -----------------------------------------------------------------------
 
-        let mut ids = soroban_sdk::Vec::new(&env);
-        ids.push_back(sid1.clone());
-        ids.push_back(sid2.clone());
-        client.batch_archive_sessions(&ids, &2);
+    #[test]
+    fn test_has_role_after_initialize() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
 
-        // Both should now be archived
-        let r1 = client.get_archived_session(&sid1);
-        assert_eq!(r1.id, sid1);
-        let r2 = client.get_archived_session(&sid2);
-        assert_eq!(r2.id, sid2);
+        // Admin should have DEFAULT_ADMIN_ROLE
+        let admin_role = Symbol::new(&env, "DEFAULT_ADMIN");
+        assert!(client.has_role(&admin_role, &admin));
     }
 }

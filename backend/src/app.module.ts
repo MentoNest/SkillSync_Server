@@ -11,10 +11,7 @@ import { VerificationModule } from './verification/verification.module.js';
 import { PaginationModule } from './common/pagination/pagination.module.js';
 import { RedisModule } from './config/redis.module.js';
 import { MentorsModule } from './mentors/mentors.module.js';
-import { MetricsModule } from './metrics/metrics.module.js';
-import { SeedModule } from './seed/seed.module.js';
-import { ChatModule } from './chat/chat.module.js';
-import { SessionsModule } from './sessions/sessions.module.js';
+import { HealthModule } from './health/health.module.js';
 import typeOrmConfig from './config/typeorm.config.js';
 
 @Module({
@@ -29,10 +26,7 @@ import typeOrmConfig from './config/typeorm.config.js';
     AvailabilityModule,
     VerificationModule,
     MentorsModule,
-    MetricsModule,
-    SeedModule,
-    ChatModule,
-    SessionsModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
