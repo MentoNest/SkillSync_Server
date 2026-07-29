@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { ValidationError } from 'class-validator';
 import { AppModule } from './app.module.js';
+import { ResponseInterceptor } from './common/interceptors/response.interceptor.js';
 
 function flattenValidationErrors(
   errors: ValidationError[],
@@ -41,6 +42,11 @@ async function bootstrap() {
     allowedHeaders: ['Authorization', 'Content-Type', 'Accept'],
     credentials: true,
   });
+
+  // -----------------------------------------------------------------------
+  // Global response interceptor (#1008)
+  // -----------------------------------------------------------------------
+  app.useGlobalInterceptors(new ResponseInterceptor());
 
   // -----------------------------------------------------------------------
   // Global pipes
