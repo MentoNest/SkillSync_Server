@@ -4,7 +4,7 @@ extern crate alloc;
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error,
-    Address, BytesN, Env, Symbol, symbol_short,
+    Address, Bytes, BytesN, Env, Symbol, symbol_short, Vec, Map,
 };
 
 pub type Bytes32 = BytesN<32>;
@@ -12,18 +12,125 @@ pub type Bytes32 = BytesN<32>;
 // ---------------------------------------------------------------------------
 // Storage symbols
 // ---------------------------------------------------------------------------
-const ADMIN: &str = "ADMIN";
-const TREASURY: &str = "TREASURY";
+const ADMINS: &str = "ADMINS";
+const THRESHOLD: &str = "THRHLD";
+const TREASURY: &str = "TRSY";
 const PLATFORM_FEE: &str = "PFEE";
 const INITIALIZED: &str = "INIT";
 const ARCHIVE_AFTER: &str = "ARCHAFT";
 const PAUSED: &str = "PAUSED";
+const PROPOSAL_EXPIRATION: u32 = 10_000; // 10,000 ledgers
 const ROLE_ADMIN: &[u8] = b"DEFAULT_ADMIN";
 const ROLE_FEE_MGR: &[u8] = b"FEE_MANAGER";
 const ROLE_DISPUTE: &[u8] = b"DISPUTEResolver";
 const ROLE_UPGRADER: &[u8] = b"UPGRADER";
 
 const DEFAULT_DISPUTE_WINDOW: u64 = 86_400;
+
+// ---------------------------------------------------------------------------
+// Proposal types for multi-sig
+// ---------------------------------------------------------------------------
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProposalType {
+    SetFee,
+    SetTreasury,
+    Upgrade,
+    ResolveDispute,
+    Pause,
+    Unpause,
+    GrantRole,
+    RevokeRole,
+    UpdateAdmins,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Proposal {
+    pub id: Bytes32,
+    pub proposal_type: ProposalType,
+    pub payload: Bytes,
+    pub created_at_ledger: u32,
+    pub expires_at_ledger: u32,
+    pub signers: Vec<Address>,
+    pub executed: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Multi-sig events
+// ---------------------------------------------------------------------------
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProposalCreated {
+    pub proposal_id: Bytes32,
+    pub proposer: Address,
+    pub proposal_type: ProposalType,
+    pub created_at_ledger: u32,
+    pub expires_at_ledger: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProposalSigned {
+    pub proposal_id: Bytes32,
+    pub signer: Address,
+    pub signature_count: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProposalExecuted {
+    pub proposal_id: Bytes32,
+    pub executed_at_ledger: u32,
+}
+
+// Event emitters for multi-sig
+fn emit_proposal_created(
+    env: &Env,
+    proposal_id: Bytes32,
+    proposer: Address,
+    proposal_type: ProposalType,
+    created_at_ledger: u32,
+    expires_at_ledger: u32,
+) {
+    let event = ProposalCreated {
+        proposal_id,
+        proposer,
+        proposal_type,
+        created_at_ledger,
+        expires_at_ledger,
+    };
+    env.events()
+        .publish((symbol_short!("PropCreated"),), event);
+}
+
+fn emit_proposal_signed(
+    env: &Env,
+    proposal_id: Bytes32,
+    signer: Address,
+    signature_count: u32,
+) {
+    let event = ProposalSigned {
+        proposal_id,
+        signer,
+        signature_count,
+    };
+    env.events()
+        .publish((symbol_short!("PropSigned"),), event);
+}
+
+fn emit_proposal_executed(
+    env: &Env,
+    proposal_id: Bytes32,
+    executed_at_ledger: u32,
+) {
+    let event = ProposalExecuted {
+        proposal_id,
+        executed_at_ledger,
+    };
+    env.events()
+        .publish((symbol_short!("PropExecuted"),), event);
+}
 
 // ---------------------------------------------------------------------------
 // Error codes
@@ -65,6 +172,19 @@ pub enum ContractError {
 
     // -- Emergency (700-799) --
     ContractPaused       = 700,
+
+    // -- Multi-sig errors (800-899) --
+    NotAnAdmin                  = 800,
+    ProposalNotFound            = 801,
+    ProposalAlreadyExists       = 802,
+    ProposalAlreadyExecuted     = 803,
+    ProposalExpired             = 804,
+    AlreadySigned               = 805,
+    InsufficientSignatures      = 806,
+    InvalidThreshold            = 807,
+    InvalidAdminList            = 808,
+    InvalidProposalType         = 809,
+    InvalidPayload              = 810,
 }
 
 // ---------------------------------------------------------------------------
@@ -324,14 +444,43 @@ fn require_initialized(env: &Env) {
     }
 }
 
-fn require_admin(env: &Env) -> Address {
-    let admin: Address = env
+// Multi-sig storage helpers
+fn proposal_key(proposal_id: &Bytes32) -> (Symbol, Bytes32) {
+    (symbol_short!("PROP"), proposal_id.clone())
+}
+
+fn is_admin(env: &Env, account: &Address) -> bool {
+    let admins: Vec<Address> = env
         .storage()
         .persistent()
-        .get(&symbol_short!("ADMIN"))
-        .unwrap();
-    admin.require_auth();
-    admin
+        .get(&symbol_short!("ADMINS"))
+        .unwrap_or_else(|| Vec::new(env));
+    
+    admins.iter().any(|a| a == *account)
+}
+
+fn require_admin(env: &Env) -> Address {
+    let caller = env.invoker();
+    if !is_admin(env, &caller) {
+        panic_with_error!(env, ContractError::NotAnAdmin);
+    }
+    caller.require_auth();
+    caller
+}
+
+fn get_threshold(env: &Env) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&symbol_short!("THRHLD"))
+        .unwrap_or(1)
+}
+
+fn get_proposal(env: &Env, proposal_id: &Bytes32) -> Option<Proposal> {
+    env.storage().persistent().get(&proposal_key(proposal_id))
+}
+
+fn save_proposal(env: &Env, proposal_id: &Bytes32, proposal: &Proposal) {
+    env.storage().persistent().set(&proposal_key(proposal_id), proposal);
 }
 
 /// #951 — Ensure contract is not paused.
