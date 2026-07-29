@@ -185,6 +185,8 @@ pub enum ContractError {
     InvalidAdminList            = 808,
     InvalidProposalType         = 809,
     InvalidPayload              = 810,
+    // -- Rate limiting (800-899) --
+    RateLimitExceeded    = 800,
 }
 
 // ---------------------------------------------------------------------------
@@ -295,6 +297,34 @@ pub struct RoleChanged {
     pub timestamp: u64,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RateLimitHit {
+    pub address: Address,
+    pub current_count: u32,
+    pub max_sessions: u32,
+    pub window_ledger: u32,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RateLimitUpdated {
+    pub max_sessions: u32,
+    pub window_ledgers: u32,
+    pub updated_by: Address,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WhitelistUpdated {
+    pub address: Address,
+    pub added: bool,
+    pub updated_by: Address,
+    pub timestamp: u64,
+}
+
 // ---------------------------------------------------------------------------
 // Event emitters
 // ---------------------------------------------------------------------------
@@ -388,6 +418,40 @@ fn emit_role_changed(env: &Env, role: Symbol, account: Address, granted: bool, c
         .publish((Symbol::new(env, "RoleChanged"),), event);
 }
 
+fn emit_rate_limit_hit(env: &Env, address: Address, current_count: u32, max_sessions: u32, window_ledger: u32) {
+    let event = RateLimitHit {
+        address,
+        current_count,
+        max_sessions,
+        window_ledger,
+        timestamp: env.ledger().timestamp(),
+    };
+    env.events()
+        .publish((Symbol::new(env, "RateLimitHit"),), event);
+}
+
+fn emit_rate_limit_updated(env: &Env, max_sessions: u32, window_ledgers: u32, updated_by: Address) {
+    let event = RateLimitUpdated {
+        max_sessions,
+        window_ledgers,
+        updated_by,
+        timestamp: env.ledger().timestamp(),
+    };
+    env.events()
+        .publish((Symbol::new(env, "RateLimitUpdated"),), event);
+}
+
+fn emit_whitelist_updated(env: &Env, address: Address, added: bool, updated_by: Address) {
+    let event = WhitelistUpdated {
+        address,
+        added,
+        updated_by,
+        timestamp: env.ledger().timestamp(),
+    };
+    env.events()
+        .publish((Symbol::new(env, "WhitelistUpdated"),), event);
+}
+
 // ---------------------------------------------------------------------------
 // Storage helpers
 // ---------------------------------------------------------------------------
@@ -403,6 +467,14 @@ fn role_key(role: &[u8], account: &Address) -> (Symbol, soroban_sdk::Bytes) {
     let mut key_data = soroban_sdk::Bytes::new(account.env);
     key_data.extend_from_slice(role);
     (symbol_short!("ROLE"), key_data)
+}
+
+fn session_count_key(address: &Address, window_ledger: u32) -> (Symbol, Address, u32) {
+    (symbol_short!("SESSCNT"), address.clone(), window_ledger)
+}
+
+fn whitelist_key(address: &Address) -> (Symbol, Address) {
+    (symbol_short!("WHITELST"), address.clone())
 }
 
 fn get_session(env: &Env, session_id: &Bytes32) -> Option<Session> {
@@ -578,6 +650,30 @@ impl SkillsyncContract {
             panic_with_error!(&env, ContractError::InvalidStatus);
         }
         session.buyer.require_auth();
+
+        // Check rate limiting
+        let max_sessions: u32 = env.storage().persistent().get(&symbol_short!("MAXSESS")).unwrap_or(0);
+        let window_ledgers: u32 = env.storage().persistent().get(&symbol_short!("WINDLED")).unwrap_or(0);
+        
+        if max_sessions > 0 && window_ledgers > 0 {
+            let is_whitelisted: bool = env.storage().persistent().get(&whitelist_key(&session.buyer)).unwrap_or(false);
+            if !is_whitelisted {
+                let current_ledger = env.ledger().sequence();
+                let current_window = current_ledger / window_ledgers;
+                let count_key = session_count_key(&session.buyer, current_window);
+                let current_count: u32 = env.storage().temporary().get(&count_key).unwrap_or(0);
+                
+                if current_count >= max_sessions {
+                    emit_rate_limit_hit(&env, session.buyer.clone(), current_count, max_sessions, current_window);
+                    panic_with_error!(&env, ContractError::RateLimitExceeded);
+                }
+                
+                // Increment count and extend temporary storage lifetime
+                env.storage().temporary().set(&count_key, &(current_count + 1));
+                env.storage().temporary().extend_ttl(&count_key, window_ledgers, window_ledgers);
+            }
+        }
+
         session.status = SessionStatus::Locked;
         save_session(&env, &session_id, &session);
     }
@@ -731,6 +827,51 @@ impl SkillsyncContract {
             .persistent()
             .get(&symbol_short!("ARCHAFT"))
             .unwrap_or(0)
+    }
+
+    // -----------------------------------------------------------------------
+    // Rate limiting
+    // -----------------------------------------------------------------------
+
+    pub fn set_rate_limit(env: Env, max_sessions: u32, window_ledgers: u32) {
+        require_initialized(&env);
+        require_not_paused(&env);
+        let admin = require_admin(&env);
+        
+        env.storage().persistent().set(&symbol_short!("MAXSESS"), &max_sessions);
+        env.storage().persistent().set(&symbol_short!("WINDLED"), &window_ledgers);
+        
+        emit_rate_limit_updated(&env, max_sessions, window_ledgers, admin);
+    }
+
+    pub fn get_rate_limit(env: Env) -> (u32, u32) {
+        require_initialized(&env);
+        let max_sessions: u32 = env.storage().persistent().get(&symbol_short!("MAXSESS")).unwrap_or(0);
+        let window_ledgers: u32 = env.storage().persistent().get(&symbol_short!("WINDLED")).unwrap_or(0);
+        (max_sessions, window_ledgers)
+    }
+
+    pub fn add_to_whitelist(env: Env, address: Address) {
+        require_initialized(&env);
+        require_not_paused(&env);
+        let admin = require_admin(&env);
+        
+        env.storage().persistent().set(&whitelist_key(&address), &true);
+        emit_whitelist_updated(&env, address, true, admin);
+    }
+
+    pub fn remove_from_whitelist(env: Env, address: Address) {
+        require_initialized(&env);
+        require_not_paused(&env);
+        let admin = require_admin(&env);
+        
+        env.storage().persistent().remove(&whitelist_key(&address));
+        emit_whitelist_updated(&env, address, false, admin);
+    }
+
+    pub fn is_whitelisted(env: Env, address: Address) -> bool {
+        require_initialized(&env);
+        env.storage().persistent().get(&whitelist_key(&address)).unwrap_or(false)
     }
 
     pub fn archive_session(env: Env, session_id: Bytes32) {
