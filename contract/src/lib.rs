@@ -195,7 +195,8 @@ pub enum ContractError {
     SessionInDispute         = 306,
 
     // -- Emergency (700-799) --
-    ContractPaused       = 700,
+    ContractPaused       = 701,
+    ReentrancyDetected   = 700,
 
     // -- Multi-sig errors (800-899) --
     NotAnAdmin                  = 800,
@@ -602,6 +603,23 @@ fn require_role(env: &Env, role: &[u8], account: &Address) {
     if !has_role(env, role, account) {
         panic_with_error!(env, ContractError::MissingRole);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Reentrancy guard
+// ---------------------------------------------------------------------------
+const REENTRANCY_GUARD: &str = "REENTRANT";
+
+fn enter_reentrancy_guard(env: &Env) {
+    let is_entered: bool = env.storage().persistent().get(&symbol_short!(REENTRANCY_GUARD)).unwrap_or(false);
+    if is_entered {
+        panic_with_error!(env, ContractError::ReentrancyDetected);
+    }
+    env.storage().persistent().set(&symbol_short!(REENTRANCY_GUARD), &true);
+}
+
+fn exit_reentrancy_guard(env: &Env) {
+    env.storage().persistent().remove(&symbol_short!(REENTRANCY_GUARD));
 }
 
 // ---------------------------------------------------------------------------
