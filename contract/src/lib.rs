@@ -4,7 +4,7 @@ extern crate alloc;
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error,
-    Address, Bytes, BytesN, Env, Symbol, symbol_short, Vec, Map,
+    Address, Bytes, BytesN, Env, String, Symbol, symbol_short, Vec, Map,
 };
 
 pub type Bytes32 = BytesN<32>;
@@ -162,6 +162,26 @@ pub enum ContractError {
     InvalidSplit            = 403,
     /// Arithmetic overflow detected.
     Overflow                = 404,
+    /// Milestone percentage does not sum to 10000 bps (100%).
+    MilestoneSumInvalid     = 405,
+    /// Milestone index out of bounds.
+    MilestoneNotFound       = 406,
+    /// Milestone already released.
+    MilestoneAlreadyReleased = 407,
+    /// Cannot release milestone during dispute.
+    MilestoneLockedByDispute = 408,
+    /// Rating must be between 1 and 5.
+    InvalidRating           = 409,
+    /// Rating already submitted for this party in this session.
+    RatingAlreadySubmitted  = 410,
+    /// Session not yet approved; ratings not allowed.
+    SessionNotApproved      = 411,
+    /// Insurance pool is not active.
+    InsurancePoolInactive   = 412,
+    /// Insurance claim not found.
+    ClaimNotFound           = 413,
+    /// Claim already resolved.
+    ClaimAlreadyResolved    = 414,
 
     // -- Timeout and dispute errors (#941) ----------------------------------
     /// Cannot auto-refund yet.
@@ -243,16 +263,99 @@ pub struct Session {
     pub created_at: u64,
     pub completed_at: Option<u64>,
     pub dispute_opened_at: Option<u64>,
+    pub released_amount: i128,
 }
 
 // ---------------------------------------------------------------------------
-// Archive record
+// Milestone types (Issue 1)
 // ---------------------------------------------------------------------------
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ArchivedSession {
+pub struct Milestone {
+    pub percentage_bps: u32,
+    pub description: String,
+    pub released: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneReleased {
+    pub session_id: Bytes32,
+    pub milestone_index: u32,
+    pub amount: i128,
+}
+
+// ---------------------------------------------------------------------------
+// Rating types (Issue 2)
+// ---------------------------------------------------------------------------
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Rating {
+    pub from: Address,
+    pub to: Address,
+    pub session_id: Bytes32,
+    pub rating: u8,
+    pub comment: String,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RatingSubmitted {
+    pub session_id: Bytes32,
+    pub from: Address,
+    pub to: Address,
+    pub rating: u8,
+}
+
+// ---------------------------------------------------------------------------
+// Insurance pool types (Issue 3)
+// ---------------------------------------------------------------------------
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ClaimStatus {
+    Pending,
+    Approved,
+    Rejected,
+    Paid,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InsuranceClaim {
     pub id: Bytes32,
-    pub archived_at: u64,
+    pub session_id: Bytes32,
+    pub claimant: Address,
+    pub amount: i128,
+    pub status: ClaimStatus,
+    pub created_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InsuranceContributed {
+    pub contributor: Address,
+    pub amount: i128,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InsuranceClaimFiled {
+    pub claim_id: Bytes32,
+    pub session_id: Bytes32,
+    pub claimant: Address,
+    pub amount: i128,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InsuranceClaimResolved {
+    pub claim_id: Bytes32,
+    pub status: ClaimStatus,
+    pub resolved_by: Address,
+    pub timestamp: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -476,6 +579,63 @@ fn emit_whitelist_updated(env: &Env, address: Address, added: bool, updated_by: 
         .publish((Symbol::new(env, "WhitelistUpdated"),), event);
 }
 
+// Milestone event emitters
+fn emit_milestone_released(env: &Env, session_id: Bytes32, milestone_index: u32, amount: i128) {
+    let event = MilestoneReleased {
+        session_id,
+        milestone_index,
+        amount,
+    };
+    env.events()
+        .publish((Symbol::new(env, "MilestoneReleased"),), event);
+}
+
+// Rating event emitters
+fn emit_rating_submitted(env: &Env, session_id: Bytes32, from: Address, to: Address, rating: u8) {
+    let event = RatingSubmitted {
+        session_id,
+        from,
+        to,
+        rating,
+    };
+    env.events()
+        .publish((Symbol::new(env, "RatingSubmitted"),), event);
+}
+
+// Insurance pool event emitters
+fn emit_insurance_contributed(env: &Env, contributor: Address, amount: i128) {
+    let event = InsuranceContributed {
+        contributor,
+        amount,
+        timestamp: env.ledger().timestamp(),
+    };
+    env.events()
+        .publish((Symbol::new(env, "InsuranceContributed"),), event);
+}
+
+fn emit_insurance_claim_filed(env: &Env, claim_id: Bytes32, session_id: Bytes32, claimant: Address, amount: i128) {
+    let event = InsuranceClaimFiled {
+        claim_id,
+        session_id,
+        claimant,
+        amount,
+        timestamp: env.ledger().timestamp(),
+    };
+    env.events()
+        .publish((Symbol::new(env, "InsuranceClaimFiled"),), event);
+}
+
+fn emit_insurance_claim_resolved(env: &Env, claim_id: Bytes32, status: ClaimStatus, resolved_by: Address) {
+    let event = InsuranceClaimResolved {
+        claim_id,
+        status,
+        resolved_by,
+        timestamp: env.ledger().timestamp(),
+    };
+    env.events()
+        .publish((Symbol::new(env, "InsuranceClaimResolved"),), event);
+}
+
 // ---------------------------------------------------------------------------
 // Storage helpers
 // ---------------------------------------------------------------------------
@@ -519,6 +679,72 @@ fn save_archive(env: &Env, session_id: &Bytes32, record: &ArchivedSession) {
 
 fn delete_archive(env: &Env, session_id: &Bytes32) {
     env.storage().persistent().remove(&archive_key(session_id));
+}
+
+// Milestone storage helpers
+fn milestone_key(session_id: &Bytes32) -> (Symbol, Bytes32) {
+    (symbol_short!("MILE"), session_id.clone())
+}
+
+fn save_milestones(env: &Env, session_id: &Bytes32, milestones: &Vec<Milestone>) {
+    env.storage().persistent().set(&milestone_key(session_id), milestones);
+}
+
+fn get_milestones(env: &Env, session_id: &Bytes32) -> Option<Vec<Milestone>> {
+    env.storage().persistent().get(&milestone_key(session_id))
+}
+
+// Rating storage helpers
+fn rating_key(session_id: &Bytes32, from: &Address, to: &Address) -> (Symbol, Bytes32, Address, Address) {
+    (symbol_short!("RAT"), session_id.clone(), from.clone(), to.clone())
+}
+
+fn user_rating_key(address: &Address) -> (Symbol, Address) {
+    (symbol_short!("RATAGG"), address.clone())
+}
+
+fn save_rating(env: &Env, session_id: &Bytes32, from: &Address, to: &Address, rating: &Rating) {
+    env.storage().persistent().set(&rating_key(session_id, from, to), rating);
+}
+
+fn get_rating(env: &Env, session_id: &Bytes32, from: &Address, to: &Address) -> Option<Rating> {
+    env.storage().persistent().get(&rating_key(session_id, from, to))
+}
+
+fn get_user_rating_aggregate(env: &Env, address: &Address) -> (u64, u32) {
+    env.storage().persistent().get(&user_rating_key(address)).unwrap_or((0, 0))
+}
+
+fn set_user_rating_aggregate(env: &Env, address: &Address, total: u64, count: u32) {
+    env.storage().persistent().set(&user_rating_key(address), &(total, count));
+}
+
+// Insurance pool storage helpers
+const INSURANCE_POOL_BALANCE: &str = "INSPOOL";
+const INSURANCE_CLAIM_COUNT: &str = "INSCLMCT";
+
+fn insurance_claim_key(claim_id: &Bytes32) -> (Symbol, Bytes32) {
+    (symbol_short!("INSCLM"), claim_id.clone())
+}
+
+fn save_insurance_claim(env: &Env, claim_id: &Bytes32, claim: &InsuranceClaim) {
+    env.storage().persistent().set(&insurance_claim_key(claim_id), claim);
+}
+
+fn get_insurance_claim(env: &Env, claim_id: &Bytes32) -> Option<InsuranceClaim> {
+    env.storage().persistent().get(&insurance_claim_key(claim_id))
+}
+
+fn next_claim_id(env: &Env) -> Bytes32 {
+    let count: u32 = env.storage().persistent().get(&symbol_short!(INSURANCE_CLAIM_COUNT)).unwrap_or(0);
+    let new_count = count + 1;
+    env.storage().persistent().set(&symbol_short!(INSURANCE_CLAIM_COUNT), &new_count);
+    let mut bytes = [0u8; 32];
+    bytes[0] = (count >> 24) as u8;
+    bytes[1] = ((count >> 16) & 0xff) as u8;
+    bytes[2] = ((count >> 8) & 0xff) as u8;
+    bytes[3] = (count & 0xff) as u8;
+    Bytes32::from_array(env, &bytes)
 }
 
 fn apply_fee(env: &Env, amount: i128) -> (i128, i128) {
@@ -661,6 +887,7 @@ impl SkillsyncContract {
             created_at: env.ledger().timestamp(),
             completed_at: None,
             dispute_opened_at: None,
+            released_amount: 0,
         };
         save_session(&env, &session_id, &session);
     }
@@ -1134,6 +1361,251 @@ impl SkillsyncContract {
         get_archive(&env, &session_id)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::NotArchived))
     }
+
+    // -----------------------------------------------------------------------
+    // Issue 1 — Milestone-based partial release escrow
+    // -----------------------------------------------------------------------
+
+    pub fn lock_funds_with_milestones(
+        env: Env,
+        session_id: Bytes32,
+        seller: Address,
+        total_amount: i128,
+        milestones: Vec<Milestone>,
+    ) {
+        require_initialized(&env);
+        require_not_paused(&env);
+        if total_amount <= 0 {
+            panic_with_error!(&env, ContractError::InvalidAmount);
+        }
+        if get_session(&env, &session_id).is_some() {
+            panic_with_error!(&env, ContractError::DuplicateSessionId);
+        }
+        if milestones.is_empty() {
+            panic_with_error!(&env, ContractError::InvalidAmount);
+        }
+        let mut total_bps: u64 = 0;
+        for m in milestones.iter() {
+            total_bps += m.percentage_bps as u64;
+        }
+        if total_bps != 10_000 {
+            panic_with_error!(&env, ContractError::MilestoneSumInvalid);
+        }
+        let buyer = env.invoker();
+        buyer.require_auth();
+        let session = Session {
+            id: session_id.clone(),
+            buyer: buyer.clone(),
+            seller: seller.clone(),
+            amount: total_amount,
+            status: SessionStatus::Locked,
+            created_at: env.ledger().timestamp(),
+            completed_at: None,
+            dispute_opened_at: None,
+            released_amount: 0,
+        };
+        save_session(&env, &session_id, &session);
+        save_milestones(&env, &session_id, &milestones);
+    }
+
+    pub fn release_milestone(env: Env, session_id: Bytes32, milestone_index: u32) {
+        require_initialized(&env);
+        require_not_paused(&env);
+        let mut session = get_session(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+        if session.status == SessionStatus::Disputed {
+            panic_with_error!(&env, ContractError::MilestoneLockedByDispute);
+        }
+        if session.status != SessionStatus::Locked {
+            panic_with_error!(&env, ContractError::InvalidStatus);
+        }
+        let buyer = session.buyer.clone();
+        buyer.require_auth();
+        let milestones = get_milestones(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::InvalidStatus));
+        if milestone_index as usize >= milestones.len() {
+            panic_with_error!(&env, ContractError::MilestoneNotFound);
+        }
+        let mut milestones = milestones;
+        let milestone = &mut milestones[milestone_index as usize];
+        if milestone.released {
+            panic_with_error!(&env, ContractError::MilestoneAlreadyReleased);
+        }
+        let amount = (session.amount * milestone.percentage_bps as i128) / 10_000;
+        milestone.released = true;
+        session.released_amount += amount;
+        save_session(&env, &session_id, &session);
+        save_milestones(&env, &session_id, &milestones);
+        emit_milestone_released(&env, session_id, milestone_index, amount);
+    }
+
+    // -----------------------------------------------------------------------
+    // Issue 2 — Buyer and seller ratings / reputation
+    // -----------------------------------------------------------------------
+
+    pub fn rate_counterparty(
+        env: Env,
+        session_id: Bytes32,
+        rating: u8,
+        comment: String,
+    ) {
+        require_initialized(&env);
+        require_not_paused(&env);
+        if rating < 1 || rating > 5 {
+            panic_with_error!(&env, ContractError::InvalidRating);
+        }
+        let caller = env.invoker();
+        caller.require_auth();
+        let session = get_session(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+        if session.status != SessionStatus::Approved {
+            panic_with_error!(&env, ContractError::SessionNotApproved);
+        }
+        // Determine who is rating whom
+        let (from, to): (Address, Address) = if caller == session.buyer {
+            (caller, session.seller)
+        } else if caller == session.seller {
+            (caller, session.buyer)
+        } else {
+            panic_with_error!(&env, ContractError::Unauthorized);
+        };
+        // Check if rating already exists
+        if get_rating(&env, &session_id, &from, &to).is_some() {
+            panic_with_error!(&env, ContractError::RatingAlreadySubmitted);
+        }
+        let timestamp = env.ledger().timestamp();
+        let rating_entry = Rating {
+            from: from.clone(),
+            to: to.clone(),
+            session_id: session_id.clone(),
+            rating,
+            comment,
+            timestamp,
+        };
+        save_rating(&env, &session_id, &from, &to, &rating_entry);
+        // Update user rating aggregate
+        let (current_total, current_count) = get_user_rating_aggregate(&env, &to);
+        let new_total = current_total + rating as u64;
+        let new_count = current_count + 1;
+        set_user_rating_aggregate(&env, &to, new_total, new_count);
+        emit_rating_submitted(&env, session_id, from, to, rating);
+    }
+
+    pub fn get_user_rating(env: Env, address: Address) -> (u64, u32) {
+        require_initialized(&env);
+        let (total, count) = get_user_rating_aggregate(&env, &address);
+        if count == 0 {
+            return (0, 0);
+        }
+        (total / count as u64, count)
+    }
+
+    // -----------------------------------------------------------------------
+    // Issue 3 — Smart contract insurance pool
+    // -----------------------------------------------------------------------
+
+    pub fn contribute_to_insurance_pool(env: Env, amount: i128) {
+        require_initialized(&env);
+        require_not_paused(&env);
+        if amount <= 0 {
+            panic_with_error!(&env, ContractError::InvalidAmount);
+        }
+        let contributor = env.invoker();
+        contributor.require_auth();
+        let current_balance: i128 = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!(INSURANCE_POOL_BALANCE))
+            .unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&symbol_short!(INSURANCE_POOL_BALANCE), &(current_balance + amount));
+        emit_insurance_contributed(&env, contributor, amount);
+    }
+
+    pub fn file_insurance_claim(
+        env: Env,
+        session_id: Bytes32,
+        claim_amount: i128,
+    ) {
+        require_initialized(&env);
+        require_not_paused(&env);
+        if claim_amount <= 0 {
+            panic_with_error!(&env, ContractError::InvalidAmount);
+        }
+        let session = get_session(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+        let claimant = env.invoker();
+        if claimant != session.buyer && claimant != session.seller {
+            panic_with_error!(&env, ContractError::Unauthorized);
+        }
+        let pool_balance: i128 = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!(INSURANCE_POOL_BALANCE))
+            .unwrap_or(0);
+        if pool_balance < claim_amount {
+            panic_with_error!(&env, ContractError::InsufficientBalance);
+        }
+        let claim_id = next_claim_id(&env);
+        let claim = InsuranceClaim {
+            id: claim_id.clone(),
+            session_id: session_id.clone(),
+            claimant: claimant.clone(),
+            amount: claim_amount,
+            status: ClaimStatus::Pending,
+            created_at: env.ledger().timestamp(),
+        };
+        save_insurance_claim(&env, &claim_id, &claim);
+        emit_insurance_claim_filed(&env, claim_id, session_id, claimant, claim_amount);
+    }
+
+    pub fn resolve_insurance_claim(
+        env: Env,
+        claim_id: Bytes32,
+        approved: bool,
+    ) {
+        require_initialized(&env);
+        require_not_paused(&env);
+        let caller = require_admin(&env);
+        let mut claim = get_insurance_claim(&env, &claim_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::ClaimNotFound));
+        if claim.status != ClaimStatus::Pending {
+            panic_with_error!(&env, ContractError::ClaimAlreadyResolved);
+        }
+        if approved {
+            let pool_balance: i128 = env
+                .storage()
+                .persistent()
+                .get(&symbol_short!(INSURANCE_POOL_BALANCE))
+                .unwrap_or(0);
+            if pool_balance < claim.amount {
+                panic_with_error!(&env, ContractError::InsufficientBalance);
+            }
+            env.storage()
+                .persistent()
+                .set(&symbol_short!(INSURANCE_POOL_BALANCE), &(pool_balance - claim.amount));
+            claim.status = ClaimStatus::Paid;
+        } else {
+            claim.status = ClaimStatus::Rejected;
+        }
+        save_insurance_claim(&env, &claim_id, &claim);
+        emit_insurance_claim_resolved(&env, claim_id, claim.status, caller);
+    }
+
+    pub fn get_insurance_pool_balance(env: Env) -> i128 {
+        require_initialized(&env);
+        env.storage()
+            .persistent()
+            .get(&symbol_short!(INSURANCE_POOL_BALANCE))
+            .unwrap_or(0)
+    }
+
+    pub fn get_insurance_claim(env: Env, claim_id: Bytes32) -> InsuranceClaim {
+        require_initialized(&env);
+        get_insurance_claim(&env, &claim_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::ClaimNotFound))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1335,5 +1807,373 @@ mod tests {
         // Admin should have DEFAULT_ADMIN_ROLE
         let admin_role = Symbol::new(&env, "DEFAULT_ADMIN");
         assert!(client.has_role(&admin_role, &admin));
+    }
+
+    // -----------------------------------------------------------------------
+    // Issue 1 — Milestone-based partial release escrow tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_milestone_lock_and_release() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let sid = make_session_id(&env, 20);
+
+        client.initialize(&admin, &treasury);
+
+        let milestones = Vec::from_array(&env, [
+            Milestone {
+                percentage_bps: 3000,
+                description: String::from("30% upfront"),
+                released: false,
+            },
+            Milestone {
+                percentage_bps: 4000,
+                description: String::from("40% on delivery"),
+                released: false,
+            },
+            Milestone {
+                percentage_bps: 3000,
+                description: String::from("30% on验收"),
+                released: false,
+            },
+        ]);
+
+        client.lock_funds_with_milestones(&sid, &seller, &10000, &milestones);
+
+        let session = client.get_session_data(&sid);
+        assert_eq!(session.status, SessionStatus::Locked);
+        assert_eq!(session.released_amount, 0);
+
+        // Release first milestone (30% = 3000)
+        client.release_milestone(&sid, &0);
+        let session = client.get_session_data(&sid);
+        assert_eq!(session.released_amount, 3000);
+
+        // Release second milestone (40% = 4000)
+        client.release_milestone(&sid, &1);
+        let session = client.get_session_data(&sid);
+        assert_eq!(session.released_amount, 7000);
+
+        // Release third milestone (30% = 3000)
+        client.release_milestone(&sid, &2);
+        let session = client.get_session_data(&sid);
+        assert_eq!(session.released_amount, 10000);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_milestone_sum_must_be_10000() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let sid = make_session_id(&env, 21);
+
+        client.initialize(&admin, &treasury);
+
+        let milestones = Vec::from_array(&env, [
+            Milestone {
+                percentage_bps: 5000,
+                description: String::from("50%"),
+                released: false,
+            },
+            Milestone {
+                percentage_bps: 4000,
+                description: String::from("40%"),
+                released: false,
+            },
+        ]);
+
+        client.lock_funds_with_milestones(&sid, &seller, &10000, &milestones);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_release_milestone_paused_by_dispute() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let sid = make_session_id(&env, 22);
+
+        client.initialize(&admin, &treasury);
+
+        let milestones = Vec::from_array(&env, [
+            Milestone {
+                percentage_bps: 5000,
+                description: String::from("50%"),
+                released: false,
+            },
+            Milestone {
+                percentage_bps: 5000,
+                description: String::from("50%"),
+                released: false,
+            },
+        ]);
+
+        client.lock_funds_with_milestones(&sid, &seller, &10000, &milestones);
+        client.open_dispute(&sid);
+        client.release_milestone(&sid, &0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_cannot_release_already_released_milestone() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let sid = make_session_id(&env, 23);
+
+        client.initialize(&admin, &treasury);
+
+        let milestones = Vec::from_array(&env, [
+            Milestone {
+                percentage_bps: 10000,
+                description: String::from("100%"),
+                released: false,
+            },
+        ]);
+
+        client.lock_funds_with_milestones(&sid, &seller, &10000, &milestones);
+        client.release_milestone(&sid, &0);
+        client.release_milestone(&sid, &0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_release_milestone_not_buyer() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let other = Address::generate(&env);
+        let sid = make_session_id(&env, 24);
+
+        client.initialize(&admin, &treasury);
+
+        let milestones = Vec::from_array(&env, [
+            Milestone {
+                percentage_bps: 10000,
+                description: String::from("100%"),
+                released: false,
+            },
+        ]);
+
+        client.lock_funds_with_milestones(&sid, &seller, &10000, &milestones);
+        // other is not the buyer, should panic
+        client.release_milestone(&sid, &0);
+    }
+
+    // -----------------------------------------------------------------------
+    // Issue 2 — Ratings / reputation tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_rate_counterparty() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let sid = make_session_id(&env, 30);
+
+        client.initialize(&admin, &treasury);
+        client.create_session(&sid, &buyer, &seller, &1000);
+        client.lock_funds(&sid);
+        client.complete_session(&sid);
+        client.approve_session(&sid);
+
+        // Buyer rates seller
+        client.rate_counterparty(&sid, &5, &String::from("Great session!"));
+
+        // Seller rates buyer
+        client.rate_counterparty(&sid, &4, &String::from("Good buyer"));
+
+        // Check buyer rating
+        let (avg, count) = client.get_user_rating(&buyer);
+        assert_eq!(count, 1);
+        assert_eq!(avg, 4);
+
+        // Check seller rating
+        let (avg, count) = client.get_user_rating(&seller);
+        assert_eq!(count, 1);
+        assert_eq!(avg, 5);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_rate_before_approved_panics() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let sid = make_session_id(&env, 31);
+
+        client.initialize(&admin, &treasury);
+        client.create_session(&sid, &buyer, &seller, &1000);
+        client.lock_funds(&sid);
+        client.complete_session(&sid);
+        // Not yet approved, should panic
+        client.rate_counterparty(&sid, &5, &String::from("Too early"));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_cannot_rate_twice() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let sid = make_session_id(&env, 32);
+
+        client.initialize(&admin, &treasury);
+        client.create_session(&sid, &buyer, &seller, &1000);
+        client.lock_funds(&sid);
+        client.complete_session(&sid);
+        client.approve_session(&sid);
+
+        client.rate_counterparty(&sid, &5, &String::from("First rating"));
+        client.rate_counterparty(&sid, &3, &String::from("Second rating"));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_rating_out_of_range() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let sid = make_session_id(&env, 33);
+
+        client.initialize(&admin, &treasury);
+        client.create_session(&sid, &buyer, &seller, &1000);
+        client.lock_funds(&sid);
+        client.complete_session(&sid);
+        client.approve_session(&sid);
+
+        client.rate_counterparty(&sid, &6, &String::from("Invalid rating"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Issue 3 — Insurance pool tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_insurance_pool_contribute_and_claim() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let sid = make_session_id(&env, 40);
+
+        client.initialize(&admin, &treasury);
+
+        // Contribute to pool
+        client.contribute_to_insurance_pool(&5000);
+        assert_eq!(client.get_insurance_pool_balance(), 5000);
+
+        // Create and lock a session
+        client.create_session(&sid, &buyer, &seller, &10000);
+        client.lock_funds(&sid);
+
+        // File a claim
+        client.file_insurance_claim(&sid, &3000);
+
+        // Resolve claim (approve)
+        let claim_id = Bytes32::from_array(&env, &[0u8; 32]);
+        client.resolve_insurance_claim(&claim_id, true);
+
+        let claim = client.get_insurance_claim(&claim_id);
+        assert_eq!(claim.status, ClaimStatus::Paid);
+        assert_eq!(client.get_insurance_pool_balance(), 2000);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_insurance_claim_without_pool_funds() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let sid = make_session_id(&env, 41);
+
+        client.initialize(&admin, &treasury);
+
+        // Create and lock a session
+        client.create_session(&sid, &buyer, &seller, &10000);
+        client.lock_funds(&sid);
+
+        // File a claim without any pool contributions
+        client.file_insurance_claim(&sid, &3000);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_insurance_claim_by_unauthorized() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let other = Address::generate(&env);
+        let sid = make_session_id(&env, 42);
+
+        client.initialize(&admin, &treasury);
+
+        // Create and lock a session
+        client.create_session(&sid, &buyer, &seller, &10000);
+        client.lock_funds(&sid);
+
+        // Other is not party to the session
+        client.file_insurance_claim(&sid, &3000);
     }
 }

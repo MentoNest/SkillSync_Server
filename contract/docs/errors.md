@@ -23,6 +23,16 @@ the range 0-255. Codes are grouped into reserved ranges by category:
 | 11   | `FeeTooHigh`            | Requested platform fee exceeds the cap.   |
 | 12   | `AlreadyArchived`       | Session has already been archived.        |
 | 13   | `NotArchived`           | Session has not been archived.            |
+| 405  | `MilestoneSumInvalid`   | Milestone percentages don't sum to 100%.  |
+| 406  | `MilestoneNotFound`     | Milestone index out of bounds.            |
+| 407  | `MilestoneAlreadyReleased` | Milestone already released.             |
+| 408  | `MilestoneLockedByDispute` | Cannot release milestone during dispute.|
+| 409  | `InvalidRating`         | Rating must be between 1 and 5.          |
+| 410  | `RatingAlreadySubmitted`| Rating already submitted for this party.  |
+| 411  | `SessionNotApproved`    | Session not yet approved; ratings not allowed. |
+| 412  | `InsurancePoolInactive` | Insurance pool is not active.            |
+| 413  | `ClaimNotFound`         | Insurance claim not found.               |
+| 414  | `ClaimAlreadyResolved`  | Claim already resolved.                  |
 
 ## Initialization (100-199)
 
