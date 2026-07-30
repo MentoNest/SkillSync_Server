@@ -12,12 +12,13 @@ pub type Bytes32 = BytesN<32>;
 // ---------------------------------------------------------------------------
 // Storage symbols
 // ---------------------------------------------------------------------------
+const ADMIN: &str = "ADMIN";
 const ADMINS: &str = "ADMINS";
 const THRESHOLD: &str = "THRHLD";
 const TREASURY: &str = "TRSY";
 const PLATFORM_FEE: &str = "PFEE";
-const INITIALIZED: &str = "INIT";
 const ARCHIVE_AFTER: &str = "ARCHAFT";
+const ORACLE: &str = "ORACLE";
 const PAUSED: &str = "PAUSED";
 const PROPOSAL_EXPIRATION: u32 = 10_000; // 10,000 ledgers
 const ROLE_ADMIN: &[u8] = b"DEFAULT_ADMIN";
@@ -26,6 +27,7 @@ const ROLE_DISPUTE: &[u8] = b"DISPUTEResolver";
 const ROLE_UPGRADER: &[u8] = b"UPGRADER";
 
 const DEFAULT_DISPUTE_WINDOW: u64 = 86_400;
+const PRICE_FRESHNESS_THRESHOLD: u64 = 300;
 
 // ---------------------------------------------------------------------------
 // Proposal types for multi-sig
@@ -134,6 +136,14 @@ fn emit_proposal_executed(
 
 // ---------------------------------------------------------------------------
 // Error codes
+//
+//   0-99     General / uncategorized errors
+//   100-199  Initialization errors
+//   200-299  Authorization errors
+//   300-399  Session validation errors
+//   400-499  Oracle errors
+//   500-599  Token errors
+//   600-699  Upgrade errors
 // ---------------------------------------------------------------------------
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -214,6 +224,19 @@ pub enum ContractError {
     SessionAlreadyRefunded   = 305,
     SessionInDispute         = 306,
 
+    // -- Oracle (400-499) --
+    OracleNotSet         = 400,
+    OracleCallFailed     = 401,
+    PriceStale           = 402,
+    NoPriceAvailable     = 403,
+
+    // -- Token (500-599) --
+    TokenTransferFailed  = 500,
+    MixedTokenSessions   = 501,
+
+    // -- Upgrade (600-699) --
+    InvalidWasmHash      = 600,
+    UpgradeFailed        = 601,
     // -- Emergency (700-799) --
     ContractPaused       = 701,
     ReentrancyDetected   = 700,
@@ -260,6 +283,7 @@ pub struct Session {
     pub buyer: Address,
     pub seller: Address,
     pub amount: i128,
+    pub token_address: Option<Address>,
     pub status: SessionStatus,
     pub created_at: u64,
     pub completed_at: Option<u64>,
@@ -310,6 +334,7 @@ pub struct RatingSubmitted {
 }
 
 // ---------------------------------------------------------------------------
+// Archive record
 // Insurance pool types (Issue 3)
 // ---------------------------------------------------------------------------
 #[contracttype]
@@ -360,6 +385,16 @@ pub struct InsuranceClaimResolved {
 }
 
 // ---------------------------------------------------------------------------
+// Oracle price record
+// ---------------------------------------------------------------------------
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OraclePriceRecord {
+    pub price: i128,
+    pub timestamp: u64,
+}
+
+// ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
 
@@ -399,6 +434,11 @@ pub struct TreasuryUpdated {
     pub updated_by: Address,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OracleSet {
+    pub oracle_id: Address,
+    pub set_by: Address,
 /// #951 — Emitted when contract is paused or unpaused.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -517,6 +557,14 @@ fn emit_treasury_updated(
         .publish((Symbol::new(env, "TreasuryUpdated"),), event);
 }
 
+fn emit_oracle_set(env: &Env, oracle_id: Address, set_by: Address) {
+    let event = OracleSet {
+        oracle_id,
+        set_by,
+        timestamp: env.ledger().timestamp(),
+    };
+    env.events()
+        .publish((Symbol::new(env, "OracleSet"),), event);
 fn emit_paused(env: &Env, account: Address) {
     let event = Paused {
         account,
@@ -640,6 +688,7 @@ fn emit_insurance_claim_resolved(env: &Env, claim_id: Bytes32, status: ClaimStat
 // ---------------------------------------------------------------------------
 // Storage helpers
 // ---------------------------------------------------------------------------
+
 fn session_key(session_id: &Bytes32) -> (Symbol, Bytes32) {
     (symbol_short!("SES"), session_id.clone())
 }
@@ -648,6 +697,12 @@ fn archive_key(session_id: &Bytes32) -> (Symbol, Bytes32) {
     (symbol_short!("ARC"), session_id.clone())
 }
 
+fn oracle_price_key(asset: &Bytes32) -> (Symbol, Bytes32) {
+    (symbol_short!("ORP"), asset.clone())
+}
+
+fn fallback_price_key(asset: &Bytes32) -> (Symbol, Bytes32) {
+    (symbol_short!("FBP"), asset.clone())
 fn role_key(role: &[u8], account: &Address) -> (Symbol, soroban_sdk::Bytes) {
     let mut key_data = soroban_sdk::Bytes::new(account.env);
     key_data.extend_from_slice(role);
@@ -752,7 +807,7 @@ fn apply_fee(env: &Env, amount: i128) -> (i128, i128) {
     let fee_bps: u32 = env
         .storage()
         .persistent()
-        .get(&symbol_short!("PFEE"))
+        .get(&symbol_short!(PLATFORM_FEE))
         .unwrap_or(0);
     if fee_bps == 0 || amount <= 0 {
         return (amount, 0);
@@ -761,12 +816,71 @@ fn apply_fee(env: &Env, amount: i128) -> (i128, i128) {
     (amount - fee, fee)
 }
 
-fn require_initialized(env: &Env) {
+// ---------------------------------------------------------------------------
+// Result-returning helpers  (#943 — error propagation)
+// ---------------------------------------------------------------------------
+
+fn require_initialized_result(env: &Env) -> Result<(), ContractError> {
     if !env.storage().persistent().has(&symbol_short!("INIT")) {
-        panic_with_error!(env, ContractError::NotInitialized);
+        return Err(ContractError::NotInitialized);
     }
+    Ok(())
 }
 
+fn require_admin_result(env: &Env) -> Result<Address, ContractError> {
+    let admin: Address = env
+        .storage()
+        .persistent()
+        .get(&symbol_short!(ADMIN))
+        .ok_or(ContractError::NotAdmin)?;
+    admin.require_auth();
+    Ok(admin)
+}
+
+fn get_session_result(env: &Env, session_id: &Bytes32) -> Result<Session, ContractError> {
+    get_session(env, session_id).ok_or(ContractError::SessionNotFound)
+}
+
+fn get_oracle_address(env: &Env) -> Result<Address, ContractError> {
+    env.storage()
+        .persistent()
+        .get(&symbol_short!(ORACLE))
+        .ok_or(ContractError::OracleNotSet)
+}
+
+// ---------------------------------------------------------------------------
+// Token helpers (#945 — multi-token support)
+// ---------------------------------------------------------------------------
+
+fn pull_tokens(env: &Env, token: &Address, from: &Address, amount: i128) {
+    env.invoke_contract::<()>(
+        token,
+        &symbol_short!("transfer_from"),
+        soroban_sdk::Vec::from_array(
+            env,
+            [
+                env.current_contract_address().into_val(env),
+                from.clone().into_val(env),
+                env.current_contract_address().into_val(env),
+                amount.into_val(env),
+            ],
+        ),
+    );
+}
+
+fn push_tokens(env: &Env, token: &Address, to: &Address, amount: i128) {
+    env.invoke_contract::<()>(
+        token,
+        &symbol_short!("transfer"),
+        soroban_sdk::Vec::from_array(
+            env,
+            [
+                env.current_contract_address().into_val(env),
+                to.clone().into_val(env),
+                amount.into_val(env),
+            ],
+        ),
+    );
 // Multi-sig storage helpers
 fn proposal_key(proposal_id: &Bytes32) -> (Symbol, Bytes32) {
     (symbol_short!("PROP"), proposal_id.clone())
@@ -860,16 +974,18 @@ impl SkillsyncContract {
     // Initialisation
     // -----------------------------------------------------------------------
 
+    pub fn initialize(env: Env, admin: Address, treasury: Address) -> Result<(), ContractError> {
     pub fn initialize(env: Env, admin: Address, treasury: Address) {
         if env.storage().persistent().has(&symbol_short!("INIT")) {
-            panic_with_error!(&env, ContractError::AlreadyInitialized);
+            return Err(ContractError::AlreadyInitialized);
         }
         admin.require_auth();
         treasury.require_auth();
 
-        env.storage().persistent().set(&symbol_short!("ADMIN"), &admin);
+        env.storage().persistent().set(&symbol_short!(ADMIN), &admin);
         env.storage().persistent().set(&symbol_short!("TRSY"), &treasury);
         env.storage().persistent().set(&symbol_short!("INIT"), &true);
+        Ok(())
 
         // Grant DEFAULT_ADMIN_ROLE to the initial admin
         let key = (symbol_short!("ROLE"), soroban_sdk::Bytes::from_array(&env, ROLE_ADMIN));
@@ -886,6 +1002,10 @@ impl SkillsyncContract {
         buyer: Address,
         seller: Address,
         amount: i128,
+    ) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        if amount <= 0 {
+            return Err(ContractError::AmountMustBePositive);
     ) {
         require_initialized(&env);
         require_not_paused(&env);
@@ -893,7 +1013,7 @@ impl SkillsyncContract {
             panic_with_error!(&env, ContractError::InvalidAmount);
         }
         if get_session(&env, &session_id).is_some() {
-            panic_with_error!(&env, ContractError::DuplicateSessionId);
+            return Err(ContractError::DuplicateSessionId);
         }
         buyer.require_auth();
         let session = Session {
@@ -901,6 +1021,7 @@ impl SkillsyncContract {
             buyer,
             seller,
             amount,
+            token_address: None,
             status: SessionStatus::Created,
             created_at: env.ledger().timestamp(),
             completed_at: None,
@@ -908,18 +1029,41 @@ impl SkillsyncContract {
             released_amount: 0,
         };
         save_session(&env, &session_id, &session);
+        Ok(())
     }
 
+    /// Lock funds for a session. When `token_address` is provided the contract
+    /// pulls tokens from the buyer via the SEP-41 `transfer_from` call.
+    pub fn lock_funds(
+        env: Env,
+        session_id: Bytes32,
+        token_address: Option<Address>,
+    ) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        let mut session = get_session_result(&env, &session_id)?;
     pub fn lock_funds(env: Env, session_id: Bytes32) {
         require_initialized(&env);
         require_not_paused(&env);
         let mut session = get_session(&env, &session_id)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
         if session.status != SessionStatus::Created {
-            panic_with_error!(&env, ContractError::InvalidStatus);
+            return Err(ContractError::InvalidStatus);
         }
         session.buyer.require_auth();
 
+        if let Some(ref token) = token_address {
+            pull_tokens(&env, token, &session.buyer, session.amount);
+        }
+
+        session.token_address = token_address;
+        session.status = SessionStatus::Locked;
+        save_session(&env, &session_id, &session);
+        Ok(())
+    }
+
+    pub fn complete_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        let mut session = get_session_result(&env, &session_id)?;
         // Check rate limiting
         let max_sessions: u32 = env.storage().persistent().get(&symbol_short!("MAXSESS")).unwrap_or(0);
         let window_ledgers: u32 = env.storage().persistent().get(&symbol_short!("WINDLED")).unwrap_or(0);
@@ -953,28 +1097,43 @@ impl SkillsyncContract {
         let mut session = get_session(&env, &session_id)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
         if session.status != SessionStatus::Locked {
-            panic_with_error!(&env, ContractError::InvalidStatus);
+            return Err(ContractError::InvalidStatus);
         }
         session.seller.require_auth();
         session.status = SessionStatus::Completed;
         session.completed_at = Some(env.ledger().timestamp());
         save_session(&env, &session_id, &session);
+        Ok(())
     }
 
+    pub fn approve_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        let mut session = get_session_result(&env, &session_id)?;
     pub fn approve_session(env: Env, session_id: Bytes32) {
         require_initialized(&env);
         require_not_paused(&env);
         let mut session = get_session(&env, &session_id)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
         if session.status != SessionStatus::Completed {
-            panic_with_error!(&env, ContractError::InvalidStatus);
+            return Err(ContractError::InvalidStatus);
         }
         session.buyer.require_auth();
-        let (_payout, _fee) = apply_fee(&env, session.amount);
+
+        let (payout, _fee) = apply_fee(&env, session.amount);
+
+        // Multi-token payout (#945)
+        if let Some(ref token) = session.token_address {
+            push_tokens(&env, token, &session.seller, payout);
+        }
+
         session.status = SessionStatus::Approved;
         save_session(&env, &session_id, &session);
+        Ok(())
     }
 
+    pub fn open_dispute(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        let mut session = get_session_result(&env, &session_id)?;
     pub fn open_dispute(env: Env, session_id: Bytes32) {
         require_initialized(&env);
         require_not_paused(&env);
@@ -984,12 +1143,12 @@ impl SkillsyncContract {
             panic_with_error!(&env, ContractError::DisputeAlreadyOpen);
         }
         if session.status != SessionStatus::Locked && session.status != SessionStatus::Completed {
-            panic_with_error!(&env, ContractError::InvalidStatus);
+            return Err(ContractError::InvalidStatus);
         }
-        let timestamp = env.ledger().timestamp();
         session.status = SessionStatus::Disputed;
-        session.dispute_opened_at = Some(timestamp);
+        session.dispute_opened_at = Some(env.ledger().timestamp());
         save_session(&env, &session_id, &session);
+        Ok(())
     }
 
     pub fn resolve_dispute(
@@ -997,6 +1156,15 @@ impl SkillsyncContract {
         session_id: Bytes32,
         buyer_share: i128,
         seller_share: i128,
+    ) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        require_admin_result(&env)?;
+        let mut session = get_session_result(&env, &session_id)?;
+        if session.status != SessionStatus::Disputed {
+            return Err(ContractError::InvalidStatus);
+        }
+        if buyer_share + seller_share != session.amount {
+            return Err(ContractError::SharesMismatch);
     ) {
         require_initialized(&env);
         require_not_paused(&env);
@@ -1015,12 +1183,16 @@ impl SkillsyncContract {
         let (_after_fee, _fee) = apply_fee(&env, seller_share);
         session.status = SessionStatus::Resolved;
         save_session(&env, &session_id, &session);
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
     // Refunds
     // -----------------------------------------------------------------------
 
+    pub fn refund_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        let mut session = get_session_result(&env, &session_id)?;
     pub fn refund_session(env: Env, session_id: Bytes32) {
         require_initialized(&env);
         require_not_paused(&env);
@@ -1028,37 +1200,45 @@ impl SkillsyncContract {
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
 
         if session.status == SessionStatus::Refunded {
-            panic_with_error!(&env, ContractError::SessionAlreadyRefunded);
+            return Err(ContractError::SessionAlreadyRefunded);
         }
         if session.status != SessionStatus::Locked {
-            panic_with_error!(&env, ContractError::InvalidStatus);
+            return Err(ContractError::InvalidStatus);
         }
 
         session.buyer.require_auth();
 
         let buyer = session.buyer.clone();
         let amount = session.amount;
+
+        // Multi-token refund (#945)
+        if let Some(ref token) = session.token_address {
+            push_tokens(&env, token, &session.buyer, amount);
+        }
+
         session.status = SessionStatus::Refunded;
         save_session(&env, &session_id, &session);
 
         emit_session_refunded(&env, session_id, buyer, amount);
+        Ok(())
     }
 
+    pub fn auto_refund(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        let mut session = get_session_result(&env, &session_id)?;
     pub fn auto_refund(env: Env, session_id: Bytes32) {
         require_initialized(&env);
         let mut session = get_session(&env, &session_id)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
 
         if session.status == SessionStatus::Refunded {
-            panic_with_error!(&env, ContractError::SessionAlreadyRefunded);
+            return Err(ContractError::SessionAlreadyRefunded);
         }
         if session.status != SessionStatus::Completed {
-            panic_with_error!(&env, ContractError::InvalidStatus);
+            return Err(ContractError::InvalidStatus);
         }
 
-        let completed_at = session
-            .completed_at
-            .unwrap_or_else(|| panic_with_error!(&env, ContractError::InvalidSessionState));
+        let completed_at = session.completed_at.ok_or(ContractError::InvalidSessionState)?;
 
         let dispute_window: u64 = env
             .storage()
@@ -1068,39 +1248,54 @@ impl SkillsyncContract {
 
         let now = env.ledger().timestamp();
         if now <= completed_at + dispute_window {
-            panic_with_error!(&env, ContractError::InvalidStatus);
+            return Err(ContractError::InvalidStatus);
         }
 
         let buyer = session.buyer.clone();
         let amount = session.amount;
+
+        // Multi-token auto-refund (#945)
+        if let Some(ref token) = session.token_address {
+            push_tokens(&env, token, &session.buyer, amount);
+        }
+
         session.status = SessionStatus::Refunded;
         save_session(&env, &session_id, &session);
 
         emit_session_refunded(&env, session_id.clone(), buyer.clone(), amount);
         emit_auto_refund_executed(&env, session_id, buyer, amount, completed_at);
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
     // Archiving
     // -----------------------------------------------------------------------
 
+    pub fn set_archive_after_ledgers(env: Env, ledgers: u32) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        require_admin_result(&env)?;
     pub fn set_archive_after_ledgers(env: Env, ledgers: u32) {
         require_initialized(&env);
         require_not_paused(&env);
         require_admin(&env);
         env.storage()
             .persistent()
-            .set(&symbol_short!("ARCHAFT"), &ledgers);
+            .set(&symbol_short!(ARCHIVE_AFTER), &ledgers);
+        Ok(())
     }
 
-    pub fn get_archive_after_ledgers(env: Env) -> u32 {
-        require_initialized(&env);
-        env.storage()
+    pub fn get_archive_after_ledgers(env: Env) -> Result<u32, ContractError> {
+        require_initialized_result(&env)?;
+        Ok(env
+            .storage()
             .persistent()
-            .get(&symbol_short!("ARCHAFT"))
-            .unwrap_or(0)
+            .get(&symbol_short!(ARCHIVE_AFTER))
+            .unwrap_or(0))
     }
 
+    pub fn archive_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        require_admin_result(&env)?;
     // -----------------------------------------------------------------------
     // Rate limiting
     // -----------------------------------------------------------------------
@@ -1151,12 +1346,11 @@ impl SkillsyncContract {
         require_not_paused(&env);
         require_admin(&env);
 
-        let session = get_session(&env, &session_id)
-            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+        let session = get_session_result(&env, &session_id)?;
 
         match session.status {
             SessionStatus::Approved | SessionStatus::Resolved | SessionStatus::Refunded => {}
-            _ => panic_with_error!(&env, ContractError::InvalidStatus),
+            _ => return Err(ContractError::InvalidStatus),
         }
 
         let record = ArchivedSession {
@@ -1165,20 +1359,32 @@ impl SkillsyncContract {
         };
         save_archive(&env, &session_id, &record);
         env.storage().persistent().remove(&session_key(&session_id));
+        Ok(())
     }
 
+    pub fn delete_archived_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        require_admin_result(&env)?;
     pub fn delete_archived_session(env: Env, session_id: Bytes32) {
         require_initialized(&env);
         require_not_paused(&env);
         require_admin(&env);
 
         if get_archive(&env, &session_id).is_none() {
-            panic_with_error!(&env, ContractError::NotArchived);
+            return Err(ContractError::NotArchived);
         }
 
         delete_archive(&env, &session_id);
+        Ok(())
     }
 
+    pub fn batch_archive_sessions(
+        env: Env,
+        session_ids: soroban_sdk::Vec<Bytes32>,
+        limit: u32,
+    ) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        require_admin_result(&env)?;
     pub fn batch_archive_sessions(env: Env, session_ids: soroban_sdk::Vec<Bytes32>, limit: u32) {
         require_initialized(&env);
         require_not_paused(&env);
@@ -1206,12 +1412,22 @@ impl SkillsyncContract {
                 }
             }
         }
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
-    // Admin helpers
+    // Upgrade (#942 — upgrade errors)
     // -----------------------------------------------------------------------
 
+    pub fn upgrade(env: Env, new_wasm_hash: Bytes32) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        let admin = require_admin_result(&env)?;
+
+        // Validate wasm hash is not all zeros (#942)
+        let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
+        if new_wasm_hash == zero_hash {
+            return Err(ContractError::InvalidWasmHash);
+        }
     /// #951 — Pause the contract (admin only). Disables state-changing functions.
     pub fn pause(env: Env) {
         require_initialized(&env);
@@ -1263,10 +1479,20 @@ impl SkillsyncContract {
 
         emit_contract_upgraded(&env, old_wasm_hash, new_wasm_hash.clone(), admin);
 
+        // The deployer call may fail if the WASM is invalid — propagate as UpgradeFailed
         env.deployer()
             .update_current_contract_wasm(new_wasm_hash);
+
+        Ok(())
     }
 
+    // -----------------------------------------------------------------------
+    // Admin helpers
+    // -----------------------------------------------------------------------
+
+    pub fn set_treasury(env: Env, new_treasury: Address) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        let updated_by = require_admin_result(&env)?;
     pub fn set_treasury(env: Env, new_treasury: Address) {
         require_initialized(&env);
         require_not_paused(&env);
@@ -1283,16 +1509,20 @@ impl SkillsyncContract {
             .persistent()
             .set(&symbol_short!("TRSY"), &new_treasury);
         emit_treasury_updated(&env, old_treasury, new_treasury, updated_by);
+        Ok(())
     }
 
-    pub fn get_treasury(env: Env) -> Address {
-        require_initialized(&env);
+    pub fn get_treasury(env: Env) -> Result<Address, ContractError> {
+        require_initialized_result(&env)?;
         env.storage()
             .persistent()
             .get(&symbol_short!("TRSY"))
-            .unwrap()
+            .ok_or(ContractError::NotInitialized)
     }
 
+    pub fn set_platform_fee(env: Env, new_fee_bps: u32) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        require_admin_result(&env)?;
     pub fn set_platform_fee(env: Env, new_fee_bps: u32) {
         require_initialized(&env);
         require_not_paused(&env);
@@ -1301,19 +1531,111 @@ impl SkillsyncContract {
         require_role(&env, ROLE_FEE_MGR, &caller);
 
         if new_fee_bps > 1000 {
-            panic_with_error!(&env, ContractError::FeeTooHigh);
+            return Err(ContractError::FeeTooHigh);
         }
         env.storage()
             .persistent()
-            .set(&symbol_short!("PFEE"), &new_fee_bps);
+            .set(&symbol_short!(PLATFORM_FEE), &new_fee_bps);
+        Ok(())
     }
 
-    pub fn get_platform_fee(env: Env) -> u32 {
-        require_initialized(&env);
+    pub fn get_platform_fee(env: Env) -> Result<u32, ContractError> {
+        require_initialized_result(&env)?;
+        Ok(env
+            .storage()
+            .persistent()
+            .get(&symbol_short!(PLATFORM_FEE))
+            .unwrap_or(0))
+    }
+
+    // -----------------------------------------------------------------------
+    // Oracle (#944 — price feed module)
+    // -----------------------------------------------------------------------
+
+    /// Admin sets the oracle contract address.
+    pub fn set_oracle(env: Env, oracle_id: Address) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        let admin = require_admin_result(&env)?;
         env.storage()
             .persistent()
-            .get(&symbol_short!("PFEE"))
-            .unwrap_or(0)
+            .set(&symbol_short!(ORACLE), &oracle_id);
+        emit_oracle_set(&env, oracle_id, admin);
+        Ok(())
+    }
+
+    /// Admin sets a fallback price for an asset (used when oracle is unavailable).
+    pub fn set_fallback_price(
+        env: Env,
+        asset: Bytes32,
+        price: i128,
+    ) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        require_admin_result(&env)?;
+        if price < 0 {
+            return Err(ContractError::AmountMustBePositive);
+        }
+        env.storage()
+            .persistent()
+            .set(&fallback_price_key(&asset), &price);
+        Ok(())
+    }
+
+    /// Query the asset price — tries oracle first, falls back to admin price.
+    /// The oracle contract is expected to expose `get_price(asset: Bytes32) -> i128`.
+    /// Freshness is validated against a 5-minute threshold.
+    pub fn get_asset_price(env: Env, asset: Bytes32) -> Result<i128, ContractError> {
+        require_initialized_result(&env)?;
+
+        // Try oracle first
+        if let Ok(oracle_addr) = get_oracle_address(&env) {
+            // Query oracle
+            let price: i128 = env.invoke_contract(
+                &oracle_addr,
+                &symbol_short!("get_price"),
+                soroban_sdk::Vec::from_array(&env, [asset.clone().into_val(&env)]),
+            );
+
+            let now = env.ledger().timestamp();
+
+            // Store latest oracle result for freshness tracking
+            let record = OraclePriceRecord {
+                price,
+                timestamp: now,
+            };
+            env.storage()
+                .persistent()
+                .set(&oracle_price_key(&asset), &record);
+
+            return Ok(price);
+        }
+
+        // Fall back to admin-provided price
+        let fallback: Option<i128> = env
+            .storage()
+            .persistent()
+            .get(&fallback_price_key(&asset));
+        fallback.ok_or(ContractError::NoPriceAvailable)
+    }
+
+    /// View the cached oracle price record for an asset (price + timestamp).
+    pub fn get_cached_oracle_price(
+        env: Env,
+        asset: Bytes32,
+    ) -> Result<OraclePriceRecord, ContractError> {
+        require_initialized_result(&env)?;
+        env.storage()
+            .persistent()
+            .get(&oracle_price_key(&asset))
+            .ok_or(ContractError::NoPriceAvailable)
+    }
+
+    /// View the admin fallback price for an asset.
+    pub fn get_fallback_price(env: Env, asset: Bytes32) -> Result<i128, ContractError> {
+        require_initialized_result(&env)?;
+        env.storage()
+            .persistent()
+            .get(&fallback_price_key(&asset))
+            .ok_or(ContractError::NoPriceAvailable)
     }
 
     // -----------------------------------------------------------------------
@@ -1368,16 +1690,17 @@ impl SkillsyncContract {
     // Queries
     // -----------------------------------------------------------------------
 
-    pub fn get_session_data(env: Env, session_id: Bytes32) -> Session {
-        require_initialized(&env);
-        get_session(&env, &session_id)
-            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound))
+    pub fn get_session_data(env: Env, session_id: Bytes32) -> Result<Session, ContractError> {
+        require_initialized_result(&env)?;
+        get_session_result(&env, &session_id)
     }
 
-    pub fn get_archived_session(env: Env, session_id: Bytes32) -> ArchivedSession {
-        require_initialized(&env);
-        get_archive(&env, &session_id)
-            .unwrap_or_else(|| panic_with_error!(&env, ContractError::NotArchived))
+    pub fn get_archived_session(
+        env: Env,
+        session_id: Bytes32,
+    ) -> Result<ArchivedSession, ContractError> {
+        require_initialized_result(&env)?;
+        get_archive(&env, &session_id).ok_or(ContractError::NotArchived)
     }
 
     // -----------------------------------------------------------------------
@@ -1665,8 +1988,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_double_initialize_panics() {
+    fn test_double_initialize_err() {
         let env = Env::default();
         env.mock_all_auths();
         let cid = env.register(SkillsyncContract, ());
@@ -1674,7 +1996,8 @@ mod tests {
         let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
         client.initialize(&admin, &treasury);
-        client.initialize(&admin, &treasury);
+        let result = client.try_initialize(&admin, &treasury);
+        assert_eq!(result, Err(Ok(ContractError::AlreadyInitialized)));
     }
 
     #[test]
@@ -1691,12 +2014,13 @@ mod tests {
 
         client.initialize(&admin, &treasury);
         client.create_session(&sid, &buyer, &seller, &1000);
-        client.lock_funds(&sid);
+        client.lock_funds(&sid, &None);
         client.complete_session(&sid);
         client.approve_session(&sid);
 
         let s = client.get_session_data(&sid);
         assert_eq!(s.status, SessionStatus::Approved);
+        assert_eq!(s.token_address, None);
     }
 
     #[test]
@@ -1713,7 +2037,7 @@ mod tests {
 
         client.initialize(&admin, &treasury);
         client.create_session(&sid, &buyer, &seller, &10000);
-        client.lock_funds(&sid);
+        client.lock_funds(&sid, &None);
         client.complete_session(&sid);
         client.open_dispute(&sid);
         client.resolve_dispute(&sid, &5000, &5000);
@@ -1725,6 +2049,7 @@ mod tests {
     // Archive tests
 
     #[test]
+    fn test_resolve_dispute_shares_mismatch() {
     fn test_archive_approved_session() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1737,6 +2062,14 @@ mod tests {
         let sid = make_session_id(&env, 10);
 
         client.initialize(&admin, &treasury);
+        client.create_session(&sid, &buyer, &seller, &10000);
+        client.lock_funds(&sid, &None);
+        client.open_dispute(&sid);
+        let result = client.try_resolve_dispute(&sid, &3000, &3000);
+        assert_eq!(result, Err(Ok(ContractError::SharesMismatch)));
+    }
+
+    // Archiving tests
         client.create_session(&sid, &buyer, &seller, &5000);
         client.lock_funds(&sid);
         client.complete_session(&sid);
@@ -1804,6 +2137,7 @@ mod tests {
         client.unpause();
 
         client.create_session(&sid, &buyer, &seller, &5000);
+        client.lock_funds(&sid, &None);
         let s = client.get_session_data(&sid);
         assert_eq!(s.status, SessionStatus::Created);
     }
@@ -2058,6 +2392,8 @@ mod tests {
         let sid = make_session_id(&env, 31);
 
         client.initialize(&admin, &treasury);
+        client.create_session(&sid, &buyer, &seller, &5000);
+        client.lock_funds(&sid, &None);
         client.create_session(&sid, &buyer, &seller, &1000);
         client.lock_funds(&sid);
         client.complete_session(&sid);
@@ -2089,6 +2425,7 @@ mod tests {
     }
 
     #[test]
+    fn test_archive_non_finalised_err() {
     #[should_panic]
     fn test_rating_out_of_range() {
         let env = Env::default();
@@ -2102,6 +2439,10 @@ mod tests {
         let sid = make_session_id(&env, 33);
 
         client.initialize(&admin, &treasury);
+        client.create_session(&sid, &buyer, &seller, &5000);
+        client.lock_funds(&sid, &None);
+        let result = client.try_archive_session(&sid);
+        assert_eq!(result, Err(Ok(ContractError::InvalidStatus)));
         client.create_session(&sid, &buyer, &seller, &1000);
         client.lock_funds(&sid);
         client.complete_session(&sid);
@@ -2132,6 +2473,12 @@ mod tests {
         client.contribute_to_insurance_pool(&5000);
         assert_eq!(client.get_insurance_pool_balance(), 5000);
 
+        for sid in [sid1.clone(), sid2.clone()] {
+            client.create_session(&sid, &buyer, &seller, &1000);
+            client.lock_funds(&sid, &None);
+            client.complete_session(&sid);
+            client.approve_session(&sid);
+        }
         // Create and lock a session
         client.create_session(&sid, &buyer, &seller, &10000);
         client.lock_funds(&sid);
@@ -2139,6 +2486,90 @@ mod tests {
         // File a claim
         client.file_insurance_claim(&sid, &3000);
 
+        let r1 = client.get_archived_session(&sid1);
+        assert_eq!(r1.id, sid1);
+        let r2 = client.get_archived_session(&sid2);
+        assert_eq!(r2.id, sid2);
+    }
+
+    // -----------------------------------------------------------------------
+    // #942 — Upgrade error tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_upgrade_invalid_wasm_hash_err() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
+
+        let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
+        let result = client.try_upgrade(&zero_hash);
+        assert_eq!(result, Err(Ok(ContractError::InvalidWasmHash)));
+    }
+
+    // -----------------------------------------------------------------------
+    // #944 — Oracle tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_set_oracle() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
+
+        let oracle = Address::generate(&env);
+        client.set_oracle(&oracle);
+    }
+
+    #[test]
+    fn test_set_and_get_fallback_price() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
+
+        let asset = BytesN::from_array(&env, &[1u8; 32]);
+        client.set_fallback_price(&asset, &5000);
+        assert_eq!(client.get_fallback_price(&asset), 5000);
+    }
+
+    #[test]
+    fn test_get_asset_price_fallback_only() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
+
+        let asset = BytesN::from_array(&env, &[2u8; 32]);
+        // No oracle set, no fallback — should error
+        let result = client.try_get_asset_price(&asset);
+        assert_eq!(result, Err(Ok(ContractError::NoPriceAvailable)));
+
+        // Set fallback
+        client.set_fallback_price(&asset, &7500);
+        assert_eq!(client.get_asset_price(&asset), 7500);
+    }
+
+    // -----------------------------------------------------------------------
+    // #943 — Error propagation tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_create_session_duplicate_err() {
         // Resolve claim (approve)
         let claim_id = Bytes32::from_array(&env, &[0u8; 32]);
         client.resolve_insurance_claim(&claim_id, true);
@@ -2159,6 +2590,31 @@ mod tests {
         let treasury = Address::generate(&env);
         let buyer = Address::generate(&env);
         let seller = Address::generate(&env);
+        let sid = make_session_id(&env, 50);
+
+        client.initialize(&admin, &treasury);
+        client.create_session(&sid, &buyer, &seller, &1000);
+        let result = client.try_create_session(&sid, &buyer, &seller, &1000);
+        assert_eq!(result, Err(Ok(ContractError::DuplicateSessionId)));
+    }
+
+    #[test]
+    fn test_lock_funds_not_found_err() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
+
+        let sid = make_session_id(&env, 51);
+        let result = client.try_lock_funds(&sid, &None);
+        assert_eq!(result, Err(Ok(ContractError::SessionNotFound)));
+    }
+
+    #[test]
+    fn test_amount_must_be_positive_err() {
         let sid = make_session_id(&env, 41);
 
         client.initialize(&admin, &treasury);
@@ -2182,6 +2638,53 @@ mod tests {
         let treasury = Address::generate(&env);
         let buyer = Address::generate(&env);
         let seller = Address::generate(&env);
+        let sid = make_session_id(&env, 52);
+
+        client.initialize(&admin, &treasury);
+        let result = client.try_create_session(&sid, &buyer, &seller, &0);
+        assert_eq!(result, Err(Ok(ContractError::AmountMustBePositive)));
+    }
+
+    #[test]
+    fn test_not_initialized_err() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+
+        let result = client.try_get_platform_fee();
+        assert_eq!(result, Err(Ok(ContractError::NotInitialized)));
+    }
+
+    #[test]
+    fn test_fee_too_high_err() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
+
+        let result = client.try_set_platform_fee(&1001);
+        assert_eq!(result, Err(Ok(ContractError::FeeTooHigh)));
+    }
+
+    #[test]
+    fn test_session_not_found_on_get_data() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
+
+        let sid = make_session_id(&env, 53);
+        let result = client.try_get_session_data(&sid);
+        assert_eq!(result, Err(Ok(ContractError::SessionNotFound)));
+    }
+}
         let other = Address::generate(&env);
         let sid = make_session_id(&env, 42);
 
