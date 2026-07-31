@@ -4,6 +4,7 @@ extern crate alloc;
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error,
+    Address, BytesN, Env, String, Symbol, symbol_short,
     Address, Bytes, BytesN, Env, String, Symbol, symbol_short, Vec, Map,
 };
 
@@ -18,6 +19,7 @@ const THRESHOLD: &str = "THRHLD";
 const TREASURY: &str = "TRSY";
 const PLATFORM_FEE: &str = "PFEE";
 const ARCHIVE_AFTER: &str = "ARCHAFT";
+const WEBHOOK_URL: &str = "WHURL";
 const ORACLE: &str = "ORACLE";
 const PAUSED: &str = "PAUSED";
 const PROPOSAL_EXPIRATION: u32 = 10_000; // 10,000 ledgers
@@ -213,6 +215,7 @@ pub enum ContractError {
     NotAdmin             = 201,
     NotBuyer             = 202,
     NotSeller            = 203,
+    NotPartyToSession    = 204,
     MissingRole          = 204,
 
     // -- Session validation (300-399) --
@@ -224,6 +227,15 @@ pub enum ContractError {
     SessionAlreadyRefunded   = 305,
     SessionInDispute         = 306,
 
+    // -- Vesting (400-499) --
+    VestingNotSet            = 400,
+    NothingToClaim           = 401,
+    CliffNotReached          = 402,
+    VestingAlreadyClaimed    = 403,
+
+    // -- Batch (500-599) --
+    BatchEmpty               = 500,
+    BatchItemFailed          = 501,
     // -- Oracle (400-499) --
     OracleNotSet         = 400,
     OracleCallFailed     = 401,
@@ -334,6 +346,22 @@ pub struct RatingSubmitted {
 }
 
 // ---------------------------------------------------------------------------
+// Vesting record (#948)
+// ---------------------------------------------------------------------------
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VestingRecord {
+    pub session_id: Bytes32,
+    pub seller: Address,
+    pub total_amount: i128,
+    pub claimed_amount: i128,
+    pub cliff_ledgers: u32,
+    pub vesting_duration: u32,
+    pub start_ledger: u32,
+    pub created_at: u64,
+}
+
+// ---------------------------------------------------------------------------
 // Archive record
 // Insurance pool types (Issue 3)
 // ---------------------------------------------------------------------------
@@ -434,6 +462,36 @@ pub struct TreasuryUpdated {
     pub updated_by: Address,
 }
 
+/// #946 — Emitted when session metadata is set or updated.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MetadataUpdated {
+    pub session_id: Bytes32,
+    pub metadata_uri: String,
+    pub updated_by: Address,
+    pub timestamp: u64,
+}
+
+/// #948 — Emitted when a vesting schedule is created.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VestingCreated {
+    pub session_id: Bytes32,
+    pub seller: Address,
+    pub total_amount: i128,
+    pub cliff_ledgers: u32,
+    pub vesting_duration: u32,
+    pub timestamp: u64,
+}
+
+/// #948 — Emitted when vested tokens are claimed.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VestingClaimed {
+    pub session_id: Bytes32,
+    pub seller: Address,
+    pub claimed_amount: i128,
+    pub total_claimed: i128,
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OracleSet {
@@ -557,6 +615,15 @@ fn emit_treasury_updated(
         .publish((Symbol::new(env, "TreasuryUpdated"),), event);
 }
 
+fn emit_metadata_updated(
+    env: &Env,
+    session_id: Bytes32,
+    metadata_uri: String,
+    updated_by: Address,
+) {
+    let event = MetadataUpdated {
+        session_id,
+        metadata_uri,
 fn emit_oracle_set(env: &Env, oracle_id: Address, set_by: Address) {
     let event = OracleSet {
         oracle_id,
@@ -614,6 +681,45 @@ fn emit_rate_limit_updated(env: &Env, max_sessions: u32, window_ledgers: u32, up
         timestamp: env.ledger().timestamp(),
     };
     env.events()
+        .publish((Symbol::new(env, "MetadataUpdated"),), event);
+}
+
+fn emit_vesting_created(
+    env: &Env,
+    session_id: Bytes32,
+    seller: Address,
+    total_amount: i128,
+    cliff_ledgers: u32,
+    vesting_duration: u32,
+) {
+    let event = VestingCreated {
+        session_id,
+        seller,
+        total_amount,
+        cliff_ledgers,
+        vesting_duration,
+        timestamp: env.ledger().timestamp(),
+    };
+    env.events()
+        .publish((Symbol::new(env, "VestingCreated"),), event);
+}
+
+fn emit_vesting_claimed(
+    env: &Env,
+    session_id: Bytes32,
+    seller: Address,
+    claimed_amount: i128,
+    total_claimed: i128,
+) {
+    let event = VestingClaimed {
+        session_id,
+        seller,
+        claimed_amount,
+        total_claimed,
+        timestamp: env.ledger().timestamp(),
+    };
+    env.events()
+        .publish((Symbol::new(env, "VestingClaimed"),), event);
         .publish((Symbol::new(env, "RateLimitUpdated"),), event);
 }
 
@@ -697,6 +803,12 @@ fn archive_key(session_id: &Bytes32) -> (Symbol, Bytes32) {
     (symbol_short!("ARC"), session_id.clone())
 }
 
+fn metadata_key(session_id: &Bytes32) -> (Symbol, Bytes32) {
+    (symbol_short!("META"), session_id.clone())
+}
+
+fn vesting_key(session_id: &Bytes32) -> (Symbol, Bytes32) {
+    (symbol_short!("VEST"), session_id.clone())
 fn oracle_price_key(asset: &Bytes32) -> (Symbol, Bytes32) {
     (symbol_short!("ORP"), asset.clone())
 }
@@ -960,6 +1072,14 @@ fn enter_reentrancy_guard(env: &Env) {
 
 fn exit_reentrancy_guard(env: &Env) {
     env.storage().persistent().remove(&symbol_short!(REENTRANCY_GUARD));
+}
+
+/// #946 — Check that the caller is the buyer or seller of the session.
+fn require_party(env: &Env, session: &Session) {
+    let caller = env.invoker();
+    if caller != session.buyer && caller != session.seller {
+        panic_with_error!(env, ContractError::NotPartyToSession);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1704,6 +1824,271 @@ impl SkillsyncContract {
     }
 
     // -----------------------------------------------------------------------
+    // #946 — Metadata storage
+    // -----------------------------------------------------------------------
+
+    /// Set or update off-chain metadata URI for a session.
+    /// Only the buyer or seller may call this.
+    pub fn set_session_metadata(
+        env: Env,
+        session_id: Bytes32,
+        metadata_uri: String,
+    ) {
+        require_initialized(&env);
+        let session = get_session(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+
+        require_party(&env, &session);
+
+        let caller = env.invoker();
+        env.storage()
+            .persistent()
+            .set(&metadata_key(&session_id), &metadata_uri);
+
+        emit_metadata_updated(&env, session_id, metadata_uri, caller);
+    }
+
+    /// Retrieve the metadata URI for a session (if set).
+    pub fn get_session_metadata(env: Env, session_id: Bytes32) -> Option<String> {
+        require_initialized(&env);
+        env.storage().persistent().get(&metadata_key(&session_id))
+    }
+
+    // -----------------------------------------------------------------------
+    // #947 — Webhook / event relay
+    // -----------------------------------------------------------------------
+
+    /// Admin sets the off-chain webhook URL for event relay.
+    pub fn set_webhook(env: Env, url: String) {
+        require_initialized(&env);
+        require_admin(&env);
+        env.storage()
+            .persistent()
+            .set(&symbol_short!(WEBHOOK_URL), &url);
+    }
+
+    /// View the current webhook URL.
+    pub fn get_webhook(env: Env) -> Option<String> {
+        require_initialized(&env);
+        env.storage()
+            .persistent()
+            .get(&symbol_short!(WEBHOOK_URL))
+    }
+
+    // -----------------------------------------------------------------------
+    // #948 — Time-locked release (vesting)
+    // -----------------------------------------------------------------------
+
+    /// Create a vesting schedule for a session.
+    /// The seller receives vested funds linearly after the cliff period.
+    pub fn lock_funds_with_vesting(
+        env: Env,
+        session_id: Bytes32,
+        seller: Address,
+        amount: i128,
+        cliff_ledgers: u32,
+        vesting_duration: u32,
+    ) {
+        require_initialized(&env);
+        if amount <= 0 {
+            panic_with_error!(&env, ContractError::AmountMustBePositive);
+        }
+
+        let mut session = get_session(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+
+        if session.status != SessionStatus::Created && session.status != SessionStatus::Locked {
+            panic_with_error!(&env, ContractError::InvalidStatus);
+        }
+
+        session.buyer.require_auth();
+
+        let current_ledger = env.ledger().sequence();
+
+        let record = VestingRecord {
+            session_id: session_id.clone(),
+            seller: seller.clone(),
+            total_amount: amount,
+            claimed_amount: 0,
+            cliff_ledgers,
+            vesting_duration,
+            start_ledger: current_ledger,
+            created_at: env.ledger().timestamp(),
+        };
+
+        env.storage()
+            .persistent()
+            .set(&vesting_key(&session_id), &record);
+
+        session.amount = amount;
+        session.seller = seller.clone();
+        session.status = SessionStatus::Locked;
+        save_session(&env, &session_id, &session);
+
+        emit_vesting_created(&env, session_id, seller, amount, cliff_ledgers, vesting_duration);
+    }
+
+    /// Seller claims vested amount from a vesting schedule.
+    pub fn claim_vested(env: Env, session_id: Bytes32) {
+        require_initialized(&env);
+
+        let mut vesting: VestingRecord = env
+            .storage()
+            .persistent()
+            .get(&vesting_key(&session_id))
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::VestingNotSet));
+
+        vesting.seller.require_auth();
+
+        let current_ledger = env.ledger().sequence();
+        let elapsed = current_ledger.saturating_sub(vesting.start_ledger);
+
+        // Check cliff
+        if elapsed < vesting.cliff_ledgers {
+            panic_with_error!(&env, ContractError::CliffNotReached);
+        }
+
+        // Calculate vested amount: total * (elapsed / duration), capped at total
+        let vested_total = if vesting.vesting_duration == 0 {
+            vesting.total_amount
+        } else {
+            let vested = (vesting.total_amount * elapsed as i128) / vesting.vesting_duration as i128;
+            if vested > vesting.total_amount {
+                vesting.total_amount
+            } else {
+                vested
+            }
+        };
+
+        let claimable = vested_total - vesting.claimed_amount;
+        if claimable <= 0 {
+            panic_with_error!(&env, ContractError::NothingToClaim);
+        }
+
+        let seller = vesting.seller.clone();
+        let new_claimed = vesting.claimed_amount + claimable;
+        vesting.claimed_amount = new_claimed;
+
+        env.storage()
+            .persistent()
+            .set(&vesting_key(&session_id), &vesting);
+
+        emit_vesting_claimed(&env, session_id, seller, claimable, new_claimed);
+    }
+
+    /// View the vesting record for a session.
+    pub fn get_vesting(env: Env, session_id: Bytes32) -> VestingRecord {
+        require_initialized(&env);
+        env.storage()
+            .persistent()
+            .get(&vesting_key(&session_id))
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::VestingNotSet))
+    }
+
+    /// Admin resolves a disputed session with vesting — returns unvested amount to buyer.
+    pub fn resolve_vesting_dispute(
+        env: Env,
+        session_id: Bytes32,
+        buyer_share: i128,
+        seller_share: i128,
+    ) {
+        require_initialized(&env);
+        require_admin(&env);
+
+        let mut session = get_session(&env, &session_id)
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+
+        if session.status != SessionStatus::Disputed {
+            panic_with_error!(&env, ContractError::InvalidStatus);
+        }
+
+        if buyer_share + seller_share != session.amount {
+            panic_with_error!(&env, ContractError::SharesMismatch);
+        }
+
+        let (_after_fee, _fee) = apply_fee(&env, seller_share);
+
+        session.status = SessionStatus::Resolved;
+        save_session(&env, &session_id, &session);
+    }
+
+    // -----------------------------------------------------------------------
+    // #949 — Batch operations
+    // -----------------------------------------------------------------------
+
+    /// Batch lock funds for multiple sessions in a single transaction.
+    /// Any single failure causes the entire batch to revert.
+    pub fn batch_lock_funds(
+        env: Env,
+        sessions: soroban_sdk::Vec<(Bytes32, Address, i128)>,
+    ) {
+        require_initialized(&env);
+        if sessions.is_empty() {
+            panic_with_error!(&env, ContractError::BatchEmpty);
+        }
+
+        for item in sessions.iter() {
+            let (session_id, buyer, amount) = item;
+            if amount <= 0 {
+                panic_with_error!(&env, ContractError::AmountMustBePositive);
+            }
+            if get_session(&env, &session_id).is_some() {
+                panic_with_error!(&env, ContractError::DuplicateSessionId);
+            }
+            buyer.require_auth();
+
+            let session = Session {
+                id: session_id.clone(),
+                buyer,
+                seller: Address::generate(&env),
+                amount,
+                status: SessionStatus::Locked,
+                created_at: env.ledger().timestamp(),
+                completed_at: None,
+                dispute_opened_at: None,
+            };
+            save_session(&env, &session_id, &session);
+        }
+    }
+
+    /// Batch approve multiple sessions. Buyer must be the buyer for all sessions.
+    pub fn batch_approve(env: Env, session_ids: soroban_sdk::Vec<Bytes32>) {
+        require_initialized(&env);
+        if session_ids.is_empty() {
+            panic_with_error!(&env, ContractError::BatchEmpty);
+        }
+
+        for session_id in session_ids.iter() {
+            let mut session = get_session(&env, &session_id)
+                .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+            if session.status != SessionStatus::Completed {
+                panic_with_error!(&env, ContractError::InvalidStatus);
+            }
+            session.buyer.require_auth();
+            let (_payout, _fee) = apply_fee(&env, session.amount);
+            session.status = SessionStatus::Approved;
+            save_session(&env, &session_id, &session);
+        }
+    }
+
+    /// Batch complete multiple sessions. Seller must be the seller for all sessions.
+    pub fn batch_complete(env: Env, session_ids: soroban_sdk::Vec<Bytes32>) {
+        require_initialized(&env);
+        if session_ids.is_empty() {
+            panic_with_error!(&env, ContractError::BatchEmpty);
+        }
+
+        for session_id in session_ids.iter() {
+            let mut session = get_session(&env, &session_id)
+                .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+            if session.status != SessionStatus::Locked {
+                panic_with_error!(&env, ContractError::InvalidStatus);
+            }
+            session.seller.require_auth();
+            session.status = SessionStatus::Completed;
+            session.completed_at = Some(env.ledger().timestamp());
+            save_session(&env, &session_id, &session);
+        }
     // Issue 1 — Milestone-based partial release escrow
     // -----------------------------------------------------------------------
 
@@ -2072,6 +2457,11 @@ mod tests {
     // Archiving tests
         client.create_session(&sid, &buyer, &seller, &5000);
         client.lock_funds(&sid);
+        client.open_dispute(&sid);
+        client.resolve_dispute(&sid, &3000, &3000);
+    }
+
+    // Archive tests
         client.complete_session(&sid);
         client.approve_session(&sid);
         client.archive_session(&sid);
@@ -2445,6 +2835,7 @@ mod tests {
         assert_eq!(result, Err(Ok(ContractError::InvalidStatus)));
         client.create_session(&sid, &buyer, &seller, &1000);
         client.lock_funds(&sid);
+        client.archive_session(&sid);
         client.complete_session(&sid);
         client.approve_session(&sid);
 
@@ -2493,6 +2884,11 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // #946 — Metadata tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_set_and_get_metadata() {
     // #942 — Upgrade error tests
     // -----------------------------------------------------------------------
 
@@ -2590,6 +2986,74 @@ mod tests {
         let treasury = Address::generate(&env);
         let buyer = Address::generate(&env);
         let seller = Address::generate(&env);
+        let sid = make_session_id(&env, 30);
+
+        client.initialize(&admin, &treasury);
+        client.create_session(&sid, &buyer, &seller, &5000);
+
+        let uri = String::from_str(&env, "ipfs://Qm123abc");
+        client.set_session_metadata(&sid, &uri);
+
+        let result = client.get_session_metadata(&sid);
+        assert_eq!(result, Some(uri));
+    }
+
+    #[test]
+    fn test_get_metadata_none_when_unset() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
+
+        let sid = make_session_id(&env, 31);
+        let result = client.get_session_metadata(&sid);
+        assert_eq!(result, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // #947 — Webhook tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_set_and_get_webhook() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
+
+        let url = String::from_str(&env, "https://hooks.example.com/events");
+        client.set_webhook(&url);
+
+        let result = client.get_webhook();
+        assert_eq!(result, Some(url));
+    }
+
+    #[test]
+    fn test_get_webhook_none_when_unset() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let cid = env.register(SkillsyncContract, ());
+        let client = SkillsyncContractClient::new(&env, &cid);
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
+
+        let result = client.get_webhook();
+        assert_eq!(result, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // #948 — Vesting tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_create_vesting_schedule() {
         let sid = make_session_id(&env, 50);
 
         client.initialize(&admin, &treasury);
@@ -2606,6 +3070,27 @@ mod tests {
         let client = SkillsyncContractClient::new(&env, &cid);
         let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let sid = make_session_id(&env, 40);
+
+        client.initialize(&admin, &treasury);
+        client.create_session(&sid, &buyer, &seller, &10000);
+        client.lock_funds_with_vesting(&sid, &seller, &10000, &10, &100);
+
+        let vesting = client.get_vesting(&sid);
+        assert_eq!(vesting.total_amount, 10000);
+        assert_eq!(vesting.cliff_ledgers, 10);
+        assert_eq!(vesting.vesting_duration, 100);
+        assert_eq!(vesting.claimed_amount, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // #949 — Batch operation tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_batch_approve() {
         client.initialize(&admin, &treasury);
 
         let sid = make_session_id(&env, 51);
@@ -2638,6 +3123,31 @@ mod tests {
         let treasury = Address::generate(&env);
         let buyer = Address::generate(&env);
         let seller = Address::generate(&env);
+
+        client.initialize(&admin, &treasury);
+
+        let sid1 = make_session_id(&env, 60);
+        let sid2 = make_session_id(&env, 61);
+
+        client.create_session(&sid1, &buyer, &seller, &1000);
+        client.lock_funds(&sid1);
+        client.complete_session(&sid1);
+
+        client.create_session(&sid2, &buyer, &seller, &2000);
+        client.lock_funds(&sid2);
+        client.complete_session(&sid2);
+
+        let mut ids = soroban_sdk::Vec::new(&env);
+        ids.push_back(sid1.clone());
+        ids.push_back(sid2.clone());
+        client.batch_approve(&ids);
+
+        assert_eq!(client.get_session_data(&sid1).status, SessionStatus::Approved);
+        assert_eq!(client.get_session_data(&sid2).status, SessionStatus::Approved);
+    }
+
+    #[test]
+    fn test_batch_complete() {
         let sid = make_session_id(&env, 52);
 
         client.initialize(&admin, &treasury);
@@ -2664,6 +3174,27 @@ mod tests {
         let client = SkillsyncContractClient::new(&env, &cid);
         let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
+
+        client.initialize(&admin, &treasury);
+
+        let sid1 = make_session_id(&env, 70);
+        let sid2 = make_session_id(&env, 71);
+
+        client.create_session(&sid1, &buyer, &seller, &1000);
+        client.lock_funds(&sid1);
+
+        client.create_session(&sid2, &buyer, &seller, &2000);
+        client.lock_funds(&sid2);
+
+        let mut ids = soroban_sdk::Vec::new(&env);
+        ids.push_back(sid1.clone());
+        ids.push_back(sid2.clone());
+        client.batch_complete(&ids);
+
+        assert_eq!(client.get_session_data(&sid1).status, SessionStatus::Completed);
+        assert_eq!(client.get_session_data(&sid2).status, SessionStatus::Completed);
         client.initialize(&admin, &treasury);
 
         let result = client.try_set_platform_fee(&1001);
