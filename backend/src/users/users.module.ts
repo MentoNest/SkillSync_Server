@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { UsersController } from './users.controller.js';
+import { ProfilesController } from './profiles.controller.js';
 import { UsersService } from './users.service.js';
 import { User } from './entities/user.entity.js';
 import { Role } from './entities/role.entity.js';
@@ -34,6 +35,9 @@ import { ProfileCompletenessService } from './profile-completeness.service.js';
     ConfigModule,
     AvailabilityModule,
   ],
+  controllers: [UsersController, ProfilesController],
+  providers: [UsersService, JwtAuthGuard, RolesGuard],
+  exports: [UsersService],
   controllers: [UsersController],
   providers: [
     UsersService,

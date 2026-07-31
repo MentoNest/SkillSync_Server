@@ -8,11 +8,8 @@ import {
 import { ValidationError } from 'class-validator';
 import { randomUUID } from 'crypto';
 import { AppModule } from './app.module.js';
+import { ResponseInterceptor } from './common/interceptors/response.interceptor.js';
 
-/**
- * #1006: Flattens class-validator's nested ValidationError tree into a
- * simple { field, code, message }[] shape.
- */
 function flattenValidationErrors(
   errors: ValidationError[],
   parentPath = '',
@@ -82,6 +79,7 @@ async function bootstrap() {
 
   // -----------------------------------------------------------------------
   // CORS configuration placeholder (enhanced in #1017 by Maryermarh)
+  // #1017: CORS configuration
   // -----------------------------------------------------------------------
   const allowedOrigins = (process.env.CORS_ORIGINS || '')
     .split(',')
@@ -91,9 +89,14 @@ async function bootstrap() {
   app.enableCors({
     origin: allowedOrigins.length > 0 ? allowedOrigins : true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'Content-Type', 'Accept', 'X-Request-Id'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Accept'],
     credentials: true,
   });
+
+  // -----------------------------------------------------------------------
+  // Global response interceptor (#1008)
+  // -----------------------------------------------------------------------
+  app.useGlobalInterceptors(new ResponseInterceptor());
 
   // -----------------------------------------------------------------------
   // Global pipes

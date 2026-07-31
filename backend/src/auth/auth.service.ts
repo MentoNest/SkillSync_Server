@@ -4,6 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 import { JwtAccessTokenPayload } from './interfaces/jwt-payload.interface.js';
 import { WalletStrategy } from './strategies/wallet.strategy.js';
+import { UsersService } from '../users/users.service.js';
+import { AuthRole } from '../common/enums/auth-role.enum.js';
 
 /**
  * #971-978: Auth service handling wallet login, JWT lifecycle, and session management.
@@ -41,6 +43,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly walletStrategy: WalletStrategy,
+    private readonly usersService: UsersService,
   ) {}
 
   /**
@@ -105,15 +108,19 @@ export class AuthService {
     const accessTtl = parseInt(this.configService.get('JWT_ACCESS_TTL', '900'), 10); // 15 min
     const refreshTtl = parseInt(this.configService.get('JWT_REFRESH_TTL', '604800'), 10); // 7 days
 
-    const roles = await this.resolveRoles(walletAddress);
+    const user = await this.usersService.findOrCreateByWallet(walletAddress);
+    const roles = user.roles?.length
+      ? user.roles.map((role) => role.name)
+      : [AuthRole.MENTEE];
 
     const accessPayload: JwtAccessTokenPayload = {
-      sub: walletAddress,
+      sub: user.id,
       wallet: walletAddress,
       jti: accessJti,
       iat: Math.floor(Date.now() / 1000),
       exp: Math.floor(Date.now() / 1000) + accessTtl,
       roles,
+      status: user.status,
     };
 
     const accessToken = await this.jwtService.signAsync(accessPayload);
@@ -197,12 +204,6 @@ export class AuthService {
   seedAdmin(walletAddress: string): void {
     this.logger.log(`Admin seeded for ${walletAddress.slice(0, 8)}...`);
     // In production: persist to database via UsersService
-  }
-
-  private async resolveRoles(walletAddress: string): Promise<string[]> {
-    // In production: query from database
-    // Default role for all authenticated users
-    return ['MENTEE'];
   }
 
   private cleanExpiredNonces(): void {
