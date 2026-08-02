@@ -21,12 +21,14 @@ describe('UsersService', () => {
     findOne: jest.fn(),
     create: jest.fn(),
     save: jest.fn(),
+    increment: jest.fn(),
     findAndCount: jest.fn(),
   };
 
   const mockRoleRepo = {
     create: jest.fn(),
     save: jest.fn(),
+    delete: jest.fn(),
   };
 
   const mockMentorProfileRepo = {
@@ -387,6 +389,98 @@ describe('UsersService', () => {
     });
   });
 
+  describe('createUser', () => {
+    it('should create a user with a default mentee role', async () => {
+      const createdUser = { ...mockUser, id: 'user-2' };
+      mockUserRepo.create.mockReturnValue(createdUser);
+      mockUserRepo.save.mockResolvedValue(createdUser);
+      mockRoleRepo.create.mockReturnValue({
+        name: AuthRole.MENTEE,
+        user: createdUser,
+      });
+      mockRoleRepo.save.mockResolvedValue({});
+      mockUserRepo.findOne.mockResolvedValue({
+        ...createdUser,
+        roles: [{ name: AuthRole.MENTEE }],
+      });
+
+      const result = await service.createUser('new-wallet');
+
+      expect(mockUserRepo.create).toHaveBeenCalledWith({
+        walletAddress: 'new-wallet',
+      });
+      expect(mockRoleRepo.create).toHaveBeenCalledWith({
+        name: AuthRole.MENTEE,
+        user: createdUser,
+      });
+      expect(result.roles).toEqual([{ name: AuthRole.MENTEE }]);
+    });
+  });
+
+  describe('assignRole', () => {
+    it('should assign a new role and bump the token version', async () => {
+      mockUserRepo.findOne.mockResolvedValue({ ...mockUser, roles: [] });
+      mockRoleRepo.create.mockReturnValue({
+        name: AuthRole.ADMIN,
+        user: mockUser,
+      });
+      mockRoleRepo.save.mockResolvedValue({});
+      mockUserRepo.increment.mockResolvedValue({});
+
+      await service.assignRole('user-1', AuthRole.ADMIN);
+
+      expect(mockRoleRepo.create).toHaveBeenCalledWith({
+        name: AuthRole.ADMIN,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        user: expect.objectContaining({ id: 'user-1' }),
+      });
+      expect(mockUserRepo.increment).toHaveBeenCalledWith(
+        { id: 'user-1' },
+        'tokenVersion',
+        1,
+      );
+    });
+
+    it('should throw ConflictException when user already has the role', async () => {
+      mockUserRepo.findOne.mockResolvedValue({
+        ...mockUser,
+        roles: [{ name: AuthRole.ADMIN }],
+      });
+
+      await expect(
+        service.assignRole('user-1', AuthRole.ADMIN),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('revokeRole', () => {
+    it('should revoke an existing role and bump the token version', async () => {
+      mockUserRepo.findOne.mockResolvedValue({
+        ...mockUser,
+        roles: [{ id: 'role-1', name: AuthRole.ADMIN }],
+      });
+      mockRoleRepo.delete.mockResolvedValue({});
+      mockUserRepo.increment.mockResolvedValue({});
+
+      await service.revokeRole('user-1', AuthRole.ADMIN);
+
+      expect(mockRoleRepo.delete).toHaveBeenCalledWith({ id: 'role-1' });
+      expect(mockUserRepo.increment).toHaveBeenCalledWith(
+        { id: 'user-1' },
+        'tokenVersion',
+        1,
+      );
+    });
+
+    it('should throw NotFoundException when user does not have the role', async () => {
+      mockUserRepo.findOne.mockResolvedValue({ ...mockUser, roles: [] });
+
+      await expect(
+        service.revokeRole('user-1', AuthRole.ADMIN),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('updateUser', () => {
     it('should update user fields and save', async () => {
       const existingUser = { ...mockUser, email: undefined };
@@ -425,6 +519,25 @@ describe('UsersService', () => {
       await expect(
         service.updateUser('missing-user', { displayName: 'X' }),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getTokenVersion', () => {
+    it('should return the token version for an existing user', async () => {
+      mockUserRepo.findOne.mockResolvedValue({
+        id: 'user-1',
+        tokenVersion: 3,
+      });
+
+      const result = await service.getTokenVersion('user-1');
+      expect(result).toBe(3);
+    });
+
+    it('should return null when the user does not exist', async () => {
+      mockUserRepo.findOne.mockResolvedValue(null);
+
+      const result = await service.getTokenVersion('missing');
+      expect(result).toBeNull();
     });
   });
 
