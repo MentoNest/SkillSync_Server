@@ -1,7 +1,14 @@
-import { Injectable, CanActivate, ExecutionContext, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  HttpException,
+  HttpStatus,
+  Logger,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Request, Response } from 'express';
-import { RedisService } from '../../config/redis.module';
+import { RedisService } from '../../config/redis.module.js';
 
 /**
  * #980: Rate limiting guard with Redis-backed sliding window.
@@ -11,8 +18,8 @@ import { RedisService } from '../../config/redis.module';
  */
 
 export interface ThrottleConfig {
-  ttl: number;    // Window in seconds
-  limit: number;  // Max requests per window
+  ttl: number; // Window in seconds
+  limit: number; // Max requests per window
 }
 
 export const THROTTLE_KEY = 'throttle';
@@ -21,7 +28,11 @@ export const THROTTLE_KEY = 'throttle';
  * @Throttle decorator: @Throttle(10, 60) = 10 requests per 60 seconds
  */
 export const Throttle = (limit: number, ttl: number) => {
-  return (target: object, propertyKey?: string, descriptor?: PropertyDescriptor) => {
+  return (
+    target: object,
+    propertyKey?: string,
+    descriptor?: PropertyDescriptor,
+  ) => {
     if (descriptor) {
       Reflect.defineMetadata(THROTTLE_KEY, { limit, ttl }, descriptor.value);
     }
@@ -45,14 +56,19 @@ export class ThrottlerGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const handler = context.getHandler();
-    const customConfig = this.reflector.get<ThrottleConfig>(THROTTLE_KEY, handler);
+    const customConfig = this.reflector.get<ThrottleConfig>(
+      THROTTLE_KEY,
+      handler,
+    );
 
-    const req = context.switchToHttp().getRequest<Request>();
+    const req = context
+      .switchToHttp()
+      .getRequest<Request & { user?: unknown }>();
     const res = context.switchToHttp().getResponse<Response>();
 
-    const isAuthenticated = !!(req as unknown as Record<string, unknown>).user;
+    const isAuthenticated = !!req.user;
     const clientId = isAuthenticated
-      ? `user:${(req as unknown as Record<string, unknown>).user && JSON.stringify((req as unknown as Record<string, unknown>).user).slice(0, 20)}`
+      ? `user:${JSON.stringify(req.user).slice(0, 20)}`
       : `ip:${req.ip || req.socket?.remoteAddress || 'unknown'}`;
 
     // Skip rate limiting for trusted IPs
@@ -60,7 +76,9 @@ export class ThrottlerGuard implements CanActivate {
       return true;
     }
 
-    const config = customConfig || (isAuthenticated ? DEFAULT_AUTHENTICATED : DEFAULT_UNAUTHENTICATED);
+    const config =
+      customConfig ||
+      (isAuthenticated ? DEFAULT_AUTHENTICATED : DEFAULT_UNAUTHENTICATED);
     const key = `rl:${clientId}:${handler?.name || 'default'}`;
 
     // Sliding window using sorted set
@@ -76,7 +94,7 @@ export class ThrottlerGuard implements CanActivate {
 
     if (entries) {
       try {
-        timestamps = JSON.parse(entries);
+        timestamps = JSON.parse(entries) as number[];
         timestamps = timestamps.filter((t: number) => t > windowStart);
         count = timestamps.length;
       } catch {
@@ -86,12 +104,17 @@ export class ThrottlerGuard implements CanActivate {
 
     if (count >= config.limit) {
       const oldestInWindow = Math.min(...timestamps);
-      const retryAfterSeconds = Math.ceil((oldestInWindow + config.ttl * 1000 - now) / 1000);
+      const retryAfterSeconds = Math.ceil(
+        (oldestInWindow + config.ttl * 1000 - now) / 1000,
+      );
 
       res.setHeader('Retry-After', String(retryAfterSeconds));
       res.setHeader('X-RateLimit-Limit', String(config.limit));
       res.setHeader('X-RateLimit-Remaining', '0');
-      res.setHeader('X-RateLimit-Reset', String(Math.ceil((oldestInWindow + config.ttl * 1000) / 1000)));
+      res.setHeader(
+        'X-RateLimit-Reset',
+        String(Math.ceil((oldestInWindow + config.ttl * 1000) / 1000)),
+      );
 
       throw new HttpException(
         {
@@ -105,12 +128,19 @@ export class ThrottlerGuard implements CanActivate {
 
     // Record this request
     timestamps.push(now);
-    await this.redisService.set(storeKey, JSON.stringify(timestamps), config.ttl);
+    await this.redisService.set(
+      storeKey,
+      JSON.stringify(timestamps),
+      config.ttl,
+    );
 
     // Set rate limit headers
     res.setHeader('X-RateLimit-Limit', String(config.limit));
     res.setHeader('X-RateLimit-Remaining', String(config.limit - count - 1));
-    res.setHeader('X-RateLimit-Reset', String(Math.ceil((windowStart + config.ttl * 1000) / 1000)));
+    res.setHeader(
+      'X-RateLimit-Reset',
+      String(Math.ceil((windowStart + config.ttl * 1000) / 1000)),
+    );
 
     return true;
   }

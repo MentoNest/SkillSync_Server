@@ -1,4 +1,11 @@
-import { ExceptionFilter, Catch, ArgumentsHost, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import {
+  ExceptionFilter,
+  Catch,
+  ArgumentsHost,
+  HttpException,
+  HttpStatus,
+  Logger,
+} from '@nestjs/common';
 import { Request, Response } from 'express';
 
 /**
@@ -33,9 +40,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         code = (res.error as string) || this.codeFromStatus(status);
       }
     } else if (exception instanceof Error) {
-      message = process.env.NODE_ENV === 'production'
-        ? 'Internal server error'
-        : exception.message;
+      message =
+        process.env.NODE_ENV === 'production'
+          ? 'Internal server error'
+          : exception.message;
     }
 
     const correlationId = request.get('x-correlation-id') || 'unknown';

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { RedisService } from '../../config/redis.module';
-import { AuthService } from '../auth.service';
+import { RedisService } from '../../config/redis.module.js';
+import { AuthService } from '../auth.service.js';
 
 /**
  * #984: Service for revoking all sessions of a user.
@@ -29,7 +29,10 @@ export class SessionRevokeService {
    * Revoke all sessions for a user.
    * Called by the user themselves or by an admin.
    */
-  async revokeAllSessions(walletAddress: string, revokedBy: string): Promise<RevokeAllResult> {
+  async revokeAllSessions(
+    walletAddress: string,
+    revokedBy: string,
+  ): Promise<RevokeAllResult> {
     // Increment token version — invalidates all existing JWTs
     const currentVersion = this.tokenVersions.get(walletAddress) || 0;
     const newVersion = currentVersion + 1;

@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import {
   BadRequestException,
   ValidationPipe,
@@ -7,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ValidationError } from 'class-validator';
 import { randomUUID } from 'crypto';
+import { join } from 'path';
 import { AppModule } from './app.module.js';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor.js';
 
@@ -45,7 +47,7 @@ export function getRequestId(): string | undefined {
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // -----------------------------------------------------------------------
   // #1025: API versioning — URI path strategy (/api/v1/...)

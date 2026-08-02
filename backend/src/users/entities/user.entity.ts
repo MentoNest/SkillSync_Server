@@ -45,6 +45,12 @@ export class User {
   @Column({ default: 0 })
   tokenVersion: number;
 
+  @Column({ type: 'varchar', nullable: true })
+  avatarThumbnailUrl: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  avatarStorageKey: string | null;
+
   @Column({ type: 'varchar', length: 64, default: 'UTC' })
   timezone: string;
 

@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
@@ -64,7 +64,10 @@ export class AuthService {
    * #973: Verify wallet signature and issue tokens.
    * #974: Returns access + refresh token pair.
    */
-  async login(walletAddress: string, signature: string): Promise<{
+  async login(
+    walletAddress: string,
+    signature: string,
+  ): Promise<{
     accessToken: string;
     refreshToken: string;
     expiresIn: number;
@@ -83,7 +86,11 @@ export class AuthService {
     }
 
     // Verify signature
-    const isValid = await this.walletStrategy.verify(walletAddress, stored.nonce, signature);
+    const isValid = this.walletStrategy.verify(
+      walletAddress,
+      stored.nonce,
+      signature,
+    );
     if (!isValid) {
       throw new UnauthorizedException('Invalid wallet signature');
     }
@@ -105,8 +112,14 @@ export class AuthService {
   }> {
     const accessJti = uuidv4();
     const refreshJti = uuidv4();
-    const accessTtl = parseInt(this.configService.get('JWT_ACCESS_TTL', '900'), 10); // 15 min
-    const refreshTtl = parseInt(this.configService.get('JWT_REFRESH_TTL', '604800'), 10); // 7 days
+    const accessTtl = parseInt(
+      this.configService.get('JWT_ACCESS_TTL', '900'),
+      10,
+    ); // 15 min
+    const refreshTtl = parseInt(
+      this.configService.get('JWT_REFRESH_TTL', '604800'),
+      10,
+    ); // 7 days
 
     const user = await this.usersService.findOrCreateByWallet(walletAddress);
     const roles = user.roles?.length
@@ -152,10 +165,13 @@ export class AuthService {
     expiresIn: number;
   }> {
     try {
-      const payload = await this.jwtService.verifyAsync<{ sub: string; jti: string; type: string }>(
-        refreshToken,
-        { secret: this.configService.get('JWT_SECRET', 'dev-secret') },
-      );
+      const payload = await this.jwtService.verifyAsync<{
+        sub: string;
+        jti: string;
+        type: string;
+      }>(refreshToken, {
+        secret: this.configService.get('JWT_SECRET', 'dev-secret'),
+      });
 
       if (payload.type !== 'refresh') {
         throw new UnauthorizedException('Invalid refresh token');
@@ -204,6 +220,13 @@ export class AuthService {
   seedAdmin(walletAddress: string): void {
     this.logger.log(`Admin seeded for ${walletAddress.slice(0, 8)}...`);
     // In production: persist to database via UsersService
+  }
+
+  private resolveRoles(walletAddress: string): Promise<string[]> {
+    // In production: query from database, keyed by walletAddress
+    // Default role for all authenticated users
+    void walletAddress;
+    return Promise.resolve(['MENTEE']);
   }
 
   private cleanExpiredNonces(): void {

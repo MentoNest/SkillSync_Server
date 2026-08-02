@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { RedisService } from '../../config/redis.module';
+import { RedisService } from '../../config/redis.module.js';
 
 /**
  * #983: Suspicious login detection service.
@@ -33,7 +33,10 @@ export class SuspiciousLoginService {
   /**
    * Record a failed login attempt and check for suspicious patterns.
    */
-  async recordFailedAttempt(walletAddress: string, ipAddress: string): Promise<SuspiciousActivityResult> {
+  async recordFailedAttempt(
+    walletAddress: string,
+    ipAddress: string,
+  ): Promise<SuspiciousActivityResult> {
     const config = DEFAULT_CONFIG;
 
     // Check if account is currently locked
@@ -59,13 +62,17 @@ export class SuspiciousLoginService {
     // Check IP history
     const ipKey = `login_ips:${walletAddress}`;
     const knownIps = await this.redisService.get(ipKey);
-    const ipList: string[] = knownIps ? JSON.parse(knownIps) : [];
+    const ipList: string[] = knownIps ? (JSON.parse(knownIps) as string[]) : [];
     const isNewIp = !ipList.includes(ipAddress);
 
     // Record this IP
     if (isNewIp) {
       ipList.push(ipAddress);
-      await this.redisService.set(ipKey, JSON.stringify(ipList), config.newIpLookbackDays * 86400);
+      await this.redisService.set(
+        ipKey,
+        JSON.stringify(ipList),
+        config.newIpLookbackDays * 86400,
+      );
     }
 
     const isSuspicious = count >= config.maxFailedAttempts;
@@ -94,17 +101,24 @@ export class SuspiciousLoginService {
   /**
    * Record a successful login — clear failed attempts.
    */
-  async recordSuccessfulLogin(walletAddress: string, ipAddress: string): Promise<void> {
+  async recordSuccessfulLogin(
+    walletAddress: string,
+    ipAddress: string,
+  ): Promise<void> {
     const counterKey = `failed_login:${walletAddress}`;
     await this.redisService.del(counterKey);
 
     // Add IP to known list
     const ipKey = `login_ips:${walletAddress}`;
     const knownIps = await this.redisService.get(ipKey);
-    const ipList: string[] = knownIps ? JSON.parse(knownIps) : [];
+    const ipList: string[] = knownIps ? (JSON.parse(knownIps) as string[]) : [];
     if (!ipList.includes(ipAddress)) {
       ipList.push(ipAddress);
-      await this.redisService.set(ipKey, JSON.stringify(ipList), DEFAULT_CONFIG.newIpLookbackDays * 86400);
+      await this.redisService.set(
+        ipKey,
+        JSON.stringify(ipList),
+        DEFAULT_CONFIG.newIpLookbackDays * 86400,
+      );
     }
   }
 
@@ -123,7 +137,9 @@ export class SuspiciousLoginService {
 
     const ipKey = `login_ips:${walletAddress}`;
     const knownIpsStr = await this.redisService.get(ipKey);
-    const knownIps: string[] = knownIpsStr ? JSON.parse(knownIpsStr) : [];
+    const knownIps: string[] = knownIpsStr
+      ? (JSON.parse(knownIpsStr) as string[])
+      : [];
 
     const lockExpiry = this.lockdowns.get(walletAddress) || null;
     const isLocked = lockExpiry !== null && Date.now() < lockExpiry;
