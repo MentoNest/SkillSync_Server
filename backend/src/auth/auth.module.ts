@@ -7,6 +7,7 @@ import { JwtStrategy } from './strategies/jwt.strategy.js';
 import { WalletStrategy } from './strategies/wallet.strategy.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { RolesGuard } from './guards/roles.guard.js';
+import { TokenBlacklistService } from './services/token-blacklist.service.js';
 import { jwtModuleConfig } from '../config/jwt.config.js';
 import { UsersModule } from '../users/users.module.js';
 
@@ -29,7 +30,14 @@ import { UsersModule } from '../users/users.module.js';
     WalletStrategy,
     JwtAuthGuard,
     RolesGuard,
+    TokenBlacklistService,
   ],
-  exports: [AuthService, JwtAuthGuard, RolesGuard, JwtModule],
+  exports: [
+    AuthService,
+    JwtAuthGuard,
+    RolesGuard,
+    JwtModule,
+    TokenBlacklistService,
+  ],
 })
 export class AuthModule {}

@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service.js';
 import { WalletStrategy } from './strategies/wallet.strategy.js';
+import { TokenBlacklistService } from './services/token-blacklist.service.js';
 import { v4 as uuidv4 } from 'uuid';
 
 jest.mock('uuid', () => {
@@ -28,6 +29,11 @@ describe('AuthService', () => {
     verifyAsync: jest.fn(),
   };
 
+  const mockTokenBlacklistService = {
+    blacklist: jest.fn(),
+    isBlacklisted: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -35,6 +41,7 @@ describe('AuthService', () => {
         { provide: WalletStrategy, useValue: mockWalletStrategy },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: JwtService, useValue: mockJwtService },
+        { provide: TokenBlacklistService, useValue: mockTokenBlacklistService },
       ],
     }).compile();
 
@@ -55,17 +62,6 @@ describe('AuthService', () => {
       const result = service.requestNonce('GABC');
       expect(result).toHaveProperty('nonce');
       expect(result).toHaveProperty('expiresAt');
-    });
-  });
-
-  describe('logout', () => {
-    it('should not throw when called with a jti', () => {
-      expect(() => service.logout('some-jti')).not.toThrow();
-    });
-
-    it('isTokenRevoked should return true after logout', () => {
-      service.logout('jti-abc');
-      expect(service.isTokenRevoked('jti-abc')).toBe(true);
     });
   });
 
@@ -154,6 +150,65 @@ describe('AuthService', () => {
 
       await expect(service.refresh('bad-token')).rejects.toThrow(
         UnauthorizedException,
+      );
+    });
+  });
+
+  describe('logout', () => {
+    it('should blacklist the access token jti for its remaining lifetime', async () => {
+      const nowSeconds = Math.floor(Date.now() / 1000);
+
+      await service.logout('access-jti', nowSeconds + 120);
+
+      expect(mockTokenBlacklistService.blacklist).toHaveBeenCalledWith(
+        'access-jti',
+        expect.any(Number),
+      );
+      const [, ttl] = mockTokenBlacklistService.blacklist.mock.calls[0] as [
+        string,
+        number,
+      ];
+      expect(ttl).toBeGreaterThan(0);
+      expect(ttl).toBeLessThanOrEqual(120);
+    });
+
+    it('should fall back to the configured access TTL when no expiry is given', async () => {
+      await service.logout('access-jti');
+
+      expect(mockTokenBlacklistService.blacklist).toHaveBeenCalledWith(
+        'access-jti',
+        900,
+      );
+    });
+
+    it('isTokenRevoked should return true after logout', async () => {
+      await service.logout('jti-abc');
+      expect(service.isTokenRevoked('jti-abc')).toBe(true);
+    });
+
+    it('should mark a stored refresh token as revoked', async () => {
+      mockWalletStrategy.generateNonce.mockReturnValue({
+        nonce: 'nonce-1',
+        expiresAt: Date.now() + 60_000,
+      });
+      service.requestNonce('test-wallet');
+      mockWalletStrategy.verify.mockReturnValue(true);
+      mockJwtService.signAsync
+        .mockResolvedValueOnce('access-token')
+        .mockResolvedValueOnce('refresh-token');
+      await service.login('test-wallet', 'nonce-1');
+      const issuedRefreshJti = (uuidv4 as jest.Mock).mock.results.at(-1)
+        ?.value as string;
+
+      await service.logout('access-jti', undefined, issuedRefreshJti);
+
+      mockJwtService.verifyAsync.mockResolvedValue({
+        sub: 'test-wallet',
+        jti: issuedRefreshJti,
+        type: 'refresh',
+      });
+      await expect(service.refresh('refresh-token')).rejects.toThrow(
+        'Refresh token has been revoked',
       );
     });
   });

@@ -28,6 +28,9 @@ describe('AuthController', () => {
 
   const mockRequest = (ip?: string) => ({ ip }) as unknown as Request;
 
+  const validWallet =
+    'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVW';
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
@@ -81,11 +84,7 @@ describe('AuthController', () => {
 
       await expect(
         controller.login(
-          {
-            walletAddress:
-              'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVW',
-            nonce: 'sig',
-          },
+          { walletAddress: validWallet, nonce: 'sig' },
           mockRequest('127.0.0.1'),
         ),
       ).rejects.toThrow(
@@ -106,24 +105,14 @@ describe('AuthController', () => {
       });
 
       const result = await controller.login(
-        {
-          walletAddress:
-            'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVW',
-          nonce: 'sig',
-        },
+        { walletAddress: validWallet, nonce: 'sig' },
         mockRequest('127.0.0.1'),
       );
 
-      expect(mockAuthService.login).toHaveBeenCalledWith(
-        'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVW',
-        'sig',
-      );
+      expect(mockAuthService.login).toHaveBeenCalledWith(validWallet, 'sig');
       expect(
         mockSuspiciousLoginService.recordSuccessfulLogin,
-      ).toHaveBeenCalledWith(
-        'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVW',
-        '127.0.0.1',
-      );
+      ).toHaveBeenCalledWith(validWallet, '127.0.0.1');
       expect(result).toEqual({
         accessToken: 'access',
         refreshToken: 'refresh',
@@ -133,10 +122,14 @@ describe('AuthController', () => {
   });
 
   describe('logout', () => {
-    it('should revoke the current access token and confirm', () => {
-      const result = controller.logout({ user: { jti: 'jti-1' } });
+    it('should revoke the current access token and confirm', async () => {
+      mockAuthService.logout.mockResolvedValue(undefined);
 
-      expect(mockAuthService.logout).toHaveBeenCalledWith('jti-1');
+      const result = await controller.logout({
+        user: { jti: 'jti-1', exp: 1234 },
+      });
+
+      expect(mockAuthService.logout).toHaveBeenCalledWith('jti-1', 1234);
       expect(result).toEqual({ message: 'Logged out successfully' });
     });
   });

@@ -15,6 +15,7 @@ import { MenteeProfile } from './entities/mentee-profile.entity.js';
 import { PortfolioLink } from './entities/portfolio-link.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
+import { TokenBlacklistService } from '../auth/services/token-blacklist.service.js';
 import { jwtModuleConfig } from '../config/jwt.config.js';
 import { StorageModule } from '../storage/storage.module.js';
 import { AvailabilityModule } from '../availability/availability.module.js';
@@ -44,6 +45,7 @@ import { ProfileCompletenessService } from './profile-completeness.service.js';
     UsersService,
     JwtAuthGuard,
     RolesGuard,
+    TokenBlacklistService,
     AvatarService,
     ProfileCompletenessService,
   ],

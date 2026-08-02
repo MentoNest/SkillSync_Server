@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 import { JwtAccessTokenPayload } from './interfaces/jwt-payload.interface.js';
 import { WalletStrategy } from './strategies/wallet.strategy.js';
+import { TokenBlacklistService } from './services/token-blacklist.service.js';
 import { UsersService } from '../users/users.service.js';
 import { AuthRole } from '../common/enums/auth-role.enum.js';
 import { ROLE_PERMISSIONS } from '../common/constants/role-permissions.constant.js';
@@ -44,6 +45,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly walletStrategy: WalletStrategy,
+    private readonly tokenBlacklistService: TokenBlacklistService,
     private readonly usersService: UsersService,
   ) {}
 
@@ -196,10 +198,18 @@ export class AuthService {
 
   /**
    * #976: Logout — revoke both access and refresh tokens.
+   *
+   * The access token jti is blacklisted in Redis (rather than only the
+   * in-process Set) so revocation survives restarts and applies across
+   * every server instance.
    */
-  logout(accessTokenJti: string, refreshJti?: string): void {
+  async logout(accessTokenJti: string, accessTokenExp?: number, refreshJti?: string): Promise<void> {
     if (accessTokenJti) {
       this.revokedAccessTokens.add(accessTokenJti);
+      const ttlSeconds = accessTokenExp
+        ? accessTokenExp - Math.floor(Date.now() / 1000)
+        : parseInt(this.configService.get('JWT_ACCESS_TTL', '900'), 10);
+      await this.tokenBlacklistService.blacklist(accessTokenJti, ttlSeconds);
     }
     if (refreshJti) {
       const record = this.refreshTokens.get(refreshJti);
