@@ -6,6 +6,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { ProfilesModule } from './profiles/profiles.module.js';
 import { AvailabilityModule } from './availability/availability.module.js';
 import { VerificationModule } from './verification/verification.module.js';
 import { PaginationModule } from './common/pagination/pagination.module.js';
@@ -25,6 +26,7 @@ import typeOrmConfig from './config/typeorm.config.js';
     PaginationModule,
     UsersModule,
     AuthModule,
+    ProfilesModule,
     AvailabilityModule,
     VerificationModule,
     MentorsModule,
