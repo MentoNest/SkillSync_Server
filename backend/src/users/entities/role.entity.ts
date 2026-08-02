@@ -16,6 +16,9 @@ export class Role {
   @Column({ type: 'enum', enum: AuthRole })
   name: AuthRole;
 
+  @Column({ type: 'varchar', nullable: true })
+  description: string | null;
+
   @ManyToOne(() => User, (user) => user.roles, { onDelete: 'CASCADE' })
   user: User;
 
