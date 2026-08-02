@@ -9,6 +9,7 @@ import { WalletStrategy } from './strategies/wallet.strategy.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { RolesGuard } from './guards/roles.guard.js';
 import { TokenBlacklistService } from './services/token-blacklist.service.js';
+import { UsersModule } from '../users/users.module.js';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { TokenBlacklistService } from './services/token-blacklist.service.js';
       }),
       inject: [ConfigService],
     }),
+    UsersModule,
   ],
   controllers: [AuthController],
   providers: [
