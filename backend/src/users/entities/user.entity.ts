@@ -30,11 +30,13 @@ export class User {
   @IsOptional()
   @IsEmail()
   email: string | null;
-
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'varchar', length: 30, nullable: true, unique: true })
   username: string;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
+  usernameChangedAt: Date | null;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
   displayName: string;
 
   @Column({ type: 'varchar', length: 2048, nullable: true })
