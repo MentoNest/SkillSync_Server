@@ -4,6 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 import { JwtAccessTokenPayload } from './interfaces/jwt-payload.interface.js';
 import { WalletStrategy } from './strategies/wallet.strategy.js';
+import { UsersService } from '../users/users.service.js';
+import { AuthRole } from '../common/enums/auth-role.enum.js';
 
 /**
  * #971-978: Auth service handling wallet login, JWT lifecycle, and session management.
@@ -41,6 +43,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly walletStrategy: WalletStrategy,
+    private readonly usersService: UsersService,
   ) {}
 
   /**
@@ -118,15 +121,19 @@ export class AuthService {
       10,
     ); // 7 days
 
-    const roles = await this.resolveRoles(walletAddress);
+    const user = await this.usersService.findOrCreateByWallet(walletAddress);
+    const roles = user.roles?.length
+      ? user.roles.map((role) => role.name)
+      : [AuthRole.MENTEE];
 
     const accessPayload: JwtAccessTokenPayload = {
-      sub: walletAddress,
+      sub: user.id,
       wallet: walletAddress,
       jti: accessJti,
       iat: Math.floor(Date.now() / 1000),
       exp: Math.floor(Date.now() / 1000) + accessTtl,
       roles,
+      status: user.status,
     };
 
     const accessToken = await this.jwtService.signAsync(accessPayload);

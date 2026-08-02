@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -6,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Not, Repository } from 'typeorm';
 import { Repository } from 'typeorm';
 import {
   PaginatedResponse,
@@ -54,6 +56,91 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
     return user;
+  }
+
+  /**
+   * Find the user for a wallet address, creating one with default status
+   * if this is their first login.
+   */
+  async findOrCreateByWallet(walletAddress: string): Promise<User> {
+    const existing = await this.userRepo.findOne({
+      where: { walletAddress },
+      relations: ['roles'],
+    });
+    if (existing) {
+      return existing;
+    }
+
+    const created = this.userRepo.create({
+      walletAddress,
+      displayName: walletAddress.slice(0, 10),
+    });
+    return this.userRepo.save(created);
+  }
+
+  /** #1003: Case-sensitive availability check against the unique username column. */
+  async isUsernameAvailable(
+    username: string,
+    excludeUserId?: string,
+  ): Promise<boolean> {
+    const existing = await this.userRepo.findOne({
+      where: excludeUserId
+        ? { username, id: Not(excludeUserId) }
+        : { username },
+    });
+    return !existing;
+  }
+
+  async findByUsername(username: string): Promise<User | null> {
+    return this.userRepo.findOne({
+      where: { username },
+      relations: ['roles'],
+    });
+  }
+
+  private static readonly USERNAME_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
+
+  /** #1003: Change username, enforcing uniqueness and a 30-day cooldown. */
+  async updateUsername(userId: string, newUsername: string): Promise<User> {
+    const user = await this.findById(userId);
+
+    if (user.username === newUsername) {
+      return user;
+    }
+
+    if (user.usernameChangedAt) {
+      const elapsed = Date.now() - user.usernameChangedAt.getTime();
+      if (elapsed < UsersService.USERNAME_COOLDOWN_MS) {
+        const daysLeft = Math.ceil(
+          (UsersService.USERNAME_COOLDOWN_MS - elapsed) / (24 * 60 * 60 * 1000),
+        );
+        throw new ForbiddenException(
+          `Username can be changed again in ${daysLeft} day(s)`,
+        );
+      }
+    }
+
+    const available = await this.isUsernameAvailable(newUsername, userId);
+    if (!available) {
+      throw new ConflictException('Username is already taken');
+    }
+
+    const oldUsername = user.username;
+    user.username = newUsername;
+    user.usernameChangedAt = new Date();
+    const saved = await this.userRepo.save(user);
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'USERNAME_CHANGED',
+        userId,
+        oldUsername,
+        newUsername,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+
+    return saved;
   }
 
   async createMentorProfile(
@@ -310,6 +397,52 @@ export class UsersService {
         }),
       );
     }
+
+    return saved;
+  }
+
+  private static readonly ALLOWED_STATUS_TRANSITIONS: Record<
+    UserStatus,
+    UserStatus[]
+  > = {
+    [UserStatus.PENDING_VERIFICATION]: [UserStatus.ACTIVE, UserStatus.DELETED],
+    [UserStatus.ACTIVE]: [UserStatus.SUSPENDED, UserStatus.DELETED],
+    [UserStatus.SUSPENDED]: [UserStatus.ACTIVE, UserStatus.DELETED],
+    [UserStatus.DELETED]: [],
+  };
+
+  async updateStatus(
+    userId: string,
+    newStatus: UserStatus,
+    adminId: string,
+  ): Promise<User> {
+    const user = await this.findById(userId);
+
+    if (user.status === newStatus) {
+      return user;
+    }
+
+    const allowed = UsersService.ALLOWED_STATUS_TRANSITIONS[user.status] ?? [];
+    if (!allowed.includes(newStatus)) {
+      throw new BadRequestException(
+        `Cannot transition user status from '${user.status}' to '${newStatus}'`,
+      );
+    }
+
+    const oldStatus = user.status;
+    user.status = newStatus;
+    const saved = await this.userRepo.save(user);
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'USER_STATUS_CHANGED',
+        userId,
+        oldStatus,
+        newStatus,
+        changedBy: adminId,
+        timestamp: new Date().toISOString(),
+      }),
+    );
 
     return saved;
   }

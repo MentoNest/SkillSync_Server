@@ -12,6 +12,9 @@ import { VerificationModule } from './verification/verification.module.js';
 import { PaginationModule } from './common/pagination/pagination.module.js';
 import { RedisModule } from './config/redis.module.js';
 import { MentorsModule } from './mentors/mentors.module.js';
+import { NotificationsModule } from './notifications/notifications.module.js';
+import { AdminModule } from './admin/admin.module.js';
+import { HealthModule } from './health/health.module.js';
 import typeOrmConfig from './config/typeorm.config.js';
 
 @Module({
@@ -27,6 +30,9 @@ import typeOrmConfig from './config/typeorm.config.js';
     AvailabilityModule,
     VerificationModule,
     MentorsModule,
+    NotificationsModule,
+    AdminModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

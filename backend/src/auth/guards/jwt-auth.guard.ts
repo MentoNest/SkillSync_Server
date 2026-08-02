@@ -7,7 +7,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
-import { JwtAccessTokenPayload } from '../interfaces/jwt-payload.interface.js';
+import { JwtAccessTokenPayload } from '../interfaces/jwt-payload.interface';
+import { UserStatus } from '../../users/enums/user-status.enum.js';
 
 /**
  * #981: Enhanced JWT Auth Guard.
@@ -46,6 +47,13 @@ export class JwtAuthGuard implements CanActivate {
           secret: this.configService.get<string>('JWT_SECRET', 'dev-secret'),
         },
       );
+
+      if (payload.status && payload.status !== UserStatus.ACTIVE) {
+        throw new UnauthorizedException({
+          message: 'Account is not active',
+          code: 'account_not_active',
+        });
+      }
 
       req.user = payload;
       return true;
