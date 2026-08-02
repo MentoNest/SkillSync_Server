@@ -4,9 +4,11 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { JwtAccessTokenPayload } from '../interfaces/jwt-payload.interface.js';
+import { UserStatus } from '../../users/enums/user-status.enum.js';
 
 /**
  * #981: Enhanced JWT Auth Guard.
@@ -22,7 +24,10 @@ export interface JwtGuardOptions {
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context
@@ -36,8 +41,19 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     try {
-      const payload =
-        await this.jwtService.verifyAsync<JwtAccessTokenPayload>(token);
+      const payload = await this.jwtService.verifyAsync<JwtAccessTokenPayload>(
+        token,
+        {
+          secret: this.configService.get<string>('JWT_SECRET', 'dev-secret'),
+        },
+      );
+
+      if (payload.status && payload.status !== UserStatus.ACTIVE) {
+        throw new UnauthorizedException({
+          message: 'Account is not active',
+          code: 'account_not_active',
+        });
+      }
 
       req.user = payload;
       return true;

@@ -8,6 +8,7 @@ import { WalletStrategy } from './strategies/wallet.strategy.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { RolesGuard } from './guards/roles.guard.js';
 import { jwtModuleConfig } from '../config/jwt.config.js';
+import { UsersModule } from '../users/users.module.js';
 
 /**
  * #971: Self-contained Auth module.
@@ -19,6 +20,7 @@ import { jwtModuleConfig } from '../config/jwt.config.js';
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync(jwtModuleConfig),
+    UsersModule,
   ],
   controllers: [AuthController],
   providers: [

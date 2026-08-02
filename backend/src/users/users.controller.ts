@@ -10,6 +10,7 @@ import {
   Post,
   Query,
   Req,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -19,6 +20,9 @@ import { CreateProfileDto } from './dto/create-profile.dto.js';
 import { UpdateMentorProfileDto } from './dto/update-mentor-profile.dto.js';
 import { UpdateMenteeProfileDto } from './dto/update-mentee-profile.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
+import { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
+import { UpdateUsernameDto } from './dto/update-username.dto.js';
+import { UsernameAvailabilityQueryDto } from './dto/username-availability-query.dto.js';
 import { UserQueryDto } from './dto/user-query.dto.js';
 import { UserResponseDto } from './dto/user-response.dto.js';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
@@ -82,6 +86,49 @@ export class UsersController {
       data: result.data.map((user) => UserResponseDto.fromEntity(user)),
       meta: result.meta,
     };
+  }
+
+  @Patch('admin/:id/status')
+  @UseGuards(RolesGuard)
+  @Roles(AuthRole.ADMIN)
+  async updateUserStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateUserStatusDto,
+    @Req() req: Request & { user: JwtAccessTokenPayload },
+  ): Promise<UserResponseDto> {
+    const user = await this.usersService.updateStatus(
+      id,
+      dto.status,
+      req.user.sub,
+    );
+    return UserResponseDto.fromEntity(user);
+  }
+
+  @Get('username/available')
+  async checkUsernameAvailability(
+    @Query() query: UsernameAvailabilityQueryDto,
+    @Req() req: Request & { user?: JwtAccessTokenPayload },
+  ): Promise<{ available: boolean }> {
+    const available = await this.usersService.isUsernameAvailable(
+      query.username,
+      req.user?.sub,
+    );
+    return { available };
+  }
+
+  @Patch('username')
+  async updateUsername(
+    @Body() dto: UpdateUsernameDto,
+    @Req() req: Request & { user?: JwtAccessTokenPayload },
+  ): Promise<UserResponseDto> {
+    if (!req.user) {
+      throw new UnauthorizedException();
+    }
+    const user = await this.usersService.updateUsername(
+      req.user.sub,
+      dto.username,
+    );
+    return UserResponseDto.fromEntity(user);
   }
 
   @Get('admin/completeness')
