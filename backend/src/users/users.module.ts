@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { UsersController } from './users.controller.js';
+import { ProfilesController } from './profiles.controller.js';
 import { UsersService } from './users.service.js';
 import { AvatarController } from './avatar.controller.js';
 import { AvatarService } from './avatar.service.js';
@@ -38,7 +39,10 @@ import { ProfileCompletenessService } from './profile-completeness.service.js';
     StorageModule,
     AvailabilityModule,
   ],
-  controllers: [UsersController, AvatarController],
+  controllers: [UsersController, ProfilesController, AvatarController],
+  providers: [UsersService, JwtAuthGuard, RolesGuard],
+  exports: [UsersService],
+  controllers: [UsersController],
   providers: [
     UsersService,
     JwtAuthGuard,
