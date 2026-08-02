@@ -7,6 +7,7 @@ import { WalletStrategy } from './strategies/wallet.strategy.js';
 import { TokenBlacklistService } from './services/token-blacklist.service.js';
 import { UsersService } from '../users/users.service.js';
 import { AuthRole } from '../common/enums/auth-role.enum.js';
+import { ROLE_PERMISSIONS } from '../common/constants/role-permissions.constant.js';
 
 /**
  * #971-978: Auth service handling wallet login, JWT lifecycle, and session management.
@@ -127,6 +128,7 @@ export class AuthService {
     const roles = user.roles?.length
       ? user.roles.map((role) => role.name)
       : [AuthRole.MENTEE];
+    const permissions = this.resolvePermissions(roles);
 
     const accessPayload: JwtAccessTokenPayload = {
       sub: user.id,
@@ -135,6 +137,7 @@ export class AuthService {
       iat: Math.floor(Date.now() / 1000),
       exp: Math.floor(Date.now() / 1000) + accessTtl,
       roles,
+      permissions,
       status: user.status,
     };
 
@@ -232,11 +235,17 @@ export class AuthService {
     // In production: persist to database via UsersService
   }
 
-  private resolveRoles(walletAddress: string): Promise<string[]> {
-    // In production: query from database, keyed by walletAddress
-    // Default role for all authenticated users
-    void walletAddress;
-    return Promise.resolve(['MENTEE']);
+  /**
+   * #974: Resolve the union of permissions granted by a set of roles.
+   */
+  private resolvePermissions(roles: AuthRole[]): string[] {
+    const permissions = new Set<string>();
+    for (const role of roles) {
+      for (const permission of ROLE_PERMISSIONS[role] ?? []) {
+        permissions.add(permission);
+      }
+    }
+    return Array.from(permissions);
   }
 
   private cleanExpiredNonces(): void {
