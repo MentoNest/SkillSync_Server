@@ -7,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
-import { JwtAccessTokenPayload } from '../interfaces/jwt-payload.interface';
+import { JwtAccessTokenPayload } from '../interfaces/jwt-payload.interface.js';
 import { UserStatus } from '../../users/enums/user-status.enum.js';
 
 /**

@@ -129,6 +129,8 @@ export class UsersController {
       dto.username,
     );
     return UserResponseDto.fromEntity(user);
+  }
+
   @Get('admin/completeness')
   @UseGuards(RolesGuard)
   @Roles(AuthRole.ADMIN)
