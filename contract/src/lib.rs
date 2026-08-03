@@ -809,12 +809,16 @@ fn metadata_key(session_id: &Bytes32) -> (Symbol, Bytes32) {
 
 fn vesting_key(session_id: &Bytes32) -> (Symbol, Bytes32) {
     (symbol_short!("VEST"), session_id.clone())
+}
+
 fn oracle_price_key(asset: &Bytes32) -> (Symbol, Bytes32) {
     (symbol_short!("ORP"), asset.clone())
 }
 
 fn fallback_price_key(asset: &Bytes32) -> (Symbol, Bytes32) {
     (symbol_short!("FBP"), asset.clone())
+}
+
 fn role_key(role: &[u8], account: &Address) -> (Symbol, soroban_sdk::Bytes) {
     let mut key_data = soroban_sdk::Bytes::new(account.env);
     key_data.extend_from_slice(role);
