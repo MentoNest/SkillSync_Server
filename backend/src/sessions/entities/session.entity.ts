@@ -8,6 +8,22 @@ import {
 } from 'typeorm';
 import { SessionStatus } from './enums/session-status.enum.js';
 
+// Milestone entity for JSON storage
+export class Milestone {
+  description: string;
+  percentage: number;
+  released: boolean;
+  completedAt?: Date;
+}
+
+// Rating entity for JSON storage
+export class SessionRating {
+  buyerRating?: number;
+  sellerRating?: number;
+  buyerComment?: string;
+  sellerComment?: string;
+}
+
 @Entity('mentorship_sessions')
 export class Session {
   @PrimaryGeneratedColumn('uuid')
@@ -15,17 +31,27 @@ export class Session {
 
   @Column()
   @Index()
-  mentorId!: string;
+  mentorId!: string; // Seller
 
   @Column()
   @Index()
-  menteeId!: string;
+  menteeId!: string; // Buyer
+
+  @Column({ type: 'varchar', nullable: true })
+  @Index()
+  blockchainSessionId!: string | null; // On-chain session ID
 
   @Column({ type: 'timestamp' })
   startTime!: Date;
 
   @Column({ type: 'timestamp' })
   endTime!: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  deadline!: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  startedAt!: Date | null;
 
   @Column({ type: 'enum', enum: SessionStatus, default: SessionStatus.PENDING })
   @Index()
@@ -38,7 +64,18 @@ export class Session {
   notes!: string | null;
 
   @Column({ type: 'int', nullable: true })
-  rating!: number | null;
+  amount!: number;
+
+  @Column({ type: 'varchar', nullable: true })
+  tokenAddress!: string | null;
+
+  // Store milestones as JSON
+  @Column({ type: 'jsonb', nullable: true })
+  milestones!: Milestone[] | null;
+
+  // Store ratings as JSON
+  @Column({ type: 'jsonb', nullable: true })
+  rating!: SessionRating | null;
 
   @Column({ type: 'text', nullable: true })
   review!: string | null;
