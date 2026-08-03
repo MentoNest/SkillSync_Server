@@ -997,6 +997,8 @@ fn push_tokens(env: &Env, token: &Address, to: &Address, amount: i128) {
             ],
         ),
     );
+}
+
 // Multi-sig storage helpers
 fn proposal_key(proposal_id: &Bytes32) -> (Symbol, Bytes32) {
     (symbol_short!("PROP"), proposal_id.clone())
