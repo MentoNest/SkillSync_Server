@@ -73,4 +73,38 @@ export class SessionsController {
   ) {
     return this.sessionsService.getMenteeSessions(menteeId, query);
   }
+
+  // New milestone endpoints
+  @Post('milestone')
+  @UseGuards(JwtAuthGuard)
+  async createMilestoneSession(@Body() dto: CreateMilestoneSessionDto, @Req() req: any) {
+    return this.sessionsService.createMilestoneSession(dto, req.user.sub);
+  }
+
+  @Patch(':id/start-milestones')
+  @UseGuards(JwtAuthGuard)
+  async startMilestoneSession(@Param('id') id: string, @Req() req: any) {
+    return this.sessionsService.startMilestoneSession(id, req.user.sub);
+  }
+
+  @Patch(':id/complete-milestone/:milestoneIndex')
+  @UseGuards(JwtAuthGuard)
+  async completeMilestone(
+    @Param('id') id: string,
+    @Param('milestoneIndex') milestoneIndex: number,
+    @Req() req: any
+  ) {
+    return this.sessionsService.completeMilestone(id, milestoneIndex, req.user.sub);
+  }
+
+  // Enhanced rating endpoint for blockchain integration
+  @Post(':id/submit-rating')
+  @UseGuards(JwtAuthGuard)
+  async submitBlockchainRating(
+    @Param('id') id: string,
+    @Body() body: { rating: number; comment?: string },
+    @Req() req: any,
+  ) {
+    return this.sessionsService.submitBlockchainRating(id, body, req.user.sub);
+  }
 }
