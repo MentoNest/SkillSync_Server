@@ -1160,11 +1160,25 @@ impl SkillsyncContract {
             return Err(ContractError::DuplicateSessionId);
         }
         buyer.require_auth();
+        
+        // Initialize empty milestones and rating
+        let empty_milestones = Vec::new(env);
+        let empty_rating = Rating {
+            buyer_rating: None,
+            seller_rating: None,
+            buyer_comment: None,
+            seller_comment: None,
+        };
+        
         let session = Session {
             id: session_id.clone(),
             buyer,
             seller,
             amount,
+            milestones: empty_milestones,
+            rating: empty_rating,
+            started_at: 0,
+            deadline: None,
             token_address: None,
             status: SessionStatus::Created,
             created_at: env.ledger().timestamp(),
@@ -1174,6 +1188,72 @@ impl SkillsyncContract {
         };
         save_session(&env, &session_id, &session);
         Ok(())
+    }
+
+    // New function to create a session with milestones
+    pub fn create_milestone_session(
+        env: Env,
+        session_id: Bytes32,
+        buyer: Address,
+        seller: Address,
+        amount: i128,
+        milestones: Vec<Milestone>,
+        deadline: Option<u64>,
+    ) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        require_not_paused(&env);
+        
+        if amount <= 0 {
+            return Err(ContractError::AmountMustBePositive);
+        }
+        if get_session(&env, &session_id).is_some() {
+            return Err(ContractError::DuplicateSessionId);
+        }
+        buyer.require_auth();
+        
+        // Validate milestones
+        if milestones.len() > 0 {
+            let total_percentage: u8 = milestones.iter().map(|m| m.percentage).sum();
+            if total_percentage != 100 {
+                return Err(ContractError::MilestoneSumInvalid);
+            }
+        }
+        
+        let empty_rating = Rating {
+            buyer_rating: None,
+            seller_rating: None,
+            buyer_comment: None,
+            seller_comment: None,
+        };
+        
+        let session = Session {
+            id: session_id.clone(),
+            buyer,
+            seller,
+            amount,
+            milestones,
+            rating: empty_rating,
+            started_at: 0,
+            deadline,
+            token_address: None,
+            status: SessionStatus::Created,
+            created_at: env.ledger().timestamp(),
+            completed_at: None,
+            dispute_opened_at: None,
+            released_amount: 0,
+        };
+        save_session(&env, &session_id, &session);
+        
+        emit_milestone_session_created(&env, session_id);
+        Ok(())
+    }
+
+    // Event emitter for milestone session creation
+    fn emit_milestone_session_created(env: &Env, session_id: Bytes32) {
+        env.events().publish(
+            (symbol_short!("MILECREATE"), session_id.clone()),
+            (session_id, env.ledger().timestamp()),
+        );
     }
 
     /// Lock funds for a session. When `token_address` is provided the contract
