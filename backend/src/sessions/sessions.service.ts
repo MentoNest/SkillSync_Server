@@ -298,6 +298,51 @@ export class SessionsService {
     return this.sessionRepo.save(session);
   }
 
+  // Get all milestones for a session
+  async getSessionMilestones(sessionId: string) {
+    const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
+    if (!session) {
+      throw new NotFoundException(`Session ${sessionId} not found`);
+    }
+    return {
+      sessionId: session.id,
+      blockchainSessionId: session.blockchainSessionId,
+      status: session.status,
+      milestones: session.milestones || [],
+      allCompleted: session.milestones?.every(m => m.released) || false,
+    };
+  }
+
+  // Get ratings for a session
+  async getSessionRatings(sessionId: string) {
+    const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
+    if (!session) {
+      throw new NotFoundException(`Session ${sessionId} not found`);
+    }
+    return {
+      sessionId: session.id,
+      blockchainSessionId: session.blockchainSessionId,
+      status: session.status,
+      ratings: session.rating || {
+        buyerRating: null,
+        sellerRating: null,
+        buyerComment: null,
+        sellerComment: null,
+      },
+      averageRating: this.calculateAverageRating(session.rating),
+    };
+  }
+
+  // Helper to calculate average rating
+  private calculateAverageRating(rating: any): number | null {
+    if (!rating) return null;
+    const ratings = [];
+    if (rating.buyerRating) ratings.push(rating.buyerRating);
+    if (rating.sellerRating) ratings.push(rating.sellerRating);
+    if (ratings.length === 0) return null;
+    return ratings.reduce((a, b) => a + b, 0) / ratings.length;
+  }
+
   async getMentorSessions(
     mentorId: string,
     query: { page?: number; limit?: number; status?: SessionStatus },
