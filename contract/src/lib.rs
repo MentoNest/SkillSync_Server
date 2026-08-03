@@ -277,12 +277,30 @@ pub enum ContractError {
 pub enum SessionStatus {
     Created,
     Locked,
+    MilestoneInProgress,
     Completed,
     Approved,
     Refunded,
     Disputed,
     Resolved,
+    CompletedWithDispute,
     Archived,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Milestone {
+    pub description: String,
+    pub percentage: u8,
+    pub released: bool,
+    pub completed_at: Option<u64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Rating {
+    pub buyer_rating: Option<u8>, // 1-5
+    pub seller_rating: Option<u8>, // 1-5
+    pub buyer_comment: Option<String>,
+    pub seller_comment: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
