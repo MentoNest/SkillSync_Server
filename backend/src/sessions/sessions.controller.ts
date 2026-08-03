@@ -12,6 +12,7 @@ import {
 import { SessionsService } from './sessions.service.js';
 import { CreateSessionDto } from './dto/create-session.dto.js';
 import { UpdateSessionDto } from './dto/update-session.dto.js';
+import { CreateMilestoneSessionDto } from './dto/create-milestone-session.dto.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { SessionStatus } from './entities/enums/session-status.enum.js';
 
