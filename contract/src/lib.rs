@@ -277,7 +277,7 @@ pub enum ContractError {
 pub enum SessionStatus {
     Created,
     Locked,
-    MilestoneInProgress,
+     MilestoneInProgress,
     Completed,
     Approved,
     Refunded,
@@ -1298,6 +1298,144 @@ impl SkillsyncContract {
         session.status = SessionStatus::Resolved;
         save_session(&env, &session_id, &session);
         Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // New Milestone Lifecycle Functions
+    // -----------------------------------------------------------------------
+    pub fn start_milestone_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        require_not_paused(&env);
+        
+        let mut session = get_session_result(&env, &session_id)?;
+        if session.status != SessionStatus::Locked {
+            return Err(ContractError::InvalidStatus);
+        }
+        
+        // Verify milestones exist and sum to 100%
+        if session.milestones.len() == 0 {
+            return Err(ContractError::MilestoneSumInvalid);
+        }
+        
+        let total_percentage: u8 = session.milestones.iter().map(|m| m.percentage).sum();
+        if total_percentage != 100 {
+            return Err(ContractError::MilestoneSumInvalid);
+        }
+        
+        session.status = SessionStatus::MilestoneInProgress;
+        session.started_at = env.ledger().timestamp();
+        save_session(&env, &session_id, &session);
+        
+        emit_milestone_session_started(&env, session_id);
+        Ok(())
+    }
+
+    pub fn complete_milestone(env: Env, session_id: Bytes32, milestone_index: u32) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        require_not_paused(&env);
+        
+        let mut session = get_session_result(&env, &session_id)?;
+        if session.status != SessionStatus::MilestoneInProgress {
+            return Err(ContractError::InvalidStatus);
+        }
+        
+        // Verify milestone index is valid
+        if milestone_index as usize >= session.milestones.len() {
+            return Err(ContractError::MilestoneNotFound);
+        }
+        
+        let mut milestone = session.milestones.get(milestone_index).unwrap();
+        if milestone.released {
+            return Err(ContractError::MilestoneAlreadyReleased);
+        }
+        
+        // Only seller can complete milestones
+        session.seller.require_auth();
+        
+        // Mark milestone as completed and release funds
+        milestone.released = true;
+        milestone.completed_at = Some(env.ledger().timestamp());
+        session.milestones.set(milestone_index, milestone);
+        
+        // Transfer funds for this milestone
+        if let Some(token) = &session.token_address {
+            let milestone_amount = (session.amount * milestone.percentage as i128) / 100;
+            push_tokens(&env, token, &session.seller, milestone_amount);
+        }
+        
+        // Check if all milestones are completed
+        let all_completed = session.milestones.iter().all(|m| m.released);
+        if all_completed {
+            session.status = SessionStatus::Completed;
+            session.completed_at = Some(env.ledger().timestamp());
+        }
+        
+        save_session(&env, &session_id, &session);
+        emit_milestone_completed(&env, session_id, milestone_index);
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Rating System Functions
+    // -----------------------------------------------------------------------
+    pub fn submit_rating(env: Env, session_id: Bytes32, rating: u8, comment: Option<String>) -> Result<(), ContractError> {
+        require_initialized_result(&env)?;
+        let mut session = get_session_result(&env, &session_id)?;
+        
+        // Only allow ratings for approved or resolved sessions
+        if session.status != SessionStatus::Approved && session.status != SessionStatus::Resolved {
+            return Err(ContractError::SessionNotApproved);
+        }
+        
+        // Validate rating is 1-5
+        if rating < 1 || rating > 5 {
+            return Err(ContractError::InvalidRating);
+        }
+        
+        let caller = env.invoker();
+        if caller == session.buyer {
+            if session.rating.buyer_rating.is_some() {
+                return Err(ContractError::RatingAlreadySubmitted);
+            }
+            session.rating.buyer_rating = Some(rating);
+            session.rating.buyer_comment = comment;
+        } else if caller == session.seller {
+            if session.rating.seller_rating.is_some() {
+                return Err(ContractError::RatingAlreadySubmitted);
+            }
+            session.rating.seller_rating = Some(rating);
+            session.rating.seller_comment = comment;
+        } else {
+            return Err(ContractError::Unauthorized);
+        }
+        
+        save_session(&env, &session_id, &session);
+        emit_rating_submitted(&env, session_id, rating, if caller == session.buyer { "buyer" } else { "seller" });
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Event emitters for new functionality
+    // -----------------------------------------------------------------------
+    fn emit_milestone_session_started(env: &Env, session_id: Bytes32) {
+        env.events().publish(
+            (symbol_short!("MILESTART"), session_id.clone()),
+            (session_id, env.ledger().timestamp()),
+        );
+    }
+
+    fn emit_milestone_completed(env: &Env, session_id: Bytes32, milestone_index: u32) {
+        env.events().publish(
+            (symbol_short!("MILEDONE"), session_id.clone()),
+            (session_id, milestone_index, env.ledger().timestamp()),
+        );
+    }
+
+    fn emit_rating_submitted(env: &Env, session_id: Bytes32, rating: u8, rater_type: &str) {
+        env.events().publish(
+            (symbol_short!("RATED"), session_id.clone()),
+            (session_id, rating, rater_type, env.ledger().timestamp()),
+        );
     }
 
     // -----------------------------------------------------------------------
