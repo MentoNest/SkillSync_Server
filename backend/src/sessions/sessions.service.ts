@@ -148,6 +148,156 @@ export class SessionsService {
     return this.sessionRepo.save(session);
   }
 
+  // New milestone session creation
+  async createMilestoneSession(dto: any, buyerId: string): Promise<Session> {
+    // Validate milestones sum to 100%
+    const totalPercentage = dto.milestones.reduce((sum: number, m: any) => sum + m.percentage, 0);
+    if (totalPercentage !== 100) {
+      throw new BadRequestException('Milestone percentages must sum to 100%');
+    }
+
+    // Format milestones for storage
+    const milestones = dto.milestones.map((m: any) => ({
+      ...m,
+      released: false,
+    }));
+
+    const session = this.sessionRepo.create({
+      mentorId: dto.sellerId,
+      menteeId: buyerId,
+      blockchainSessionId: dto.sessionId,
+      amount: dto.amount,
+      tokenAddress: dto.tokenAddress || null,
+      milestones,
+      rating: {
+        buyerRating: null,
+        sellerRating: null,
+        buyerComment: null,
+        sellerComment: null,
+      },
+      startTime: new Date(),
+      endTime: dto.deadline ? new Date(dto.deadline) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Default 30 days
+      deadline: dto.deadline ? new Date(dto.deadline) : null,
+      status: SessionStatus.CREATED,
+    });
+
+    this.logger.log(`Created milestone session ${dto.sessionId} for buyer ${buyerId}`);
+    return this.sessionRepo.save(session);
+  }
+
+  // Start milestone session
+  async startMilestoneSession(sessionId: string, userId: string): Promise<Session> {
+    const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
+    if (!session) {
+      throw new NotFoundException(`Session ${sessionId} not found`);
+    }
+
+    // Verify caller is the seller (mentor)
+    if (session.mentorId !== userId) {
+      throw new BadRequestException('Only the seller can start the milestone session');
+    }
+
+    if (session.status !== SessionStatus.LOCKED) {
+      throw new BadRequestException('Session must be locked to start milestones');
+    }
+
+    if (!session.milestones || session.milestones.length === 0) {
+      throw new BadRequestException('No milestones defined for this session');
+    }
+
+    session.status = SessionStatus.MILESTONE_IN_PROGRESS;
+    session.startedAt = new Date();
+    
+    this.logger.log(`Started milestone session ${sessionId}`);
+    return this.sessionRepo.save(session);
+  }
+
+  // Complete a specific milestone
+  async completeMilestone(sessionId: string, milestoneIndex: number, userId: string): Promise<Session> {
+    const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
+    if (!session) {
+      throw new NotFoundException(`Session ${sessionId} not found`);
+    }
+
+    // Verify caller is the seller (mentor)
+    if (session.mentorId !== userId) {
+      throw new BadRequestException('Only the seller can complete milestones');
+    }
+
+    if (session.status !== SessionStatus.MILESTONE_IN_PROGRESS) {
+      throw new BadRequestException('Milestone session is not in progress');
+    }
+
+    if (!session.milestones || milestoneIndex >= session.milestones.length) {
+      throw new BadRequestException('Milestone index is invalid');
+    }
+
+    const milestone = session.milestones[milestoneIndex];
+    if (milestone.released) {
+      throw new BadRequestException('Milestone has already been released');
+    }
+
+    // Mark milestone as completed
+    session.milestones[milestoneIndex] = {
+      ...milestone,
+      released: true,
+      completedAt: new Date(),
+    };
+
+    // Check if all milestones are completed
+    const allCompleted = session.milestones.every(m => m.released);
+    if (allCompleted) {
+      session.status = SessionStatus.COMPLETED;
+    }
+
+    this.logger.log(`Completed milestone ${milestoneIndex} for session ${sessionId}`);
+    return this.sessionRepo.save(session);
+  }
+
+  // Submit rating to blockchain
+  async submitBlockchainRating(sessionId: string, dto: { rating: number; comment?: string }, userId: string): Promise<Session> {
+    const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
+    if (!session) {
+      throw new NotFoundException(`Session ${sessionId} not found`);
+    }
+
+    // Validate rating range
+    if (dto.rating < 1 || dto.rating > 5) {
+      throw new BadRequestException('Rating must be between 1 and 5');
+    }
+
+    // Only allow ratings for approved or resolved sessions
+    if (session.status !== SessionStatus.APPROVED && session.status !== SessionStatus.RESOLVED) {
+      throw new BadRequestException('Only approved or resolved sessions can be rated');
+    }
+
+    // Update the appropriate rating field based on caller
+    if (session.menteeId === userId) {
+      if (session.rating?.buyerRating) {
+        throw new BadRequestException('You have already submitted a rating');
+      }
+      session.rating = {
+        ...session.rating,
+        buyerRating: dto.rating,
+        buyerComment: dto.comment || null,
+      };
+    } else if (session.mentorId === userId) {
+      if (session.rating?.sellerRating) {
+        throw new BadRequestException('You have already submitted a rating');
+      }
+      session.rating = {
+        ...session.rating,
+        sellerRating: dto.rating,
+        sellerComment: dto.comment || null,
+      };
+    } else {
+      throw new BadRequestException('You are not authorized to rate this session');
+    }
+
+    this.logger.log(`Submitted ${session.menteeId === userId ? 'buyer' : 'seller'} rating for session ${sessionId}`);
+    return this.sessionRepo.save(session);
+  }
+
   async getMentorSessions(
     mentorId: string,
     query: { page?: number; limit?: number; status?: SessionStatus },
