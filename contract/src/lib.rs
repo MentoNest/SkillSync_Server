@@ -1099,7 +1099,6 @@ impl SkillsyncContract {
     // -----------------------------------------------------------------------
 
     pub fn initialize(env: Env, admin: Address, treasury: Address) -> Result<(), ContractError> {
-    pub fn initialize(env: Env, admin: Address, treasury: Address) {
         if env.storage().persistent().has(&symbol_short!("INIT")) {
             return Err(ContractError::AlreadyInitialized);
         }
@@ -1109,11 +1108,12 @@ impl SkillsyncContract {
         env.storage().persistent().set(&symbol_short!(ADMIN), &admin);
         env.storage().persistent().set(&symbol_short!("TRSY"), &treasury);
         env.storage().persistent().set(&symbol_short!("INIT"), &true);
-        Ok(())
-
+        
         // Grant DEFAULT_ADMIN_ROLE to the initial admin
         let key = (symbol_short!("ROLE"), soroban_sdk::Bytes::from_array(&env, ROLE_ADMIN));
         env.storage().persistent().set(&key, &true);
+        
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
@@ -1128,13 +1128,9 @@ impl SkillsyncContract {
         amount: i128,
     ) -> Result<(), ContractError> {
         require_initialized_result(&env)?;
-        if amount <= 0 {
-            return Err(ContractError::AmountMustBePositive);
-    ) {
-        require_initialized(&env);
         require_not_paused(&env);
         if amount <= 0 {
-            panic_with_error!(&env, ContractError::InvalidAmount);
+            return Err(ContractError::AmountMustBePositive);
         }
         if get_session(&env, &session_id).is_some() {
             return Err(ContractError::DuplicateSessionId);
@@ -1164,12 +1160,8 @@ impl SkillsyncContract {
         token_address: Option<Address>,
     ) -> Result<(), ContractError> {
         require_initialized_result(&env)?;
-        let mut session = get_session_result(&env, &session_id)?;
-    pub fn lock_funds(env: Env, session_id: Bytes32) {
-        require_initialized(&env);
         require_not_paused(&env);
-        let mut session = get_session(&env, &session_id)
-            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+        let mut session = get_session_result(&env, &session_id)?;
         if session.status != SessionStatus::Created {
             return Err(ContractError::InvalidStatus);
         }
@@ -1187,7 +1179,9 @@ impl SkillsyncContract {
 
     pub fn complete_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
         require_initialized_result(&env)?;
+        require_not_paused(&env);
         let mut session = get_session_result(&env, &session_id)?;
+        
         // Check rate limiting
         let max_sessions: u32 = env.storage().persistent().get(&symbol_short!("MAXSESS")).unwrap_or(0);
         let window_ledgers: u32 = env.storage().persistent().get(&symbol_short!("WINDLED")).unwrap_or(0);
@@ -1202,7 +1196,7 @@ impl SkillsyncContract {
                 
                 if current_count >= max_sessions {
                     emit_rate_limit_hit(&env, session.buyer.clone(), current_count, max_sessions, current_window);
-                    panic_with_error!(&env, ContractError::RateLimitExceeded);
+                    return Err(ContractError::RateLimitExceeded);
                 }
                 
                 // Increment count and extend temporary storage lifetime
@@ -1211,15 +1205,6 @@ impl SkillsyncContract {
             }
         }
 
-        session.status = SessionStatus::Locked;
-        save_session(&env, &session_id, &session);
-    }
-
-    pub fn complete_session(env: Env, session_id: Bytes32) {
-        require_initialized(&env);
-        require_not_paused(&env);
-        let mut session = get_session(&env, &session_id)
-            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
         if session.status != SessionStatus::Locked {
             return Err(ContractError::InvalidStatus);
         }
@@ -1232,12 +1217,8 @@ impl SkillsyncContract {
 
     pub fn approve_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
         require_initialized_result(&env)?;
-        let mut session = get_session_result(&env, &session_id)?;
-    pub fn approve_session(env: Env, session_id: Bytes32) {
-        require_initialized(&env);
         require_not_paused(&env);
-        let mut session = get_session(&env, &session_id)
-            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+        let mut session = get_session_result(&env, &session_id)?;
         if session.status != SessionStatus::Completed {
             return Err(ContractError::InvalidStatus);
         }
@@ -1257,14 +1238,10 @@ impl SkillsyncContract {
 
     pub fn open_dispute(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
         require_initialized_result(&env)?;
-        let mut session = get_session_result(&env, &session_id)?;
-    pub fn open_dispute(env: Env, session_id: Bytes32) {
-        require_initialized(&env);
         require_not_paused(&env);
-        let mut session = get_session(&env, &session_id)
-            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+        let mut session = get_session_result(&env, &session_id)?;
         if session.status == SessionStatus::Disputed {
-            panic_with_error!(&env, ContractError::DisputeAlreadyOpen);
+            return Err(ContractError::DisputeAlreadyOpen);
         }
         if session.status != SessionStatus::Locked && session.status != SessionStatus::Completed {
             return Err(ContractError::InvalidStatus);
@@ -1282,27 +1259,16 @@ impl SkillsyncContract {
         seller_share: i128,
     ) -> Result<(), ContractError> {
         require_initialized_result(&env)?;
-        require_admin_result(&env)?;
-        let mut session = get_session_result(&env, &session_id)?;
-        if session.status != SessionStatus::Disputed {
-            return Err(ContractError::InvalidStatus);
-        }
-        if buyer_share + seller_share != session.amount {
-            return Err(ContractError::SharesMismatch);
-    ) {
-        require_initialized(&env);
         require_not_paused(&env);
         // #950: only DISPUTE_RESOLVER_ROLE or admin can resolve
-        let caller = require_admin(&env);
-        require_role(&env, ROLE_DISPUTE, &caller);
-
-        let mut session = get_session(&env, &session_id)
-            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+        require_admin_result(&env)?;
+        
+        let mut session = get_session_result(&env, &session_id)?;
         if session.status != SessionStatus::Disputed {
-            panic_with_error!(&env, ContractError::DisputeNotOpen);
+            return Err(ContractError::DisputeNotOpen);
         }
         if buyer_share + seller_share != session.amount {
-            panic_with_error!(&env, ContractError::InvalidSplit);
+            return Err(ContractError::InvalidSplit);
         }
         let (_after_fee, _fee) = apply_fee(&env, seller_share);
         session.status = SessionStatus::Resolved;
