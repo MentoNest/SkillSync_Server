@@ -108,4 +108,16 @@ export class SessionsController {
   ) {
     return this.sessionsService.submitBlockchainRating(id, body, req.user.sub);
   }
+
+  // Get all milestones for a session
+  @Get(':id/milestones')
+  async getSessionMilestones(@Param('id') id: string) {
+    return this.sessionsService.getSessionMilestones(id);
+  }
+
+  // Get ratings for a session
+  @Get(':id/ratings')
+  async getSessionRatings(@Param('id') id: string) {
+    return this.sessionsService.getSessionRatings(id);
+  }
 }
