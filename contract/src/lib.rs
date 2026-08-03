@@ -1521,15 +1521,10 @@ impl SkillsyncContract {
     // -----------------------------------------------------------------------
     // Refunds
     // -----------------------------------------------------------------------
-
     pub fn refund_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
         require_initialized_result(&env)?;
-        let mut session = get_session_result(&env, &session_id)?;
-    pub fn refund_session(env: Env, session_id: Bytes32) {
-        require_initialized(&env);
         require_not_paused(&env);
-        let mut session = get_session(&env, &session_id)
-            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
+        let mut session = get_session_result(&env, &session_id)?;
 
         if session.status == SessionStatus::Refunded {
             return Err(ContractError::SessionAlreadyRefunded);
@@ -1558,10 +1553,6 @@ impl SkillsyncContract {
     pub fn auto_refund(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
         require_initialized_result(&env)?;
         let mut session = get_session_result(&env, &session_id)?;
-    pub fn auto_refund(env: Env, session_id: Bytes32) {
-        require_initialized(&env);
-        let mut session = get_session(&env, &session_id)
-            .unwrap_or_else(|| panic_with_error!(&env, ContractError::SessionNotFound));
 
         if session.status == SessionStatus::Refunded {
             return Err(ContractError::SessionAlreadyRefunded);
