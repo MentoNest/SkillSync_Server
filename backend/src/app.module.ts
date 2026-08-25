@@ -13,6 +13,7 @@ import { AuditLogsService } from './services/audit-logs.service';
 import { AuditLogsController } from './controllers/audit-logs.controller';
 import { RedisService } from './services/redis.service';
 import { ThrottlerGuard } from './guards/throttler.guard';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Module({
   imports: [
@@ -33,8 +34,8 @@ import { ThrottlerGuard } from './guards/throttler.guard';
     }),
   ],
   controllers: [AppController, RolesController, AuditLogsController],
-  providers: [AppService, RolesService, RolesGuard, AuditLogsService, RedisService, ThrottlerGuard],
-  exports: [RedisService, ThrottlerGuard],
+  providers: [AppService, RolesService, RolesGuard, AuditLogsService, RedisService, ThrottlerGuard, JwtAuthGuard],
+  exports: [RedisService, ThrottlerGuard, JwtAuthGuard],
 })
 export class AppModule implements OnModuleInit {
   constructor(private readonly rolesService: RolesService) {}
