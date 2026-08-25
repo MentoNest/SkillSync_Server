@@ -5,10 +5,13 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { User } from './user/entities/user.entity';
 import { Role } from './entities/role.entity';
+import { RefreshToken } from './auth/entities/refresh-token.entity';
+import { AuditLog } from './auth/entities/audit-log.entity';
 import { RolesGuard } from './guards/roles.guard';
 import { RolesService } from './services/roles.service';
 import { RolesController } from './controllers/roles.controller';
 import { UserModule } from './user/user.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -19,15 +22,16 @@ import { UserModule } from './user/user.module';
       username: process.env.DB_USERNAME || 'postgres',
       password: process.env.DB_PASSWORD || 'password',
       database: process.env.DB_DATABASE || 'skillsync',
-      entities: [User, Role],
+      entities: [User, Role, RefreshToken, AuditLog],
       synchronize: process.env.NODE_ENV !== 'production', // Disable in production, use migrations
     }),
-    TypeOrmModule.forFeature([User, Role]),
+    TypeOrmModule.forFeature([User, Role, RefreshToken, AuditLog]),
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production', // Use environment variables in production
       signOptions: { expiresIn: '1d' },
     }),
     UserModule,
+    AuthModule,
   ],
   controllers: [AppController, RolesController],
   providers: [AppService, RolesService, RolesGuard],
