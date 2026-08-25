@@ -6,6 +6,7 @@ use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes32, Env, S
 enum DataKey {
     Treasury,    // Stores the treasury address
     Admin,       // Stores the admin address
+    NativeToken, // Stores the native token contract address
     Session(Bytes32), // Stores escrow sessions by session ID
 }
 
@@ -50,16 +51,6 @@ pub struct SkillSyncContract;
 
 #[contractimpl]
 impl SkillSyncContract {
-    // Add a new data key for the native token address
-    #[contracttype]
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    enum DataKey {
-        Treasury,
-        Admin,
-        NativeToken,
-        Session(Bytes32),
-    }
-
     // Initialize the contract with initial admin, treasury, and native token address
     pub fn initialize(env: Env, admin: Address, initial_treasury: Address, native_token: Address) {
         // Ensure the contract hasn't been initialized yet
