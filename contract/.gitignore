@@ -1,0 +1,16 @@
+# Rust and Soroban build output
+target/
+.stellar/
+*.wasm
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Operating system and editor files
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
