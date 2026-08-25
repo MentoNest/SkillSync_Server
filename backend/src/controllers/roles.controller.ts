@@ -1,8 +1,9 @@
 import { Controller, Get, Post, Body, Param, UseGuards, Req } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RolesService } from '../services/roles.service';
 import { Roles } from '../decorators/roles.decorator';
 import { RolesGuard } from '../guards/roles.guard';
-import { Request } from 'express';
+import type { Request } from 'express';
 
 interface CreateRoleDto {
   name: string;
@@ -13,8 +14,10 @@ interface AssignRoleDto {
   roleName: string;
 }
 
+@ApiTags('Roles')
 @Controller('roles')
 @UseGuards(RolesGuard)
+@ApiBearerAuth('Bearer Auth')
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 
@@ -27,7 +30,7 @@ export class RolesController {
   @Post()
   @Roles('admin')
   async createRole(@Body() createRoleDto: CreateRoleDto, @Req() req: Request) {
-    return this.rolesService.createRole(createRoleDto.name, createRoleDto.description, req.user as any);
+    return this.rolesService.createRole(createRoleDto.name, createRoleDto.description, (req as any).user);
   }
 
   @Post(':userId/assign')
@@ -37,7 +40,7 @@ export class RolesController {
     @Body() assignRoleDto: AssignRoleDto,
     @Req() req: Request,
   ) {
-    return this.rolesService.assignRoleToUser(userId, assignRoleDto.roleName, req.user as any);
+    return this.rolesService.assignRoleToUser(userId, assignRoleDto.roleName, (req as any).user);
   }
 
   @Post(':userId/revoke')
@@ -47,6 +50,6 @@ export class RolesController {
     @Body() assignRoleDto: AssignRoleDto,
     @Req() req: Request,
   ) {
-    return this.rolesService.revokeRoleFromUser(userId, assignRoleDto.roleName, req.user as any);
+    return this.rolesService.revokeRoleFromUser(userId, assignRoleDto.roleName, (req as any).user);
   }
 }

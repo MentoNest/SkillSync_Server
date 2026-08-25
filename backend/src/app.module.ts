@@ -3,29 +3,31 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { User } from './entities/user.entity';
+import { User } from './user/entities/user.entity';
 import { Role } from './entities/role.entity';
 import { RolesGuard } from './guards/roles.guard';
 import { RolesService } from './services/roles.service';
 import { RolesController } from './controllers/roles.controller';
+import { UserModule } from './user/user.module';
 
 @Module({
   imports: [
     TypeOrmModule.forRoot({
       type: 'postgres',
-      host: 'localhost',
-      port: 5432,
-      username: 'postgres',
-      password: 'password',
-      database: 'skillsync',
+      host: process.env.DB_HOST || 'localhost',
+      port: parseInt(process.env.DB_PORT || '5432', 10),
+      username: process.env.DB_USERNAME || 'postgres',
+      password: process.env.DB_PASSWORD || 'password',
+      database: process.env.DB_DATABASE || 'skillsync',
       entities: [User, Role],
-      synchronize: true, // Disable in production, use migrations
+      synchronize: process.env.NODE_ENV !== 'production', // Disable in production, use migrations
     }),
     TypeOrmModule.forFeature([User, Role]),
     JwtModule.register({
-      secret: 'your-secret-key-change-in-production', // Use environment variables in production
+      secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production', // Use environment variables in production
       signOptions: { expiresIn: '1d' },
     }),
+    UserModule,
   ],
   controllers: [AppController, RolesController],
   providers: [AppService, RolesService, RolesGuard],
