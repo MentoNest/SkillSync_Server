@@ -50,8 +50,18 @@ pub struct SkillSyncContract;
 
 #[contractimpl]
 impl SkillSyncContract {
-    // Initialize the contract with initial admin and treasury addresses
-    pub fn initialize(env: Env, admin: Address, initial_treasury: Address) {
+    // Add a new data key for the native token address
+    #[contracttype]
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum DataKey {
+        Treasury,
+        Admin,
+        NativeToken,
+        Session(Bytes32),
+    }
+
+    // Initialize the contract with initial admin, treasury, and native token address
+    pub fn initialize(env: Env, admin: Address, initial_treasury: Address, native_token: Address) {
         // Ensure the contract hasn't been initialized yet
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("Contract already initialized");
@@ -63,6 +73,7 @@ impl SkillSyncContract {
         // Store the initial values
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Treasury, &initial_treasury);
+        env.storage().instance().set(&DataKey::NativeToken, &native_token);
     }
 
     // Set new treasury address - admin only
