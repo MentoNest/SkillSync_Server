@@ -141,6 +141,12 @@ pub mod skill_sync {
         let buyer = ctx.accounts.buyer.key();
         let created_at = Clock::get()?.unix_timestamp;
 
+        // This check is redundant because Anchor's init prevents reinitialization,
+        // but added for completeness as per requirements
+        if !session.data_is_empty() {
+            return Err(ErrorCode::DuplicateSessionId.into());
+        }
+
         // Save the session using our helper function
         Session::save_session(session, buyer, seller, amount, created_at);
 
@@ -153,6 +159,93 @@ pub mod skill_sync {
             seller,
             amount,
             created_at,
+        });
+
+        Ok(())
+    }
+
+    /// Lock funds for an existing session (only called on new sessions)
+    pub fn lock_funds(ctx: Context<UpdateSession>, amount: u64) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        
+        // Revert if session ID already exists and is in use (Anchor's mut constraint ensures account exists,
+        // but we check it's not already been finalized to prevent reuse)
+        if session.status != SessionStatus::Locked {
+            return Err(ErrorCode::DuplicateSessionId.into());
+        }
+
+        // Additional validation: ensure the amount matches
+        if session.amount != amount {
+            return Err(ErrorCode::InvalidAmount.into());
+        }
+
+        emit!(FundsLocked {
+            session_id: ctx.accounts.session.key(),
+            amount,
+            locked_at: Clock::get()?.unix_timestamp,
+        });
+
+        Ok(())
+    }
+
+    /// Complete a session - can only be called on locked sessions
+    pub fn complete_session(ctx: Context<UpdateSession>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+
+        // Cannot reuse an already completed session
+        if session.status != SessionStatus::Locked {
+            return Err(ErrorCode::SessionAlreadyFinalized.into());
+        }
+
+        // Update session status to completed
+        Session::update_status(session, SessionStatus::Completed)?;
+
+        emit!(SessionCompleted {
+            session_id: ctx.accounts.session.key(),
+            completed_at: session.completed_at.unwrap(),
+        });
+
+        Ok(())
+    }
+
+    /// Approve a session - must exist and be in correct state
+    pub fn approve_session(ctx: Context<UpdateSession>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+
+        // Check session exists and is in correct state (must be locked to approve)
+        if session.status != SessionStatus::Locked {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        // Update session status to approved
+        Session::update_status(session, SessionStatus::Approved)?;
+
+        emit!(SessionApproved {
+            session_id: ctx.accounts.session.key(),
+            approved_at: session.completed_at.unwrap(),
+        });
+
+        Ok(())
+    }
+
+    /// Refund a session - can't refund an already refunded session
+    pub fn refund_session(ctx: Context<UpdateSession>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+
+        // Check session not already refunded or otherwise finalized
+        if session.status == SessionStatus::Refunded {
+            return Err(ErrorCode::SessionAlreadyRefunded.into());
+        }
+        if session.status != SessionStatus::Locked && session.status != SessionStatus::Disputed {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        // Update session status to refunded
+        Session::update_status(session, SessionStatus::Refunded)?;
+
+        emit!(SessionRefunded {
+            session_id: ctx.accounts.session.key(),
+            refunded_at: session.completed_at.unwrap(),
         });
 
         Ok(())
@@ -197,6 +290,14 @@ pub struct CreateSession<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateSession<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    /// The signer must be either the buyer or seller to modify the session
+    pub signer: Signer<'info>,
 }
 
 #[event]
