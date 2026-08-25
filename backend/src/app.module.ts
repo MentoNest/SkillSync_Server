@@ -11,6 +11,8 @@ import { RolesService } from './services/roles.service';
 import { RolesController } from './controllers/roles.controller';
 import { AuditLogsService } from './services/audit-logs.service';
 import { AuditLogsController } from './controllers/audit-logs.controller';
+import { RedisService } from './services/redis.service';
+import { ThrottlerGuard } from './guards/throttler.guard';
 
 @Module({
   imports: [
@@ -31,7 +33,8 @@ import { AuditLogsController } from './controllers/audit-logs.controller';
     }),
   ],
   controllers: [AppController, RolesController, AuditLogsController],
-  providers: [AppService, RolesService, RolesGuard, AuditLogsService],
+  providers: [AppService, RolesService, RolesGuard, AuditLogsService, RedisService, ThrottlerGuard],
+  exports: [RedisService, ThrottlerGuard],
 })
 export class AppModule implements OnModuleInit {
   constructor(private readonly rolesService: RolesService) {}
