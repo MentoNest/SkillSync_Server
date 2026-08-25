@@ -1,10 +1,7 @@
 [package]
-name = "skillsync-contract"
+name = "skill_sync"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-soroban-sdk = { version = "20.0.0", features = ["derive"] }
-
-[lib]
-crate-type = ["cdylib", "rlib"]
+anchor-lang = { version = "0.30.1", features = ["init-space"] }
