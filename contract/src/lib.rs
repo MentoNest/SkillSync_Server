@@ -99,6 +99,7 @@ pub mod skill_sync {
         let platform_state = &mut ctx.accounts.platform_state;
         platform_state.admin = ctx.accounts.signer.key();
         platform_state.platform_fee_bps = initial_fee_bps;
+        platform_state.session_counter = 0;
         
         emit!(PlatformFeeUpdated {
             previous_fee: 0,
