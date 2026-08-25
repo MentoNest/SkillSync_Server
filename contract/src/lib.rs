@@ -1,4 +1,4 @@
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes32, Env, Symbol, token::TokenClient};
 
 // Data keys for storing contract state
 #[contracttype]
@@ -6,14 +6,43 @@ use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol};
 enum DataKey {
     Treasury,    // Stores the treasury address
     Admin,       // Stores the admin address
+    Session(Bytes32), // Stores escrow sessions by session ID
 }
 
-// Event definition for Treasury updates
+// Session status enum
+#[contracttype]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SessionStatus {
+    Locked,
+    // We can add more statuses later like Completed, Refunded, etc.
+}
+
+// Escrow session structure
+#[contracttype]
+#[derive(Clone)]
+pub struct EscrowSession {
+    pub session_id: Bytes32,
+    pub buyer: Address,
+    pub seller: Address,
+    pub amount: i128,
+    pub status: SessionStatus,
+}
+
+// Event definitions
 #[contracttype]
 #[derive(Clone)]
 pub struct TreasuryUpdated {
     pub old_treasury: Address,
     pub new_treasury: Address,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct FundsLocked {
+    pub session_id: Bytes32,
+    pub buyer: Address,
+    pub seller: Address,
+    pub amount: i128,
 }
 
 #[contract]
