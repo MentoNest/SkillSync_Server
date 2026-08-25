@@ -79,7 +79,6 @@ pub mod skill_sync {
         let platform_state = &mut ctx.accounts.platform_state;
         platform_state.admin = ctx.accounts.signer.key();
         platform_state.platform_fee_bps = initial_fee_bps;
-        platform_state.sessions = HashMap::new();
         
         emit!(PlatformFeeUpdated {
             previous_fee: 0,
@@ -113,37 +112,22 @@ pub mod skill_sync {
     /// Create a new escrow session
     pub fn create_session(
         ctx: Context<CreateSession>,
-        session_id: Pubkey,
         seller: Pubkey,
         amount: u64
     ) -> Result<()> {
-        let platform_state = &mut ctx.accounts.platform_state;
-        
-        // Check if session already exists
-        if platform_state.sessions.contains_key(&session_id) {
-            return Err(ErrorCode::SessionAlreadyExists.into());
-        }
-
-        // Create new session with all required fields
-        let session = Session {
-            buyer: ctx.accounts.buyer.key(),
-            seller,
-            amount,
-            status: SessionStatus::Locked,
-            created_at: Clock::get()?.unix_timestamp,
-            completed_at: None,
-            dispute_resolved_at: None,
-        };
+        let session = &mut ctx.accounts.session;
+        let buyer = ctx.accounts.buyer.key();
+        let created_at = Clock::get()?.unix_timestamp;
 
         // Save the session using our helper function
-        platform_state.save_session(session_id, session);
+        Session::save_session(session, buyer, seller, amount, created_at);
 
         emit!(SessionCreated {
-            session_id,
-            buyer: ctx.accounts.buyer.key(),
+            session_id: ctx.accounts.session.key(),
+            buyer,
             seller,
             amount,
-            created_at: Clock::get()?.unix_timestamp,
+            created_at,
         });
 
         Ok(())
@@ -174,9 +158,16 @@ pub struct SetPlatformFee<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(session_bump: u8)]
 pub struct CreateSession<'info> {
-    #[account(mut)]
-    pub platform_state: Account<'info, PlatformState>,
+    #[account(
+        init,
+        payer = buyer,
+        space = 8 + Session::INIT_SPACE,
+        seeds = [b"session", buyer.key().as_ref(), &session_bump.to_le_bytes()],
+        bump
+    )]
+    pub session: Account<'info, Session>,
     #[account(mut)]
     pub buyer: Signer<'info>,
     pub system_program: Program<'info, System>,
