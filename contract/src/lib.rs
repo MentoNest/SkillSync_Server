@@ -250,6 +250,52 @@ pub mod skill_sync {
 
         Ok(())
     }
+
+    /// Raise a dispute on a session
+    pub fn raise_dispute(ctx: Context<UpdateSession>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+
+        // Can only dispute locked sessions
+        if session.status != SessionStatus::Locked {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        // Update session status to disputed
+        session.status = SessionStatus::Disputed;
+
+        emit!(DisputeRaised {
+            session_id: ctx.accounts.session.key(),
+            disputed_at: Clock::get()?.unix_timestamp,
+        });
+
+        Ok(())
+    }
+
+    /// Resolve a dispute on a session (admin only)
+    pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        let platform_state = &ctx.accounts.platform_state;
+
+        // Ensure only admin can resolve disputes
+        if ctx.accounts.signer.key() != platform_state.admin {
+            return Err(ErrorCode::Unauthorized.into());
+        }
+
+        // Can only resolve disputed sessions
+        if session.status != SessionStatus::Disputed {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        // Update session status to resolved
+        Session::update_status(session, SessionStatus::Resolved)?;
+
+        emit!(DisputeResolved {
+            session_id: ctx.accounts.session.key(),
+            resolved_at: session.dispute_resolved_at.unwrap(),
+        });
+
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -300,6 +346,15 @@ pub struct UpdateSession<'info> {
     pub signer: Signer<'info>,
 }
 
+#[derive(Accounts)]
+pub struct ResolveDispute<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(mut)]
+    pub signer: Signer<'info>,
+}
+
 #[event]
 pub struct PlatformFeeUpdated {
     pub previous_fee: u32,
@@ -341,6 +396,18 @@ pub struct SessionRefunded {
     pub refunded_at: i64,
 }
 
+#[event]
+pub struct DisputeRaised {
+    pub session_id: Pubkey,
+    pub disputed_at: i64,
+}
+
+#[event]
+pub struct DisputeResolved {
+    pub session_id: Pubkey,
+    pub resolved_at: i64,
+}
+
 #[error_code]
 pub enum ErrorCode {
     #[msg("Fee must be between 0 and 1000 basis points (0-10%)")]
@@ -355,4 +422,6 @@ pub enum ErrorCode {
     SessionAlreadyRefunded,
     #[msg("Invalid amount provided")]
     InvalidAmount,
+    #[msg("Unauthorized: Only admin can perform this action")]
+    Unauthorized,
 }
