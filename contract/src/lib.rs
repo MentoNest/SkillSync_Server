@@ -6,7 +6,6 @@ use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes32, Env, S
 enum DataKey {
     Treasury,    // Stores the treasury address
     Admin,       // Stores the admin address
-    NativeToken, // Stores the native token contract address
     Session(Bytes32), // Stores escrow sessions by session ID
 }
 
@@ -51,6 +50,16 @@ pub struct SkillSyncContract;
 
 #[contractimpl]
 impl SkillSyncContract {
+    // Add a new data key for the native token address
+    #[contracttype]
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum DataKey {
+        Treasury,
+        Admin,
+        NativeToken,
+        Session(Bytes32),
+    }
+
     // Initialize the contract with initial admin, treasury, and native token address
     pub fn initialize(env: Env, admin: Address, initial_treasury: Address, native_token: Address) {
         // Ensure the contract hasn't been initialized yet
@@ -97,6 +106,55 @@ impl SkillSyncContract {
     // Optional: Get admin address (could be useful)
     pub fn get_admin(env: Env) -> Address {
         env.storage().instance().get(&DataKey::Admin).expect("Admin not set")
+    }
+
+    // Get native token address
+    pub fn get_native_token(env: Env) -> Address {
+        env.storage().instance().get(&DataKey::NativeToken).expect("Native token not set")
+    }
+
+    // Lock funds into a new escrow session - caller must be the buyer
+    pub fn lock_funds(env: Env, session_id: Bytes32, seller: Address, amount: i128) {
+        // Check if amount is greater than 0
+        if amount <= 0 {
+            panic!("Amount must be greater than 0");
+        }
+
+        // Check if session ID already exists
+        let session_key = DataKey::Session(session_id.clone());
+        if env.storage().instance().has(&session_key) {
+            panic!("Session with this ID already exists");
+        }
+
+        // Get the buyer (the caller of this function)
+        let buyer = env.invoker();
+        buyer.require_auth();
+
+        // Get the native token client and transfer funds from buyer to contract
+        let native_token_address: Address = env.storage().instance().get(&DataKey::NativeToken).expect("Native token not set");
+        let token = TokenClient::new(&env, &native_token_address);
+        token.transfer(&buyer, &env.current_contract_address(), &amount);
+
+        // Create and store the new escrow session
+        let session = EscrowSession {
+            session_id: session_id.clone(),
+            buyer: buyer.clone(),
+            seller: seller.clone(),
+            amount,
+            status: SessionStatus::Locked,
+        };
+        env.storage().instance().set(&session_key, &session);
+
+        // Emit the FundsLocked event
+        env.events().publish(
+            (Symbol::new(&env, "FundsLocked"),),
+            FundsLocked {
+                session_id,
+                buyer,
+                seller,
+                amount,
+            },
+        );
     }
 }
 
