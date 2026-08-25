@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use std::collections::HashMap;
 
 declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"); // Default dummy ID, replace with your own
 
@@ -21,7 +20,8 @@ impl Default for SessionStatus {
 }
 
 /// Session struct containing all required fields for an escrow session
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
+#[account]
+#[derive(InitSpace)]
 pub struct Session {
     pub buyer: Pubkey,
     pub seller: Pubkey,
@@ -32,32 +32,37 @@ pub struct Session {
     pub dispute_resolved_at: Option<i64>,
 }
 
-/// Platform state that holds all escrow sessions in a persistent mapping
+// Helper implementation for Session management
+impl Session {
+    /// Get a session (this is a helper that can be used to load the session account)
+    pub fn get_session(session_account: &Account<Session>) -> &Session {
+        session_account.into()
+    }
+
+    /// Save or update a session (updates the session account data)
+    pub fn save_session(
+        session_account: &mut Account<Session>,
+        buyer: Pubkey,
+        seller: Pubkey,
+        amount: u64,
+        created_at: i64
+    ) {
+        session_account.buyer = buyer;
+        session_account.seller = seller;
+        session_account.amount = amount;
+        session_account.status = SessionStatus::Locked;
+        session_account.created_at = created_at;
+        session_account.completed_at = None;
+        session_account.dispute_resolved_at = None;
+    }
+}
+
+/// Platform state that holds platform-level configuration
 #[account]
 #[derive(InitSpace)]
 pub struct PlatformState {
     pub admin: Pubkey,
     pub platform_fee_bps: u32, // Stored in basis points (1 bps = 0.01%)
-    #[max_len(0)]
-    pub sessions: HashMap<Pubkey, Session>, // Sessions mapping: Session ID (Pubkey) -> Session
-}
-
-// Helper implementation for Session management
-impl PlatformState {
-    /// Get a session by its ID
-    pub fn get_session(&self, session_id: &Pubkey) -> Option<&Session> {
-        self.sessions.get(session_id)
-    }
-
-    /// Save or update a session by its ID
-    pub fn save_session(&mut self, session_id: Pubkey, session: Session) {
-        self.sessions.insert(session_id, session);
-    }
-
-    /// Get current platform fee (for client-side use, Anchor automatically generates this)
-    pub fn get_platform_fee(&self) -> u32 {
-        self.platform_fee_bps
-    }
 }
 
 #[program]
