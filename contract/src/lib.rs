@@ -82,6 +82,7 @@ impl Session {
 pub struct PlatformState {
     pub admin: Pubkey,
     pub platform_fee_bps: u32, // Stored in basis points (1 bps = 0.01%)
+    pub session_counter: u64,  // Counter to generate unique session IDs
 }
 
 #[program]
