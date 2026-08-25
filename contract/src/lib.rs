@@ -177,13 +177,12 @@ pub struct SetPlatformFee<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(session_bump: u8)]
 pub struct CreateSession<'info> {
     #[account(
         init,
         payer = buyer,
         space = 8 + Session::INIT_SPACE,
-        seeds = [b"session", buyer.key().as_ref(), &session_bump.to_le_bytes()],
+        seeds = [b"session", buyer.key().as_ref(), &Clock::get()?.unix_timestamp.to_le_bytes()],
         bump
     )]
     pub session: Account<'info, Session>,
