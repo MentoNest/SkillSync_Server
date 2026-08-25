@@ -55,6 +55,25 @@ impl Session {
         session_account.completed_at = None;
         session_account.dispute_resolved_at = None;
     }
+
+    /// Update session status
+    pub fn update_status(session_account: &mut Account<Session>, new_status: SessionStatus) -> Result<()> {
+        let current_timestamp = Clock::get()?.unix_timestamp;
+        
+        match new_status {
+            SessionStatus::Completed | SessionStatus::Approved | SessionStatus::Refunded => {
+                session_account.completed_at = Some(current_timestamp);
+            }
+            SessionStatus::Resolved => {
+                session_account.dispute_resolved_at = Some(current_timestamp);
+                session_account.completed_at = Some(current_timestamp);
+            }
+            _ => {}
+        }
+        
+        session_account.status = new_status;
+        Ok(())
+    }
 }
 
 /// Platform state that holds platform-level configuration
