@@ -113,6 +113,12 @@ impl SkillSyncContract {
         env.storage().instance().get(&DataKey::NativeToken).expect("Native token not set")
     }
 
+    // Get escrow session by ID
+    pub fn get_session(env: Env, session_id: Bytes32) -> EscrowSession {
+        let session_key = DataKey::Session(session_id);
+        env.storage().instance().get(&session_key).expect("Session not found")
+    }
+
     // Lock funds into a new escrow session - caller must be the buyer
     pub fn lock_funds(env: Env, session_id: Bytes32, seller: Address, amount: i128) {
         // Check if amount is greater than 0
