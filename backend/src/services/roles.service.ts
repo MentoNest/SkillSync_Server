@@ -60,7 +60,7 @@ export class RolesService {
 
     const user = await this.userRepository.findOne({
       where: { id: userId },
-      relations: ['roles'],
+      relations: { roles: true },
     });
 
     if (!user) {
@@ -94,7 +94,7 @@ export class RolesService {
 
     const user = await this.userRepository.findOne({
       where: { id: userId },
-      relations: ['roles'],
+      relations: { roles: true },
     });
 
     if (!user) {

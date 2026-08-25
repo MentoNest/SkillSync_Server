@@ -1,8 +1,8 @@
 import { Controller, Get, Post, Body, Param, UseGuards, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import { RolesService } from '../services/roles.service';
 import { Roles } from '../decorators/roles.decorator';
 import { RolesGuard } from '../guards/roles.guard';
-import { Request } from 'express';
 
 interface CreateRoleDto {
   name: string;
@@ -27,7 +27,7 @@ export class RolesController {
   @Post()
   @Roles('admin')
   async createRole(@Body() createRoleDto: CreateRoleDto, @Req() req: Request) {
-    return this.rolesService.createRole(createRoleDto.name, createRoleDto.description, req.user as any);
+    return this.rolesService.createRole(createRoleDto.name, createRoleDto.description, (req as any).user);
   }
 
   @Post(':userId/assign')
@@ -37,7 +37,7 @@ export class RolesController {
     @Body() assignRoleDto: AssignRoleDto,
     @Req() req: Request,
   ) {
-    return this.rolesService.assignRoleToUser(userId, assignRoleDto.roleName, req.user as any);
+    return this.rolesService.assignRoleToUser(userId, assignRoleDto.roleName, (req as any).user);
   }
 
   @Post(':userId/revoke')
@@ -47,6 +47,6 @@ export class RolesController {
     @Body() assignRoleDto: AssignRoleDto,
     @Req() req: Request,
   ) {
-    return this.rolesService.revokeRoleFromUser(userId, assignRoleDto.roleName, req.user as any);
+    return this.rolesService.revokeRoleFromUser(userId, assignRoleDto.roleName, (req as any).user);
   }
 }
