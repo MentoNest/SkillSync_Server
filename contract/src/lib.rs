@@ -137,11 +137,15 @@ pub mod skill_sync {
         amount: u64
     ) -> Result<()> {
         let session = &mut ctx.accounts.session;
+        let platform_state = &mut ctx.accounts.platform_state;
         let buyer = ctx.accounts.buyer.key();
         let created_at = Clock::get()?.unix_timestamp;
 
         // Save the session using our helper function
         Session::save_session(session, buyer, seller, amount, created_at);
+
+        // Increment session counter for next unique session
+        platform_state.session_counter += 1;
 
         emit!(SessionCreated {
             session_id: ctx.accounts.session.key(),
@@ -180,11 +184,13 @@ pub struct SetPlatformFee<'info> {
 
 #[derive(Accounts)]
 pub struct CreateSession<'info> {
+    #[account(mut)]
+    pub platform_state: Account<'info, PlatformState>,
     #[account(
         init,
         payer = buyer,
         space = 8 + Session::INIT_SPACE,
-        seeds = [b"session", buyer.key().as_ref(), &Clock::get()?.unix_timestamp.to_le_bytes()],
+        seeds = [b"session", platform_state.session_counter.to_le_bytes().as_ref()],
         bump
     )]
     pub session: Account<'info, Session>,
