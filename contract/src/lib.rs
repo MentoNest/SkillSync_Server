@@ -316,10 +316,43 @@ pub struct SessionCreated {
     pub created_at: i64,
 }
 
+#[event]
+pub struct FundsLocked {
+    pub session_id: Pubkey,
+    pub amount: u64,
+    pub locked_at: i64,
+}
+
+#[event]
+pub struct SessionCompleted {
+    pub session_id: Pubkey,
+    pub completed_at: i64,
+}
+
+#[event]
+pub struct SessionApproved {
+    pub session_id: Pubkey,
+    pub approved_at: i64,
+}
+
+#[event]
+pub struct SessionRefunded {
+    pub session_id: Pubkey,
+    pub refunded_at: i64,
+}
+
 #[error_code]
 pub enum ErrorCode {
     #[msg("Fee must be between 0 and 1000 basis points (0-10%)")]
     FeeOutOfBounds,
-    #[msg("Session with this ID already exists")]
-    SessionAlreadyExists,
+    #[msg("Session with this ID already exists - cannot reuse session IDs")]
+    DuplicateSessionId,
+    #[msg("Session has already been finalized and cannot be modified")]
+    SessionAlreadyFinalized,
+    #[msg("Session is not in the correct state for this operation")]
+    InvalidSessionState,
+    #[msg("Session has already been refunded")]
+    SessionAlreadyRefunded,
+    #[msg("Invalid amount provided")]
+    InvalidAmount,
 }
