@@ -14,9 +14,9 @@ describe('AppController', () => {
     appController = app.get<AppController>(AppController);
   });
 
-  describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
+  describe('platform fee', () => {
+    it('should return platform fee', () => {
+      expect(appController.getPlatformFee()).toEqual({ platform_fee_bps: 100 });
     });
   });
 });

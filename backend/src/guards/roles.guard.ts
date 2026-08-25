@@ -46,7 +46,7 @@ export class RolesGuard implements CanActivate {
       const payload = this.jwtService.verify(token);
       const user = await this.userRepository.findOne({
         where: { id: payload.sub },
-        relations: ['roles'],
+        relations: { roles: true },
       });
 
       if (!user) {

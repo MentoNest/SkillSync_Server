@@ -5,9 +5,12 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { User } from './entities/user.entity';
 import { Role } from './entities/role.entity';
+import { AuditLog } from './entities/audit-log.entity';
 import { RolesGuard } from './guards/roles.guard';
 import { RolesService } from './services/roles.service';
 import { RolesController } from './controllers/roles.controller';
+import { AuditLogsService } from './services/audit-logs.service';
+import { AuditLogsController } from './controllers/audit-logs.controller';
 
 @Module({
   imports: [
@@ -18,17 +21,17 @@ import { RolesController } from './controllers/roles.controller';
       username: 'postgres',
       password: 'password',
       database: 'skillsync',
-      entities: [User, Role],
+      entities: [User, Role, AuditLog],
       synchronize: true, // Disable in production, use migrations
     }),
-    TypeOrmModule.forFeature([User, Role]),
+    TypeOrmModule.forFeature([User, Role, AuditLog]),
     JwtModule.register({
       secret: 'your-secret-key-change-in-production', // Use environment variables in production
       signOptions: { expiresIn: '1d' },
     }),
   ],
-  controllers: [AppController, RolesController],
-  providers: [AppService, RolesService, RolesGuard],
+  controllers: [AppController, RolesController, AuditLogsController],
+  providers: [AppService, RolesService, RolesGuard, AuditLogsService],
 })
 export class AppModule implements OnModuleInit {
   constructor(private readonly rolesService: RolesService) {}

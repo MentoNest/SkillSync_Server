@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Role } from '../entities/role.entity';
 import { User } from '../entities/user.entity';
+import { AuditLogsService } from './audit-logs.service';
+import { AuditEventType } from '../entities/audit-log.entity';
 
 @Injectable()
 export class RolesService {
@@ -11,6 +13,8 @@ export class RolesService {
     private roleRepository: Repository<Role>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @Optional()
+    private auditLogsService?: AuditLogsService,
   ) {}
 
   // Initialize default roles if they don't exist
@@ -60,7 +64,7 @@ export class RolesService {
 
     const user = await this.userRepository.findOne({
       where: { id: userId },
-      relations: ['roles'],
+      relations: { roles: true },
     });
 
     if (!user) {
@@ -82,6 +86,14 @@ export class RolesService {
     user.tokenVersion += 1;
     await this.userRepository.save(user);
 
+    if (this.auditLogsService) {
+      await this.auditLogsService.logEvent({
+        userId: adminUser.id,
+        eventType: AuditEventType.ROLE_ASSIGNED,
+        details: { targetUserId: userId, roleName },
+      });
+    }
+
     return { success: true, message: `Role ${roleName} assigned to user`, tokenVersion: user.tokenVersion };
   }
 
@@ -94,7 +106,7 @@ export class RolesService {
 
     const user = await this.userRepository.findOne({
       where: { id: userId },
-      relations: ['roles'],
+      relations: { roles: true },
     });
 
     if (!user) {
@@ -116,6 +128,14 @@ export class RolesService {
     // Increment token version to invalidate existing tokens
     user.tokenVersion += 1;
     await this.userRepository.save(user);
+
+    if (this.auditLogsService) {
+      await this.auditLogsService.logEvent({
+        userId: adminUser.id,
+        eventType: AuditEventType.ROLE_REVOKED,
+        details: { targetUserId: userId, roleName },
+      });
+    }
 
     return { success: true, message: `Role ${roleName} revoked from user`, tokenVersion: user.tokenVersion };
   }
