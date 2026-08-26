@@ -2,6 +2,10 @@ use anchor_lang::prelude::*;
 
 declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"); // Default dummy ID, replace with your own
 
+/// Window after completion during which a session can still be disputed;
+/// past this, anyone may trigger an auto-refund on a stuck Completed session.
+const DISPUTE_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60; // 7 days
+
 /// Session status enum representing all possible states of an escrow session
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
 pub enum SessionStatus {
@@ -256,6 +260,30 @@ pub mod skill_sync {
         Ok(())
     }
 
+    /// Auto-refund a session stuck in Completed state past the dispute window
+    pub fn auto_refund(ctx: Context<UpdateSession>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+
+        if session.status != SessionStatus::Completed {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        let now = Clock::get()?.unix_timestamp;
+        let completed_at = session.completed_at.ok_or(ErrorCode::InvalidSessionState)?;
+        if now < completed_at + DISPUTE_WINDOW_SECONDS {
+            return Err(ErrorCode::DisputeWindowNotElapsed.into());
+        }
+
+        Session::update_status(session, SessionStatus::Refunded)?;
+
+        emit!(AutoRefundExecuted {
+            session_id: ctx.accounts.session.key(),
+            refunded_at: session.completed_at.unwrap(),
+        });
+
+        Ok(())
+    }
+
     /// Raise a dispute on a session
     pub fn raise_dispute(ctx: Context<UpdateSession>) -> Result<()> {
         let session = &mut ctx.accounts.session;
@@ -402,6 +430,12 @@ pub struct SessionRefunded {
 }
 
 #[event]
+pub struct AutoRefundExecuted {
+    pub session_id: Pubkey,
+    pub refunded_at: i64,
+}
+
+#[event]
 pub struct DisputeRaised {
     pub session_id: Pubkey,
     pub disputed_at: i64,
@@ -429,4 +463,6 @@ pub enum ErrorCode {
     InvalidAmount,
     #[msg("Unauthorized: Only admin can perform this action")]
     Unauthorized,
+    #[msg("Dispute window has not elapsed yet")]
+    DisputeWindowNotElapsed,
 }
