@@ -9,6 +9,8 @@ import { RefreshToken } from './auth/entities/refresh-token.entity';
 import { AuditLog } from './auth/entities/audit-log.entity';
 import { RolesGuard } from './guards/roles.guard';
 import { RolesService } from './services/roles.service';
+import { UserService } from './services/user.service';
+import { AuditLogService } from './services/audit-log.service';
 import { RolesController } from './controllers/roles.controller';
 import { UserModule } from './user/user.module';
 import { AuthModule } from './auth/auth.module';
