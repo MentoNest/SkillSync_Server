@@ -3,38 +3,41 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { User } from './entities/user.entity';
+import { User } from './user/entities/user.entity';
 import { Role } from './entities/role.entity';
-import { MentorProfile } from './entities/mentor-profile.entity';
-import { MenteeProfile } from './entities/mentee-profile.entity';
-import { AuditLog } from './entities/audit-log.entity';
+import { RefreshToken } from './auth/entities/refresh-token.entity';
+import { AuditLog } from './auth/entities/audit-log.entity';
 import { RolesGuard } from './guards/roles.guard';
 import { RolesService } from './services/roles.service';
 import { UserService } from './services/user.service';
 import { AuditLogService } from './services/audit-log.service';
 import { RolesController } from './controllers/roles.controller';
-import { UserController } from './controllers/user.controller';
+import { UserModule } from './user/user.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
     TypeOrmModule.forRoot({
       type: 'postgres',
-      host: 'localhost',
-      port: 5432,
-      username: 'postgres',
-      password: 'password',
-      database: 'skillsync',
-      entities: [User, Role, MentorProfile, MenteeProfile, AuditLog],
-      synchronize: true, // Disable in production, use migrations
+      host: process.env.DB_HOST || 'localhost',
+      port: parseInt(process.env.DB_PORT || '5432', 10),
+      username: process.env.DB_USERNAME || 'postgres',
+      password: process.env.DB_PASSWORD || 'password',
+      database: process.env.DB_DATABASE || 'skillsync',
+      entities: [User, Role, RefreshToken, AuditLog],
+      synchronize: process.env.NODE_ENV !== 'production', // Disable in production, use migrations
     }),
-    TypeOrmModule.forFeature([User, Role, MentorProfile, MenteeProfile, AuditLog]),
+    TypeOrmModule.forFeature([User, Role, RefreshToken, AuditLog]),
     JwtModule.register({
-      secret: 'your-secret-key-change-in-production', // Use environment variables in production
+      secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production', // Use environment variables in production
       signOptions: { expiresIn: '1d' },
     }),
+    UserModule,
+    AuthModule,
   ],
-  controllers: [AppController, RolesController, UserController],
-  providers: [AppService, RolesService, UserService, AuditLogService, RolesGuard],
+  controllers: [AppController, RolesController, AuditLogsController],
+  providers: [AppService, RolesService, RolesGuard, AuditLogsService, RedisService, ThrottlerGuard, JwtAuthGuard],
+  exports: [RedisService, ThrottlerGuard, JwtAuthGuard],
 })
 export class AppModule implements OnModuleInit {
   constructor(private readonly rolesService: RolesService) {}

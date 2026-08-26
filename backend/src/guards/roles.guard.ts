@@ -9,9 +9,9 @@ import { Role } from '../entities/role.entity';
 
 // Hierarchical role permissions - admin inherits all permissions from mentor and mentee
 const roleHierarchy: Record<string, string[]> = {
-  'admin': ['admin', 'mentor', 'mentee'],
-  'mentor': ['mentor', 'mentee'],
-  'mentee': ['mentee'],
+  admin: ['admin', 'mentor', 'mentee'],
+  mentor: ['mentor', 'mentee'],
+  mentee: ['mentee'],
 };
 
 @Injectable()
@@ -30,14 +30,15 @@ export class RolesGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    
-    if (!requiredRoles) {
-      return true; // No roles required, allow access
-    }
 
     const request = context.switchToHttp().getRequest();
-    const token = request.headers.authorization?.split(' ')[1];
-    
+    const authHeader = request.headers.authorization;
+    const token = authHeader?.split(' ')[1];
+
+    if (!requiredRoles && !token) {
+      return true; // No roles required and no token provided, allow public access
+    }
+
     if (!token) {
       throw new ForbiddenException('No token provided');
     }
@@ -53,27 +54,43 @@ export class RolesGuard implements CanActivate {
         throw new ForbiddenException('User not found');
       }
 
-      // Check if token version is valid (invalidate old tokens after role changes)
-      if (user.tokenVersion !== payload.tokenVersion) {
-        throw new ForbiddenException('Token has been invalidated due to permission changes');
+      // Check if user is locked
+      if (user.isLocked) {
+        if (user.lockoutUntil && new Date() > new Date(user.lockoutUntil)) {
+          user.isLocked = false;
+          user.lockoutUntil = null;
+          await this.userRepository.save(user);
+        } else {
+          throw new ForbiddenException('Account is temporarily locked');
+        }
+      }
+
+      // Check if token version is valid (invalidate old tokens after role changes / session revocations)
+      if (payload.tokenVersion !== undefined && user.tokenVersion !== payload.tokenVersion) {
+        throw new ForbiddenException('Token has been invalidated due to permission changes or session revocation');
+      }
+
+      // Attach user to request for further use
+      request.user = user;
+
+      if (!requiredRoles) {
+        return true;
       }
 
       // Get user's role names
-      const userRoles = user.roles.map(role => role.name);
-      
+      const userRoles = user.roles ? user.roles.map((role) => role.name) : [];
+
       // Check if user has any of the required roles (considering hierarchy)
-      const hasPermission = requiredRoles.some(requiredRole => 
-        userRoles.some(userRole => 
-          roleHierarchy[userRole]?.includes(requiredRole) || false
-        )
+      const hasPermission = requiredRoles.some((requiredRole) =>
+        userRoles.some(
+          (userRole) => roleHierarchy[userRole]?.includes(requiredRole) || false,
+        ),
       );
 
       if (!hasPermission) {
         throw new ForbiddenException(`Access denied. Required roles: ${requiredRoles.join(', ')}`);
       }
 
-      // Attach user to request for further use if needed
-      request.user = user;
       return true;
     } catch (error) {
       if (error instanceof ForbiddenException) {
