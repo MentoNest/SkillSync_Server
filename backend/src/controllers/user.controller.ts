@@ -121,4 +121,17 @@ export class UserController {
     }
     throw new BadRequestException('type must be "mentor" or "mentee"');
   }
+
+  // Issue #1167: POST /user/avatar - set avatar from an already-hosted image URL.
+  // Minimal version: no multipart upload/resizing yet, just URL + format validation.
+  @Post('avatar')
+  @HttpCode(HttpStatus.OK)
+  async updateAvatar(@Body('avatarUrl') avatarUrl: string, @Req() req: Request) {
+    if (!avatarUrl || !/^https:\/\/.+\.(jpe?g|png|webp)$/i.test(avatarUrl)) {
+      throw new BadRequestException('avatarUrl must be an https URL ending in .jpg, .png, or .webp');
+    }
+    const user = (req as any).user;
+    await this.userRepository.update(user.id, { avatarUrl });
+    return { avatarUrl };
+  }
 }
