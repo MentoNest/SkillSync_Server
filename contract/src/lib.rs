@@ -333,8 +333,16 @@ pub mod skill_sync {
         Ok(())
     }
 
-    /// Resolve a dispute on a session (admin only)
-    pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
+    /// Resolve a dispute on a session (admin only), splitting funds between
+    /// buyer and seller. Note: this program doesn't move lamports/tokens yet
+    /// (consistent with the rest of this contract's status-only design) -
+    /// resolution and shares are recorded via the event for off-chain settlement.
+    pub fn resolve_dispute(
+        ctx: Context<ResolveDispute>,
+        resolution: u32,
+        buyer_share: i128,
+        seller_share: i128,
+    ) -> Result<()> {
         let session = &mut ctx.accounts.session;
         let platform_state = &ctx.accounts.platform_state;
 
@@ -348,11 +356,19 @@ pub mod skill_sync {
             return Err(ErrorCode::InvalidSessionState.into());
         }
 
+        // Total shares must equal the original locked amount
+        if buyer_share + seller_share != session.amount as i128 {
+            return Err(ErrorCode::InvalidShareSplit.into());
+        }
+
         // Update session status to resolved
         Session::update_status(session, SessionStatus::Resolved)?;
 
         emit!(DisputeResolved {
             session_id: ctx.accounts.session.key(),
+            resolution,
+            buyer_share,
+            seller_share,
             resolved_at: session.dispute_resolved_at.unwrap(),
         });
 
@@ -480,6 +496,9 @@ pub struct DisputeOpened {
 #[event]
 pub struct DisputeResolved {
     pub session_id: Pubkey,
+    pub resolution: u32,
+    pub buyer_share: i128,
+    pub seller_share: i128,
     pub resolved_at: i64,
 }
 
@@ -501,4 +520,6 @@ pub enum ErrorCode {
     Unauthorized,
     #[msg("Dispute window has not elapsed yet")]
     DisputeWindowNotElapsed,
+    #[msg("Buyer and seller shares must sum to the original session amount")]
+    InvalidShareSplit,
 }
