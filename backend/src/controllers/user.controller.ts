@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -10,19 +11,28 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  BadRequestException,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { randomUUID } from 'crypto';
 import { UserService } from '../services/user.service';
 import { RolesGuard } from '../guards/roles.guard';
 import { Roles } from '../decorators/roles.decorator';
 import { CreateProfileDto } from '../dto/create-profile.dto';
 import { UpdateMentorProfileDto } from '../dto/mentor-profile.dto';
 import { UpdateMenteeProfileDto } from '../dto/mentee-profile.dto';
+import { User } from '../entities/user.entity';
 
 @Controller('user')
 @UseGuards(RolesGuard)
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+  ) {}
 
   // Task 4: POST /user/profile - Create either mentor or mentee profile
   @Post('profile')
@@ -93,5 +103,22 @@ export class UserController {
   async deleteMenteeProfile(@Req() req: Request) {
     const user = (req as any).user;
     return this.userService.deleteMenteeProfile(user.id);
+  }
+
+  // Issue #1165: PATCH /user/profile/:type - partial update of own mentor/mentee profile
+  @Patch('profile/:type')
+  async updateProfileByType(
+    @Param('type') type: string,
+    @Body() updateDto: UpdateMentorProfileDto | UpdateMenteeProfileDto,
+    @Req() req: Request,
+  ) {
+    const user = (req as any).user;
+    if (type === 'mentor') {
+      return this.userService.updateMentorProfile(user.id, updateDto as UpdateMentorProfileDto);
+    }
+    if (type === 'mentee') {
+      return this.userService.updateMenteeProfile(user.id, updateDto as UpdateMenteeProfileDto);
+    }
+    throw new BadRequestException('type must be "mentor" or "mentee"');
   }
 }
