@@ -134,4 +134,44 @@ export class UserController {
     await this.userRepository.update(user.id, { avatarUrl });
     return { avatarUrl };
   }
+
+  // Issue #1168: portfolio links, stored in the existing User.settings jsonb column
+  // (minimal: no platform auto-detection or ownership verification yet).
+  @Post('portfolio-links')
+  @HttpCode(HttpStatus.CREATED)
+  async addPortfolioLink(
+    @Body() body: { platform: string; url: string; title?: string },
+    @Req() req: Request,
+  ) {
+    if (!body?.url?.startsWith('https://')) {
+      throw new BadRequestException('url must start with https://');
+    }
+    const user = (req as any).user;
+    const entity = await this.userRepository.findOneOrFail({ where: { id: user.id } });
+    const links: any[] = entity.settings?.portfolioLinks ?? [];
+    if (links.length >= 10) {
+      throw new BadRequestException('Maximum 10 portfolio links allowed');
+    }
+    if (links.some((l) => l.url === body.url)) {
+      throw new BadRequestException('This URL has already been added');
+    }
+    const link = { id: randomUUID(), platform: body.platform, url: body.url, title: body.title ?? '' };
+    links.push(link);
+    await this.userRepository.update(user.id, {
+      settings: { ...entity.settings, portfolioLinks: links },
+    });
+    return link;
+  }
+
+  @Delete('portfolio-links/:id')
+  @HttpCode(HttpStatus.OK)
+  async removePortfolioLink(@Param('id') id: string, @Req() req: Request) {
+    const user = (req as any).user;
+    const entity = await this.userRepository.findOneOrFail({ where: { id: user.id } });
+    const links: any[] = (entity.settings?.portfolioLinks ?? []).filter((l: any) => l.id !== id);
+    await this.userRepository.update(user.id, {
+      settings: { ...entity.settings, portfolioLinks: links },
+    });
+    return { success: true };
+  }
 }
