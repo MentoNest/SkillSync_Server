@@ -33,8 +33,9 @@ import { AuthModule } from './auth/auth.module';
     UserModule,
     AuthModule,
   ],
-  controllers: [AppController, RolesController],
-  providers: [AppService, RolesService, RolesGuard],
+  controllers: [AppController, RolesController, AuditLogsController],
+  providers: [AppService, RolesService, RolesGuard, AuditLogsService, RedisService, ThrottlerGuard, JwtAuthGuard],
+  exports: [RedisService, ThrottlerGuard, JwtAuthGuard],
 })
 export class AppModule implements OnModuleInit {
   constructor(private readonly rolesService: RolesService) {}
