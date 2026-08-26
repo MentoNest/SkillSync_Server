@@ -2,6 +2,10 @@ use anchor_lang::prelude::*;
 
 declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"); // Default dummy ID, replace with your own
 
+/// Window after completion during which a session can still be disputed;
+/// past this, anyone may trigger an auto-refund on a stuck Completed session.
+const DISPUTE_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60; // 7 days
+
 /// Session status enum representing all possible states of an escrow session
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
 pub enum SessionStatus {
@@ -30,6 +34,7 @@ pub struct Session {
     pub created_at: i64,
     pub completed_at: Option<i64>,
     pub dispute_resolved_at: Option<i64>,
+    pub dispute_opened_at: Option<i64>,
 }
 
 // Helper implementation for Session management
@@ -54,6 +59,7 @@ impl Session {
         session_account.created_at = created_at;
         session_account.completed_at = None;
         session_account.dispute_resolved_at = None;
+        session_account.dispute_opened_at = None;
     }
 
     /// Update session status
@@ -232,6 +238,11 @@ pub mod skill_sync {
     pub fn refund_session(ctx: Context<UpdateSession>) -> Result<()> {
         let session = &mut ctx.accounts.session;
 
+        // Only the buyer can request a refund
+        if ctx.accounts.signer.key() != session.buyer {
+            return Err(ErrorCode::Unauthorized.into());
+        }
+
         // Check session not already refunded or otherwise finalized
         if session.status == SessionStatus::Refunded {
             return Err(ErrorCode::SessionAlreadyRefunded.into());
@@ -244,6 +255,30 @@ pub mod skill_sync {
         Session::update_status(session, SessionStatus::Refunded)?;
 
         emit!(SessionRefunded {
+            session_id: ctx.accounts.session.key(),
+            refunded_at: session.completed_at.unwrap(),
+        });
+
+        Ok(())
+    }
+
+    /// Auto-refund a session stuck in Completed state past the dispute window
+    pub fn auto_refund(ctx: Context<UpdateSession>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+
+        if session.status != SessionStatus::Completed {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        let now = Clock::get()?.unix_timestamp;
+        let completed_at = session.completed_at.ok_or(ErrorCode::InvalidSessionState)?;
+        if now < completed_at + DISPUTE_WINDOW_SECONDS {
+            return Err(ErrorCode::DisputeWindowNotElapsed.into());
+        }
+
+        Session::update_status(session, SessionStatus::Refunded)?;
+
+        emit!(AutoRefundExecuted {
             session_id: ctx.accounts.session.key(),
             refunded_at: session.completed_at.unwrap(),
         });
@@ -271,8 +306,43 @@ pub mod skill_sync {
         Ok(())
     }
 
-    /// Resolve a dispute on a session (admin only)
-    pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
+    /// Open a dispute on a session (buyer or seller), with a reason. Can be
+    /// raised on a Locked or Completed session; only admin can resolve it.
+    pub fn open_dispute(ctx: Context<UpdateSession>, reason: String) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        let signer = ctx.accounts.signer.key();
+
+        if signer != session.buyer && signer != session.seller {
+            return Err(ErrorCode::Unauthorized.into());
+        }
+
+        if session.status != SessionStatus::Completed && session.status != SessionStatus::Locked {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        let now = Clock::get()?.unix_timestamp;
+        session.status = SessionStatus::Disputed;
+        session.dispute_opened_at = Some(now);
+
+        emit!(DisputeOpened {
+            session_id: ctx.accounts.session.key(),
+            reason,
+            disputed_at: now,
+        });
+
+        Ok(())
+    }
+
+    /// Resolve a dispute on a session (admin only), splitting funds between
+    /// buyer and seller. Note: this program doesn't move lamports/tokens yet
+    /// (consistent with the rest of this contract's status-only design) -
+    /// resolution and shares are recorded via the event for off-chain settlement.
+    pub fn resolve_dispute(
+        ctx: Context<ResolveDispute>,
+        resolution: u32,
+        buyer_share: i128,
+        seller_share: i128,
+    ) -> Result<()> {
         let session = &mut ctx.accounts.session;
         let platform_state = &ctx.accounts.platform_state;
 
@@ -286,11 +356,19 @@ pub mod skill_sync {
             return Err(ErrorCode::InvalidSessionState.into());
         }
 
+        // Total shares must equal the original locked amount
+        if buyer_share + seller_share != session.amount as i128 {
+            return Err(ErrorCode::InvalidShareSplit.into());
+        }
+
         // Update session status to resolved
         Session::update_status(session, SessionStatus::Resolved)?;
 
         emit!(DisputeResolved {
             session_id: ctx.accounts.session.key(),
+            resolution,
+            buyer_share,
+            seller_share,
             resolved_at: session.dispute_resolved_at.unwrap(),
         });
 
@@ -397,14 +475,30 @@ pub struct SessionRefunded {
 }
 
 #[event]
+pub struct AutoRefundExecuted {
+    pub session_id: Pubkey,
+    pub refunded_at: i64,
+}
+
+#[event]
 pub struct DisputeRaised {
     pub session_id: Pubkey,
     pub disputed_at: i64,
 }
 
 #[event]
+pub struct DisputeOpened {
+    pub session_id: Pubkey,
+    pub reason: String,
+    pub disputed_at: i64,
+}
+
+#[event]
 pub struct DisputeResolved {
     pub session_id: Pubkey,
+    pub resolution: u32,
+    pub buyer_share: i128,
+    pub seller_share: i128,
     pub resolved_at: i64,
 }
 
@@ -424,4 +518,8 @@ pub enum ErrorCode {
     InvalidAmount,
     #[msg("Unauthorized: Only admin can perform this action")]
     Unauthorized,
+    #[msg("Dispute window has not elapsed yet")]
+    DisputeWindowNotElapsed,
+    #[msg("Buyer and seller shares must sum to the original session amount")]
+    InvalidShareSplit,
 }
