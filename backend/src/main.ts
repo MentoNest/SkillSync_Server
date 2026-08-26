@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { VersioningType } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { GracefulShutdownService } from './common/shutdown/graceful-shutdown.service';
 import { EncryptionService } from './common/encryption/encryption.service';
@@ -12,6 +13,12 @@ const logger = new Logger('Bootstrap');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const logger = new Logger('Bootstrap');
+
+  // Trust proxy settings (for Nginx/CloudFlare reverse proxies)
+  if (process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV === 'production') {
+    app.getHttpAdapter().getInstance().set('trust proxy', 1);
+  }
 
   // Request ID middleware
   app.use((req: any, _res: any, next: () => void) => {
@@ -65,6 +72,52 @@ async function bootstrap() {
   const isProduction = process.env.NODE_ENV === 'production';
   const enableSwagger = !isProduction || process.env.ENABLE_SWAGGER === 'true';
 
+  const corsOrigins = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
+    : ['http://localhost:3000', 'http://localhost:5173'];
+
+  app.enableCors({
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      // Allow requests with no origin (mobile apps, curl, etc.)
+      if (!origin) return callback(null, true);
+      if (corsOrigins.includes(origin) || corsOrigins.includes('*')) {
+        return callback(null, true);
+      }
+      if (!isProduction && origin.startsWith('http://localhost')) {
+        return callback(null, true);
+      }
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Accept', 'X-Request-ID'],
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
+  });
+
+  // Security headers with Helmet
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'https:'],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        formAction: ["'self'"],
+        upgradeInsecureRequests: isProduction ? [] as any : null,
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    hsts: isProduction ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  }));
+
+  // Swagger OpenAPI Documentation
   if (enableSwagger) {
     const config = new DocumentBuilder()
       .setTitle('SkillSync API')
@@ -101,6 +154,9 @@ async function bootstrap() {
       },
       customSiteTitle: 'SkillSync API Docs',
     });
+  } else {
+    // Protect Swagger UI with basic auth in production if explicitly enabled
+    logger.log('Swagger UI disabled in production mode');
   }
 
   const port = process.env.PORT ?? 3000;
