@@ -85,6 +85,16 @@ pub struct PlatformState {
     pub session_counter: u64,  // Counter to generate unique session IDs
 }
 
+/// Split a session amount into (fee_amount, net_amount) given a platform fee in basis points.
+pub fn calculate_settlement_fee(amount: u64, fee_bps: u32) -> (u64, u64) {
+    let fee_amount = (amount as u128)
+        .saturating_mul(fee_bps as u128)
+        .checked_div(10_000)
+        .unwrap_or(0) as u64;
+    let net_amount = amount.saturating_sub(fee_amount);
+    (fee_amount, net_amount)
+}
+
 #[program]
 pub mod skill_sync {
     use super::*;
@@ -188,14 +198,18 @@ pub mod skill_sync {
         Ok(())
     }
 
-    /// Complete a session - can only be called on locked sessions
-    pub fn complete_session(ctx: Context<UpdateSession>) -> Result<()> {
+    /// Complete a session - can only be called on locked sessions.
+    /// Deducts the platform settlement fee (in bps) from the session amount.
+    pub fn complete_session(ctx: Context<CompleteSession>) -> Result<()> {
         let session = &mut ctx.accounts.session;
+        let platform_fee_bps = ctx.accounts.platform_state.platform_fee_bps;
 
         // Cannot reuse an already completed session
         if session.status != SessionStatus::Locked {
             return Err(ErrorCode::SessionAlreadyFinalized.into());
         }
+
+        let (fee_amount, net_amount) = calculate_settlement_fee(session.amount, platform_fee_bps);
 
         // Update session status to completed
         Session::update_status(session, SessionStatus::Completed)?;
@@ -203,6 +217,8 @@ pub mod skill_sync {
         emit!(SessionCompleted {
             session_id: ctx.accounts.session.key(),
             completed_at: session.completed_at.unwrap(),
+            fee_amount,
+            net_amount,
         });
 
         Ok(())
@@ -347,6 +363,14 @@ pub struct UpdateSession<'info> {
 }
 
 #[derive(Accounts)]
+pub struct CompleteSession<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    pub platform_state: Account<'info, PlatformState>,
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct ResolveDispute<'info> {
     #[account(mut)]
     pub session: Account<'info, Session>,
@@ -382,6 +406,8 @@ pub struct FundsLocked {
 pub struct SessionCompleted {
     pub session_id: Pubkey,
     pub completed_at: i64,
+    pub fee_amount: u64,
+    pub net_amount: u64,
 }
 
 #[event]
