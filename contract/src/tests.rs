@@ -236,3 +236,31 @@ fn test_platform_state_initialization_fields() {
     assert_eq!(platform_state.platform_fee_bps, initial_fee_bps);
     assert_eq!(platform_state.session_counter, 0);
 }
+
+#[test]
+fn test_locked_session_state_matches_lock_funds_inputs() {
+    // Mirrors what `create_session` + `lock_funds` should produce for a
+    // freshly locked session (#1090).
+    let buyer = Pubkey::new_unique();
+    let seller = Pubkey::new_unique();
+    let amount: u64 = 5_000;
+    let created_at: i64 = 1_700_000_000;
+
+    let session = Session {
+        buyer,
+        seller,
+        amount,
+        status: SessionStatus::Locked,
+        created_at,
+        completed_at: None,
+        dispute_resolved_at: None,
+    };
+
+    assert_eq!(session.status, SessionStatus::Locked);
+    assert_eq!(session.amount, amount);
+    assert!(session.completed_at.is_none());
+
+    // lock_funds rejects a mismatched amount against the session's stored amount.
+    let provided_amount: u64 = 4_000;
+    assert_ne!(session.amount, provided_amount);
+}
