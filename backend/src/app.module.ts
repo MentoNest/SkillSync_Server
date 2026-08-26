@@ -3,35 +3,35 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { User } from './entities/user.entity';
+import { User } from './user/entities/user.entity';
 import { Role } from './entities/role.entity';
-import { AuditLog } from './entities/audit-log.entity';
+import { RefreshToken } from './auth/entities/refresh-token.entity';
+import { AuditLog } from './auth/entities/audit-log.entity';
 import { RolesGuard } from './guards/roles.guard';
 import { RolesService } from './services/roles.service';
 import { RolesController } from './controllers/roles.controller';
-import { AuditLogsService } from './services/audit-logs.service';
-import { AuditLogsController } from './controllers/audit-logs.controller';
-import { RedisService } from './services/redis.service';
-import { ThrottlerGuard } from './guards/throttler.guard';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { UserModule } from './user/user.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
     TypeOrmModule.forRoot({
       type: 'postgres',
-      host: 'localhost',
-      port: 5432,
-      username: 'postgres',
-      password: 'password',
-      database: 'skillsync',
-      entities: [User, Role, AuditLog],
-      synchronize: true, // Disable in production, use migrations
+      host: process.env.DB_HOST || 'localhost',
+      port: parseInt(process.env.DB_PORT || '5432', 10),
+      username: process.env.DB_USERNAME || 'postgres',
+      password: process.env.DB_PASSWORD || 'password',
+      database: process.env.DB_DATABASE || 'skillsync',
+      entities: [User, Role, RefreshToken, AuditLog],
+      synchronize: process.env.NODE_ENV !== 'production', // Disable in production, use migrations
     }),
-    TypeOrmModule.forFeature([User, Role, AuditLog]),
+    TypeOrmModule.forFeature([User, Role, RefreshToken, AuditLog]),
     JwtModule.register({
-      secret: 'your-secret-key-change-in-production', // Use environment variables in production
+      secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production', // Use environment variables in production
       signOptions: { expiresIn: '1d' },
     }),
+    UserModule,
+    AuthModule,
   ],
   controllers: [AppController, RolesController, AuditLogsController],
   providers: [AppService, RolesService, RolesGuard, AuditLogsService, RedisService, ThrottlerGuard, JwtAuthGuard],

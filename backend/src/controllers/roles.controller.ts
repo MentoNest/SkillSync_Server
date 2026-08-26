@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Body, Param, UseGuards, Req } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RolesService } from '../services/roles.service';
 import { Roles } from '../decorators/roles.decorator';
 import { RolesGuard } from '../guards/roles.guard';
@@ -13,8 +14,10 @@ interface AssignRoleDto {
   roleName: string;
 }
 
+@ApiTags('Roles')
 @Controller('roles')
 @UseGuards(RolesGuard)
+@ApiBearerAuth('Bearer Auth')
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 

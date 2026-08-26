@@ -41,7 +41,7 @@ export class RolesService {
   // Create new role (dynamic role addition)
   async createRole(name: string, description: string, adminUser: User) {
     // Check if caller is admin
-    const isAdmin = adminUser.roles.some(role => role.name === 'admin');
+    const isAdmin = adminUser?.roles?.some(role => role.name === 'admin');
     if (!isAdmin) {
       throw new ForbiddenException('Only admins can create new roles');
     }
@@ -57,7 +57,7 @@ export class RolesService {
 
   // Assign role to user (admin only)
   async assignRoleToUser(userId: string, roleName: string, adminUser: User) {
-    const isAdmin = adminUser.roles.some(role => role.name === 'admin');
+    const isAdmin = adminUser?.roles?.some(role => role.name === 'admin');
     if (!isAdmin) {
       throw new ForbiddenException('Only admins can assign roles');
     }
@@ -77,13 +77,16 @@ export class RolesService {
     }
 
     // Check if user already has this role
-    if (user.roles.some(r => r.id === role.id)) {
+    if (user.roles?.some(r => r.id === role.id)) {
       throw new BadRequestException(`User already has role ${roleName}`);
     }
 
+    if (!user.roles) {
+      user.roles = [];
+    }
     user.roles.push(role);
     // Increment token version to invalidate existing tokens
-    user.tokenVersion += 1;
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
     await this.userRepository.save(user);
 
     if (this.auditLogsService) {
@@ -99,7 +102,7 @@ export class RolesService {
 
   // Revoke role from user (admin only)
   async revokeRoleFromUser(userId: string, roleName: string, adminUser: User) {
-    const isAdmin = adminUser.roles.some(role => role.name === 'admin');
+    const isAdmin = adminUser?.roles?.some(role => role.name === 'admin');
     if (!isAdmin) {
       throw new ForbiddenException('Only admins can revoke roles');
     }
@@ -113,7 +116,7 @@ export class RolesService {
       throw new NotFoundException('User not found');
     }
 
-    const roleIndex = user.roles.findIndex(r => r.name === roleName);
+    const roleIndex = user.roles ? user.roles.findIndex(r => r.name === roleName) : -1;
     if (roleIndex === -1) {
       throw new BadRequestException(`User does not have role ${roleName}`);
     }
@@ -126,7 +129,7 @@ export class RolesService {
 
     user.roles.splice(roleIndex, 1);
     // Increment token version to invalidate existing tokens
-    user.tokenVersion += 1;
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
     await this.userRepository.save(user);
 
     if (this.auditLogsService) {
@@ -144,6 +147,9 @@ export class RolesService {
   async assignDefaultRoleToUser(user: User) {
     const defaultRole = await this.roleRepository.findOne({ where: { name: 'mentee' } });
     if (defaultRole) {
+      if (!user.roles) {
+        user.roles = [];
+      }
       user.roles.push(defaultRole);
     }
     return user;
