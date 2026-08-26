@@ -34,6 +34,7 @@ pub struct Session {
     pub created_at: i64,
     pub completed_at: Option<i64>,
     pub dispute_resolved_at: Option<i64>,
+    pub dispute_opened_at: Option<i64>,
 }
 
 // Helper implementation for Session management
@@ -58,6 +59,7 @@ impl Session {
         session_account.created_at = created_at;
         session_account.completed_at = None;
         session_account.dispute_resolved_at = None;
+        session_account.dispute_opened_at = None;
     }
 
     /// Update session status
@@ -304,6 +306,33 @@ pub mod skill_sync {
         Ok(())
     }
 
+    /// Open a dispute on a session (buyer or seller), with a reason. Can be
+    /// raised on a Locked or Completed session; only admin can resolve it.
+    pub fn open_dispute(ctx: Context<UpdateSession>, reason: String) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        let signer = ctx.accounts.signer.key();
+
+        if signer != session.buyer && signer != session.seller {
+            return Err(ErrorCode::Unauthorized.into());
+        }
+
+        if session.status != SessionStatus::Completed && session.status != SessionStatus::Locked {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        let now = Clock::get()?.unix_timestamp;
+        session.status = SessionStatus::Disputed;
+        session.dispute_opened_at = Some(now);
+
+        emit!(DisputeOpened {
+            session_id: ctx.accounts.session.key(),
+            reason,
+            disputed_at: now,
+        });
+
+        Ok(())
+    }
+
     /// Resolve a dispute on a session (admin only)
     pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
         let session = &mut ctx.accounts.session;
@@ -438,6 +467,13 @@ pub struct AutoRefundExecuted {
 #[event]
 pub struct DisputeRaised {
     pub session_id: Pubkey,
+    pub disputed_at: i64,
+}
+
+#[event]
+pub struct DisputeOpened {
+    pub session_id: Pubkey,
+    pub reason: String,
     pub disputed_at: i64,
 }
 
