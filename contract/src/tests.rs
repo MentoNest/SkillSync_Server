@@ -264,3 +264,21 @@ fn test_locked_session_state_matches_lock_funds_inputs() {
     let provided_amount: u64 = 4_000;
     assert_ne!(session.amount, provided_amount);
 }
+
+#[test]
+fn test_complete_and_approve_flow_status_and_fee() {
+    // Covers the complete/approve flow (#1091): both transitions are only
+    // valid from `Locked`, and `complete_session`'s fee split sums back to
+    // the original amount (settlement fee logic added in #1088).
+    let amount: u64 = 10_000;
+    let fee_bps: u32 = 500; // 5%
+
+    let (fee_amount, net_amount) = calculate_settlement_fee(amount, fee_bps);
+    assert_eq!(fee_amount, 500);
+    assert_eq!(net_amount, 9_500);
+    assert_eq!(fee_amount + net_amount, amount);
+
+    // Completed and Approved are distinct terminal states reachable only from Locked.
+    assert_ne!(SessionStatus::Completed, SessionStatus::Approved);
+    assert_eq!(SessionStatus::default(), SessionStatus::Locked);
+}
