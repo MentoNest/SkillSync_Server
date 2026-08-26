@@ -232,6 +232,11 @@ pub mod skill_sync {
     pub fn refund_session(ctx: Context<UpdateSession>) -> Result<()> {
         let session = &mut ctx.accounts.session;
 
+        // Only the buyer can request a refund
+        if ctx.accounts.signer.key() != session.buyer {
+            return Err(ErrorCode::Unauthorized.into());
+        }
+
         // Check session not already refunded or otherwise finalized
         if session.status == SessionStatus::Refunded {
             return Err(ErrorCode::SessionAlreadyRefunded.into());
