@@ -2,6 +2,9 @@ use anchor_lang::prelude::*;
 
 declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"); // Default dummy ID, replace with your own
 
+pub type Address = Pubkey;
+pub type Bytes32 = [u8; 32];
+
 /// Window after completion during which a session can still be disputed;
 /// past this, anyone may trigger an auto-refund on a stuck Completed session.
 const DISPUTE_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60; // 7 days
@@ -9,6 +12,9 @@ const DISPUTE_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60; // 7 days
 /// Default maximum lifetime of a Locked session before it can be auto-cancelled
 /// (~7 days, matching the issue's "30,000 ledgers" figure expressed in seconds).
 const DEFAULT_MAX_SESSION_DURATION_SECONDS: i64 = 7 * 24 * 60 * 60; // 7 days
+
+/// Default freshness threshold for price oracle feeds (5 minutes)
+pub const DEFAULT_PRICE_FRESHNESS_THRESHOLD_SECONDS: i64 = 300;
 
 /// Predefined RBAC Roles
 pub const DEFAULT_ADMIN_ROLE: [u8; 32] = [0u8; 32];
@@ -208,6 +214,67 @@ pub fn calculate_settlement_fee(amount: u64, fee_bps: u32) -> (u64, u64) {
         .unwrap_or(0) as u64;
     let net_amount = amount.saturating_sub(fee_amount);
     (fee_amount, net_amount)
+}
+
+/// Configuration for the price oracle
+#[account]
+#[derive(InitSpace, Debug, PartialEq, Eq)]
+pub struct OracleConfig {
+    pub oracle_id: Pubkey,
+    pub freshness_threshold_seconds: i64,
+    pub is_active: bool,
+    pub updated_at: i64,
+    pub updated_by: Pubkey,
+}
+
+/// Price data posted by or fetched from an oracle
+#[account]
+#[derive(InitSpace, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OraclePriceData {
+    pub asset: [u8; 32],
+    pub price: i128,
+    pub decimals: u32,
+    pub timestamp: i64,
+    pub is_valid: bool,
+}
+
+/// Admin-configured fallback price for an asset when oracle fails or is stale
+#[account]
+#[derive(InitSpace, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FallbackPrice {
+    pub asset: [u8; 32],
+    pub price: i128,
+    pub decimals: u32,
+    pub updated_at: i64,
+    pub is_active: bool,
+}
+
+/// Internal helper function to retrieve asset price using oracle feed with freshness check and fallback
+pub fn get_price(
+    asset: [u8; 32],
+    oracle_feed: Option<&OraclePriceData>,
+    fallback: Option<&FallbackPrice>,
+    freshness_threshold: i64,
+    current_timestamp: i64,
+) -> Result<i128> {
+    // 1. Check oracle price feed if present and valid
+    if let Some(feed) = oracle_feed {
+        if feed.is_valid && feed.asset == asset && feed.price > 0 {
+            let age = current_timestamp.saturating_sub(feed.timestamp);
+            if age <= freshness_threshold && feed.timestamp <= current_timestamp {
+                return Ok(feed.price);
+            }
+        }
+    }
+
+    // 2. Fallback to admin-provided fallback price
+    if let Some(fb) = fallback {
+        if fb.is_active && fb.asset == asset && fb.price > 0 {
+            return Ok(fb.price);
+        }
+    }
+
+    Err(ErrorCode::StalePrice.into())
 }
 
 #[program]
@@ -720,6 +787,178 @@ pub mod skill_sync {
     pub fn average_resolution_time(ctx: Context<ReadAnalytics>) -> Result<u64> {
         Ok(ctx.accounts.analytics.average_resolution_time())
     }
+
+    /// Admin only function to set or update the price oracle
+    pub fn set_oracle(ctx: Context<SetOracle>, oracle_id: Pubkey) -> Result<()> {
+        let admin = ctx.accounts.admin.key();
+        if ctx.accounts.platform_state.admin != admin {
+            return Err(ErrorCode::NotAdmin.into());
+        }
+
+        let oracle_config = &mut ctx.accounts.oracle_config;
+        let now = Clock::get()?.unix_timestamp;
+        let old_oracle = oracle_config.oracle_id;
+
+        oracle_config.oracle_id = oracle_id;
+        if oracle_config.freshness_threshold_seconds == 0 {
+            oracle_config.freshness_threshold_seconds = DEFAULT_PRICE_FRESHNESS_THRESHOLD_SECONDS;
+        }
+        oracle_config.is_active = true;
+        oracle_config.updated_at = now;
+        oracle_config.updated_by = admin;
+
+        emit!(OracleUpdated {
+            old_oracle,
+            new_oracle: oracle_id,
+            updated_by: admin,
+            updated_at: now,
+        });
+
+        Ok(())
+    }
+
+    /// Admin only function to set a fallback price for an asset
+    pub fn set_fallback_price(
+        ctx: Context<SetFallbackPrice>,
+        asset: [u8; 32],
+        price: i128,
+        decimals: u32,
+    ) -> Result<()> {
+        let admin = ctx.accounts.admin.key();
+        if ctx.accounts.platform_state.admin != admin {
+            return Err(ErrorCode::NotAdmin.into());
+        }
+
+        if price <= 0 {
+            return Err(ErrorCode::InvalidAmount.into());
+        }
+
+        let fallback = &mut ctx.accounts.fallback_price;
+        let now = Clock::get()?.unix_timestamp;
+        fallback.asset = asset;
+        fallback.price = price;
+        fallback.decimals = decimals;
+        fallback.updated_at = now;
+        fallback.is_active = true;
+
+        emit!(FallbackPriceUpdated {
+            asset,
+            price,
+            decimals,
+            updated_by: admin,
+            updated_at: now,
+        });
+
+        Ok(())
+    }
+
+    /// Admin only function to configure price freshness threshold (in seconds)
+    pub fn set_price_freshness_threshold(
+        ctx: Context<SetPriceFreshnessThreshold>,
+        threshold_seconds: i64,
+    ) -> Result<()> {
+        let admin = ctx.accounts.admin.key();
+        if ctx.accounts.platform_state.admin != admin {
+            return Err(ErrorCode::NotAdmin.into());
+        }
+
+        if threshold_seconds <= 0 {
+            return Err(ErrorCode::InvalidAmount.into());
+        }
+
+        let oracle_config = &mut ctx.accounts.oracle_config;
+        let old_threshold = oracle_config.freshness_threshold_seconds;
+        oracle_config.freshness_threshold_seconds = threshold_seconds;
+        oracle_config.updated_at = Clock::get()?.unix_timestamp;
+        oracle_config.updated_by = admin;
+
+        emit!(FreshnessThresholdUpdated {
+            old_threshold,
+            new_threshold: threshold_seconds,
+            updated_by: admin,
+        });
+
+        Ok(())
+    }
+
+    /// Post oracle price feed data (mock/oracle provider)
+    pub fn post_oracle_price(
+        ctx: Context<PostOraclePrice>,
+        asset: [u8; 32],
+        price: i128,
+        decimals: u32,
+        timestamp: i64,
+    ) -> Result<()> {
+        let feed = &mut ctx.accounts.oracle_feed;
+        feed.asset = asset;
+        feed.price = price;
+        feed.decimals = decimals;
+        feed.timestamp = timestamp;
+        feed.is_valid = price > 0;
+
+        emit!(OraclePricePosted {
+            asset,
+            price,
+            decimals,
+            timestamp,
+        });
+
+        Ok(())
+    }
+
+    /// View/query price for an asset: fetches from oracle with freshness check or falls back to admin price
+    pub fn get_asset_price(ctx: Context<GetPrice>, asset: [u8; 32]) -> Result<i128> {
+        let now = Clock::get()?.unix_timestamp;
+        let freshness_threshold = ctx
+            .accounts
+            .oracle_config
+            .as_ref()
+            .map(|c| c.freshness_threshold_seconds)
+            .unwrap_or(DEFAULT_PRICE_FRESHNESS_THRESHOLD_SECONDS);
+
+        let feed_ref = ctx.accounts.oracle_feed.as_deref();
+        let fallback_ref = ctx.accounts.fallback_price.as_deref();
+
+        let price = get_price(
+            asset,
+            feed_ref,
+            fallback_ref,
+            freshness_threshold,
+            now,
+        )?;
+
+        let used_fallback = feed_ref
+            .map(|f| !f.is_valid || now.saturating_sub(f.timestamp) > freshness_threshold)
+            .unwrap_or(true);
+
+        emit!(PriceFetched {
+            asset,
+            price,
+            timestamp: now,
+            used_fallback,
+        });
+
+        Ok(price)
+    }
+
+    /// Upgrade contract program validation (upgrader role / admin only)
+    pub fn upgrade_contract(ctx: Context<UpgradeContract>, new_wasm_hash: [u8; 32]) -> Result<()> {
+        let admin = ctx.accounts.platform_state.admin;
+        let signer = ctx.accounts.signer.key();
+        check_role(&admin, ctx.accounts.role_assignment.as_ref(), &signer, UPGRADER_ROLE)?;
+
+        if new_wasm_hash == [0u8; 32] {
+            return Err(ErrorCode::InvalidWasmHash.into());
+        }
+
+        emit!(ContractUpgraded {
+            new_wasm_hash,
+            upgraded_by: signer,
+            upgraded_at: Clock::get()?.unix_timestamp,
+        });
+
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -882,6 +1121,99 @@ pub struct HasRoleContext<'info> {
     pub platform_state: Account<'info, PlatformState>,
 }
 
+#[derive(Accounts)]
+pub struct SetOracle<'info> {
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + OracleConfig::INIT_SPACE,
+        seeds = [b"oracle_config"],
+        bump
+    )]
+    pub oracle_config: Account<'info, OracleConfig>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(asset: [u8; 32])]
+pub struct SetFallbackPrice<'info> {
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + FallbackPrice::INIT_SPACE,
+        seeds = [b"fallback_price", asset.as_ref()],
+        bump
+    )]
+    pub fallback_price: Account<'info, FallbackPrice>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SetPriceFreshnessThreshold<'info> {
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(
+        mut,
+        seeds = [b"oracle_config"],
+        bump
+    )]
+    pub oracle_config: Account<'info, OracleConfig>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
+#[instruction(asset: [u8; 32])]
+pub struct PostOraclePrice<'info> {
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = 8 + OraclePriceData::INIT_SPACE,
+        seeds = [b"oracle_feed", asset.as_ref()],
+        bump
+    )]
+    pub oracle_feed: Account<'info, OraclePriceData>,
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(asset: [u8; 32])]
+pub struct GetPrice<'info> {
+    #[account(
+        seeds = [b"oracle_config"],
+        bump
+    )]
+    pub oracle_config: Option<Account<'info, OracleConfig>>,
+    #[account(
+        seeds = [b"oracle_feed", asset.as_ref()],
+        bump
+    )]
+    pub oracle_feed: Option<Account<'info, OraclePriceData>>,
+    #[account(
+        seeds = [b"fallback_price", asset.as_ref()],
+        bump
+    )]
+    pub fallback_price: Option<Account<'info, FallbackPrice>>,
+}
+
+#[derive(Accounts)]
+pub struct UpgradeContract<'info> {
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(
+        seeds = [b"role", UPGRADER_ROLE.as_ref(), signer.key().as_ref()],
+        bump
+    )]
+    pub role_assignment: Option<Account<'info, RoleAssignment>>,
+    pub signer: Signer<'info>,
+}
+
 #[event]
 pub struct RoleGranted {
     pub role: [u8; 32],
@@ -990,6 +1322,53 @@ pub struct DisputeResolved {
     pub resolved_at: i64,
 }
 
+#[event]
+pub struct OracleUpdated {
+    pub old_oracle: Pubkey,
+    pub new_oracle: Pubkey,
+    pub updated_by: Pubkey,
+    pub updated_at: i64,
+}
+
+#[event]
+pub struct FallbackPriceUpdated {
+    pub asset: [u8; 32],
+    pub price: i128,
+    pub decimals: u32,
+    pub updated_by: Pubkey,
+    pub updated_at: i64,
+}
+
+#[event]
+pub struct FreshnessThresholdUpdated {
+    pub old_threshold: i64,
+    pub new_threshold: i64,
+    pub updated_by: Pubkey,
+}
+
+#[event]
+pub struct PriceFetched {
+    pub asset: [u8; 32],
+    pub price: i128,
+    pub timestamp: i64,
+    pub used_fallback: bool,
+}
+
+#[event]
+pub struct OraclePricePosted {
+    pub asset: [u8; 32],
+    pub price: i128,
+    pub decimals: u32,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct ContractUpgraded {
+    pub new_wasm_hash: [u8; 32],
+    pub upgraded_by: Pubkey,
+    pub upgraded_at: i64,
+}
+
 #[error_code]
 pub enum ErrorCode {
     #[msg("Fee must be between 0 and 1000 basis points (0-10%)")]
@@ -1036,4 +1415,14 @@ pub enum ErrorCode {
     SessionNotExpired,
     #[msg("Max session duration must be greater than zero")]
     InvalidMaxSessionDuration,
+    #[msg("Provided WASM hash is zero or invalid")]
+    InvalidWasmHash = 600,
+    #[msg("Low-level upgrade failure")]
+    UpgradeFailed = 601,
+    #[msg("Price oracle is not configured")]
+    OracleNotConfigured = 602,
+    #[msg("Oracle price is stale or expired")]
+    StalePrice = 603,
+    #[msg("Oracle price fetch failed and no fallback available")]
+    OraclePriceFailed = 604,
 }

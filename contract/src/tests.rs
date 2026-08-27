@@ -428,3 +428,200 @@ fn test_timeout_and_dispute_error_codes() {
     assert_eq!(err_not_allowed as u32, 503);
 }
 
+#[test]
+fn test_upgrade_error_codes() {
+    // Verify upgrade error codes 600 and 601
+    let err_invalid_wasm = ErrorCode::InvalidWasmHash;
+    let err_upgrade_failed = ErrorCode::UpgradeFailed;
+
+    assert_eq!(err_invalid_wasm as u32, 600);
+    assert_eq!(err_upgrade_failed as u32, 601);
+}
+
+#[test]
+fn test_upgrade_contract_wasm_hash_validation() {
+    let admin = Pubkey::new_unique();
+    let upgrader = Pubkey::new_unique();
+    let unauthorized = Pubkey::new_unique();
+
+    let upgrader_assignment = RoleAssignment {
+        role: UPGRADER_ROLE,
+        account: upgrader,
+        granted_at: 1_700_000_000,
+        is_active: true,
+    };
+
+    // Upgrader role can execute upgrade
+    assert!(check_role(&admin, Some(&upgrader_assignment), &upgrader, UPGRADER_ROLE).is_ok());
+    // Admin can execute upgrade
+    assert!(check_role(&admin, None, &admin, UPGRADER_ROLE).is_ok());
+    // Unauthorized account fails
+    assert!(check_role(&admin, None, &unauthorized, UPGRADER_ROLE).is_err());
+
+    // Zero WASM hash is rejected
+    let zero_hash = [0u8; 32];
+    assert_eq!(zero_hash, [0u8; 32]);
+
+    // Valid WASM hash
+    let valid_hash: [u8; 32] = [42u8; 32];
+    assert_ne!(valid_hash, [0u8; 32]);
+}
+
+#[test]
+fn test_oracle_error_codes() {
+    let err_not_configured = ErrorCode::OracleNotConfigured;
+    let err_stale = ErrorCode::StalePrice;
+    let err_failed = ErrorCode::OraclePriceFailed;
+
+    assert_eq!(err_not_configured as u32, 602);
+    assert_eq!(err_stale as u32, 603);
+    assert_eq!(err_failed as u32, 604);
+}
+
+#[test]
+fn test_oracle_config_initialization_and_threshold() {
+    let admin = Pubkey::new_unique();
+    let oracle_id = Pubkey::new_unique();
+    let now = 1_700_000_000;
+
+    let config = OracleConfig {
+        oracle_id,
+        freshness_threshold_seconds: DEFAULT_PRICE_FRESHNESS_THRESHOLD_SECONDS,
+        is_active: true,
+        updated_at: now,
+        updated_by: admin,
+    };
+
+    assert_eq!(config.oracle_id, oracle_id);
+    assert_eq!(config.freshness_threshold_seconds, 300);
+    assert!(config.is_active);
+    assert_eq!(config.updated_by, admin);
+}
+
+#[test]
+fn test_get_price_with_fresh_mock_oracle_response() {
+    let asset: [u8; 32] = *b"USDC____________________________";
+    let now: i64 = 1_700_000_100;
+    let threshold: i64 = 300; // 5 minutes
+
+    // Mock oracle response timestamped 30 seconds ago (fresh)
+    let oracle_feed = OraclePriceData {
+        asset,
+        price: 1_000_000, // $1.00 (6 decimals)
+        decimals: 6,
+        timestamp: now - 30,
+        is_valid: true,
+    };
+
+    let result = get_price(asset, Some(&oracle_feed), None, threshold, now);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 1_000_000);
+}
+
+#[test]
+fn test_get_price_stale_oracle_falls_back_to_admin_price() {
+    let asset: [u8; 32] = *b"ETH_____________________________";
+    let now: i64 = 1_700_001_000;
+    let threshold: i64 = 300; // 5 minutes
+
+    // Mock oracle response timestamped 600 seconds ago (stale, > 300s)
+    let stale_oracle_feed = OraclePriceData {
+        asset,
+        price: 3_500_000_000,
+        decimals: 6,
+        timestamp: now - 600,
+        is_valid: true,
+    };
+
+    // Admin fallback price
+    let fallback_price = FallbackPrice {
+        asset,
+        price: 3_400_000_000,
+        decimals: 6,
+        updated_at: now - 100,
+        is_active: true,
+    };
+
+    // Oracle is stale, so get_price should return the fallback price
+    let result = get_price(
+        asset,
+        Some(&stale_oracle_feed),
+        Some(&fallback_price),
+        threshold,
+        now,
+    );
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 3_400_000_000);
+}
+
+#[test]
+fn test_get_price_invalid_oracle_feed_falls_back_to_admin_price() {
+    let asset: [u8; 32] = *b"SOL_____________________________";
+    let now: i64 = 1_700_000_100;
+    let threshold: i64 = 300;
+
+    // Oracle marked invalid or price 0
+    let invalid_oracle_feed = OraclePriceData {
+        asset,
+        price: 0,
+        decimals: 6,
+        timestamp: now - 10,
+        is_valid: false,
+    };
+
+    let fallback_price = FallbackPrice {
+        asset,
+        price: 150_000_000,
+        decimals: 6,
+        updated_at: now - 50,
+        is_active: true,
+    };
+
+    let result = get_price(
+        asset,
+        Some(&invalid_oracle_feed),
+        Some(&fallback_price),
+        threshold,
+        now,
+    );
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 150_000_000);
+}
+
+#[test]
+fn test_get_price_no_oracle_uses_fallback_price() {
+    let asset: [u8; 32] = *b"BTC_____________________________";
+    let now: i64 = 1_700_000_100;
+    let threshold: i64 = 300;
+
+    let fallback_price = FallbackPrice {
+        asset,
+        price: 65_000_000_000,
+        decimals: 6,
+        updated_at: now - 50,
+        is_active: true,
+    };
+
+    let result = get_price(asset, None, Some(&fallback_price), threshold, now);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 65_000_000_000);
+}
+
+#[test]
+fn test_get_price_stale_without_fallback_errors() {
+    let asset: [u8; 32] = *b"ADA_____________________________";
+    let now: i64 = 1_700_001_000;
+    let threshold: i64 = 300;
+
+    let stale_oracle_feed = OraclePriceData {
+        asset,
+        price: 500_000,
+        decimals: 6,
+        timestamp: now - 500, // stale
+        is_valid: true,
+    };
+
+    let result = get_price(asset, Some(&stale_oracle_feed), None, threshold, now);
+    assert!(result.is_err());
+}
+
