@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { JwtService } from '@nestjs/jwt';
-import { BadRequestException } from '@nestjs/common';
+import { UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { Keypair } from '@stellar/stellar-sdk';
 import { AuthService } from './auth.service';
 import { UserService } from '../user/user.service';
@@ -161,6 +161,119 @@ describe('AuthService', () => {
       expect(second.nonce).not.toBe(first.nonce);
       const stored = JSON.parse(mockRedisService.__store.get(`nonce:${wallet.toLowerCase()}`));
       expect(stored.nonce).toBe(second.nonce);
+    });
+  });
+
+  describe('login with Stellar wallet signature', () => {
+    const keypair = Keypair.random();
+    const wallet = keypair.publicKey();
+    const mockUser = {
+      id: 'user-123',
+      walletAddress: wallet.toLowerCase(),
+      email: null,
+      displayName: 'Stellar User',
+      bio: null,
+      avatarUrl: null,
+      profileType: 'mentee',
+      settings: {},
+      isLocked: false,
+      lockoutUntil: null,
+      lastLoginAt: null,
+      tokenVersion: 0,
+      roles: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const issueNonceAndSign = async () => {
+      const nonceResponse = await service.generateNonce(wallet);
+      const signature = Buffer.from(keypair.sign(Buffer.from(nonceResponse.nonce, 'utf8'))).toString('hex');
+      return { nonce: nonceResponse.nonce, signature };
+    };
+
+    it('should verify a valid signature, return tokens and audit login_success', async () => {
+      mockUserService.findByWalletAddress.mockResolvedValue(mockUser);
+      const { nonce, signature } = await issueNonceAndSign();
+
+      const result = await service.login({ walletAddress: wallet, nonce, signature });
+
+      expect(result.accessToken).toBeDefined();
+      expect(result.refreshToken).toBeDefined();
+      expect(mockAuditLogRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'login_success' }),
+      );
+    });
+
+    it('should auto-provision a user account on first wallet login', async () => {
+      mockUserService.findByWalletAddress.mockResolvedValue(null);
+      mockUserService.create.mockResolvedValue({ id: 'user-123' });
+      mockUserService.findById.mockResolvedValue(mockUser);
+      const { nonce, signature } = await issueNonceAndSign();
+
+      await service.login({ walletAddress: wallet, nonce, signature });
+
+      expect(mockUserService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ walletAddress: wallet.toLowerCase() }),
+      );
+    });
+
+    it('should reject an invalid signature with 401 and audit login_failed', async () => {
+      const { nonce } = await issueNonceAndSign();
+      const wrongSignature = Buffer.from(keypair.sign(Buffer.from('tampered message', 'utf8'))).toString('hex');
+
+      await expect(
+        service.login({ walletAddress: wallet, nonce, signature: wrongSignature }),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(mockAuditLogRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'login_failed' }),
+      );
+    });
+
+    it('should consume the nonce after a failed attempt (replay protection)', async () => {
+      const { nonce } = await issueNonceAndSign();
+      const wrongSignature = Buffer.from(keypair.sign(Buffer.from('tampered', 'utf8'))).toString('hex');
+
+      await expect(
+        service.login({ walletAddress: wallet, nonce, signature: wrongSignature }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      // Nonce must be gone after any verification attempt
+      expect(mockRedisService.__store.has(`nonce:${wallet.toLowerCase()}`)).toBe(false);
+    });
+
+    it('should reject nonce reuse on a second login attempt (replay attack)', async () => {
+      mockUserService.findByWalletAddress.mockResolvedValue(mockUser);
+      const { nonce, signature } = await issueNonceAndSign();
+
+      await service.login({ walletAddress: wallet, nonce, signature });
+
+      await expect(service.login({ walletAddress: wallet, nonce, signature })).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('should reject login when no nonce was issued', async () => {
+      await expect(
+        service.login({
+          walletAddress: wallet,
+          nonce: 'unknown',
+          signature: 'a'.repeat(128),
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should reject an expired nonce before signature verification', async () => {
+      const { nonce } = await issueNonceAndSign();
+      // Force expiry in the stored nonce payload
+      const key = `nonce:${wallet.toLowerCase()}`;
+      const stored = JSON.parse(mockRedisService.__store.get(key));
+      stored.expiresAt = new Date(Date.now() - 1000).toISOString();
+      mockRedisService.__store.set(key, JSON.stringify(stored));
+
+      const signature = Buffer.from(keypair.sign(Buffer.from(nonce, 'utf8'))).toString('hex');
+      await expect(
+        service.login({ walletAddress: wallet, nonce, signature }),
+      ).rejects.toThrow(UnauthorizedException);
     });
   });
 });

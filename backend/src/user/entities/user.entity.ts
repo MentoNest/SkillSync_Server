@@ -23,13 +23,14 @@ export class User {
   id: string;
 
   @Index({ unique: true, where: '"walletAddress" IS NOT NULL' })
-  @Column({ type: 'varchar', length: 42, nullable: true, unique: true })
+  @Column({ type: 'varchar', length: 56, nullable: true, unique: true })
   walletAddress: string | null;
 
   @Index({ unique: true, where: '"email" IS NOT NULL' })
   @Column({ type: 'varchar', length: 255, nullable: true, unique: true })
   email: string | null;
 
+  @Index('IDX_users_displayName')
   @Column({ type: 'varchar', length: 100, nullable: true })
   displayName: string | null;
 
@@ -68,7 +69,11 @@ export class User {
   lastLoginIp: string | null;
 
   @ManyToMany(() => Role, (role) => role.users, { cascade: true, eager: true })
-  @JoinTable({ name: 'user_roles' })
+  @JoinTable({
+    name: 'user_roles',
+    joinColumn: { name: 'userId', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'roleId', referencedColumnName: 'id' },
+  })
   roles: Role[];
 
   @CreateDateColumn()

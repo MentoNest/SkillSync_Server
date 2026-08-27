@@ -36,6 +36,7 @@ import { CurrentUser } from '../user/decorators/current-user.decorator';
 import { User } from '../user/entities/user.entity';
 import { RevokeAllRateLimitGuard } from './guards/revoke-all-rate-limit.guard';
 import { NonceRateLimitGuard } from './guards/nonce-rate-limit.guard';
+import { WalletLoginRateLimitGuard } from './guards/wallet-login-rate-limit.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -83,11 +84,12 @@ export class AuthController {
   // ---------------------------------------------------------------------------
   @ApiTags('Authentication')
   @Post('login')
+  @UseGuards(WalletLoginRateLimitGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Authenticate user with wallet signature or email credentials',
+    summary: 'Authenticate user with Stellar wallet signature or email credentials (#1147)',
     description:
-      'Validates credentials, evaluates suspicious login indicators (IP anomalies, distance jumps, failed attempts), provisions/retrieves user profile, and returns access and refresh JWT tokens.',
+      'Verifies a Stellar wallet signature over the previously issued nonce using the Stellar SDK (StrKey + Keypair.verify). The nonce is invalidated immediately after the verification attempt to prevent replay attacks. Successful login creates/retrieves the user account and returns access and refresh tokens. Every attempt is audit logged. Rate limited to 10 attempts per 15 minutes per wallet.',
   })
   @ApiBody({ type: LoginDto })
   @ApiResponse({
@@ -97,15 +99,19 @@ export class AuthController {
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
-    description: 'Missing required credentials or invalid signature',
+    description: 'Missing required credentials',
   })
   @ApiResponse({
     status: HttpStatus.UNAUTHORIZED,
-    description: 'Invalid email or password / authentication failed',
+    description: 'Invalid signature, expired/missing nonce, or invalid email/password',
   })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'Account locked due to consecutive failed attempts or suspicious activity',
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded (maximum 10 login attempts per 15 minutes per wallet)',
   })
   @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Internal server error' })
   async login(

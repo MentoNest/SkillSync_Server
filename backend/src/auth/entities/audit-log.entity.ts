@@ -16,7 +16,7 @@ export class AuditLog {
   userId: string | null;
 
   @Index()
-  @Column({ type: 'varchar', length: 42, nullable: true })
+  @Column({ type: 'varchar', length: 56, nullable: true })
   walletAddress: string | null;
 
   @Index()
