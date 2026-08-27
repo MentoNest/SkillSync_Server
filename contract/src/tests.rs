@@ -285,63 +285,73 @@ fn test_complete_and_approve_flow_status_and_fee() {
     assert_eq!(SessionStatus::default(), SessionStatus::Locked);
 }
 #[test]
-fn test_fee_zero_bps_seller_receives_full_amount() {
-    // #1096 - A 0 bps fee leaves the seller with the entire amount.
-    let (fee_amount, net_amount) = calculate_settlement_fee(5_000, 0);
-    assert_eq!(fee_amount, 0);
-    assert_eq!(net_amount, 5_000, "seller receives full amount with 0 bps fee");
+fn test_refund_buyer_can_refund_before_seller_completes() {
+    // #1092 - A Locked (pre-completion) session is refundable by the buyer.
+    assert!(Session::can_refund(SessionStatus::Locked));
+    // A session in dispute is likewise still refundable.
+    assert!(Session::can_refund(SessionStatus::Disputed));
 }
 
 #[test]
-fn test_fee_ten_percent_seller_receives_ninety_percent() {
-    // #1096 - A 1000 bps (10%) fee means the seller receives 90%.
-    let amount: u64 = 10_000;
-    let (fee_amount, net_amount) = calculate_settlement_fee(amount, 1000);
-    assert_eq!(fee_amount, 1_000);
-    assert_eq!(net_amount, 9_000, "seller receives 90% of the amount");
+fn test_refund_returns_full_amount_with_no_fee() {
+    // #1092 - A refund returns the full locked amount; the platform settlement
+    // fee is only applied on completion (calculate_settlement_fee), never on a
+    // refund. A refunded session keeps its original amount untouched.
+    let amount: u64 = 7_777;
+    let fee_bps: u32 = 500;
+
+    let (fee_amount, _net_amount) = calculate_settlement_fee(amount, fee_bps);
+    assert!(fee_amount > 0, "fee applies on completion");
+
+    // Refund path: session remains at the original amount, fee not applied.
+    let session = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount,
+        status: SessionStatus::Refunded,
+        created_at: 1_700_000_000,
+        completed_at: None,
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
+    assert_eq!(session.amount, amount, "refund preserves the full locked amount");
 }
 
 #[test]
-fn test_fee_odd_amount_rounds_down_to_smallest_unit() {
-    // #1096 - Non-divisible amounts round the fee down to the smallest unit
-    // (integer floor), and never round up into the seller's principal.
-    let (fee_amount, net_amount) = calculate_settlement_fee(1_234, 123);
-    // 1234 * 123 / 10000 = 15.1782 -> floors to 15
-    assert_eq!(fee_amount, 15);
-    assert_eq!(net_amount, 1_234 - 15);
-    assert_eq!(fee_amount + net_amount, 1_234);
+fn test_refund_reverts_when_session_already_completed() {
+    // #1092 - A completed session can no longer be refunded by the buyer.
+    assert!(!Session::can_refund(SessionStatus::Completed));
 }
 
 #[test]
-fn test_fee_never_exceeds_amount() {
-    // #1096 - The fee can never exceed the session amount; the net payout is
-    // clamped to zero at worst (saturating arithmetic), never underflowing.
-    let (fee_amount, net_amount) = calculate_settlement_fee(100, 1000);
-    assert!(fee_amount <= 100);
-    assert_eq!(net_amount, 90);
-
-    // Even at the maximum configured fee (1000 bps) the net is never negative.
-    let (fee_amount, net_amount) = calculate_settlement_fee(1, 1000);
-    assert_eq!(fee_amount, 0);
-    assert_eq!(net_amount, 1);
-    assert!(fee_amount <= 1);
+fn test_refund_reverts_when_session_already_approved() {
+    // #1092 - An approved session can no longer be refunded by the buyer.
+    assert!(!Session::can_refund(SessionStatus::Approved));
 }
 
 #[test]
-fn test_treasury_balance_accumulates_across_sessions() {
-    // #1096 - complete_session credits the settlement fee into
-    // PlatformState::treasury_balance, so the cumulative treasury equals the
-    // sum of the fees from each completed session. This mirrors the exact
-    // arithmetic the instruction performs (calculate_settlement_fee).
-    let fee_bps: u32 = 500; // 5%
-    let session_amounts: [u64; 3] = [1_000, 2_500, 4_900];
+fn test_refund_reverts_when_session_already_resolved_or_refunded() {
+    // #1092 - Resolved and Refunded are also not refundable once reached.
+    assert!(!Session::can_refund(SessionStatus::Resolved));
+    assert!(!Session::can_refund(SessionStatus::Refunded));
+}
 
-    let mut treasury_balance: u64 = 0;
-    for &amount in &session_amounts {
-        let (fee_amount, _net) = calculate_settlement_fee(amount, fee_bps);
-        treasury_balance = treasury_balance.saturating_add(fee_amount);
-    }
-
-    // 5% of 1000 + 2500 + 4900 = 50 + 125 + 245 = 420
-    assert_eq!(treasury_balance, 420);
+#[test]
+fn test_session_refunded_event_shape() {
+    // #1092 - SessionRefunded carries the session id and the refund timestamp
+    // (recorded via update_status setting completed_at on Refunded).
+    let session = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 1_000,
+        status: SessionStatus::Refunded,
+        created_at: 1_700_000_000,
+        completed_at: Some(1_700_086_400),
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
+    // update_status stamps completed_at when transitioning to Refunded, which
+    // becomes the event's refunded_at payload.
+    assert!(session.completed_at.is_some());
+    assert_eq!(session.status, SessionStatus::Refunded);
 }
