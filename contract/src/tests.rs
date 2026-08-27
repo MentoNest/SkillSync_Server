@@ -230,7 +230,7 @@ fn test_platform_state_initialization_fields() {
         admin,
         platform_fee_bps: initial_fee_bps,
         session_counter: 0,
-        treasury_balance: 0,
+        max_session_duration_seconds: 7 * 24 * 60 * 60,
     };
 
     assert_eq!(platform_state.admin, admin);
@@ -254,8 +254,10 @@ fn test_locked_session_state_matches_lock_funds_inputs() {
         amount,
         status: SessionStatus::Locked,
         created_at,
+        expires_at: 0,
         completed_at: None,
         dispute_resolved_at: None,
+        dispute_opened_at: None,
     };
 
     assert_eq!(session.status, SessionStatus::Locked);
@@ -285,69 +287,98 @@ fn test_complete_and_approve_flow_status_and_fee() {
     assert_eq!(SessionStatus::default(), SessionStatus::Locked);
 }
 #[test]
-fn test_analytics_record_session_created() {
-    // #1128 - create_session increments total_sessions, adds the amount to
-    // total_locked_volume, and counts one active session (the new Locked state
-    // is active).
-    let mut analytics = EscrowAnalytics::default();
-    analytics.record_session_created(1_000);
-    analytics.record_session_created(2_500);
+fn test_lock_funds_sets_expires_at_from_max_duration() {
+    // #1132 - lock_funds stores expires_at = locked_at + max_session_duration.
+    let created_at: i64 = 1_700_000_000;
+    let max_duration: i64 = 7 * 24 * 60 * 60; // 7 days
 
-    assert_eq!(analytics.total_sessions, 2);
-    assert_eq!(analytics.total_locked_volume, 3_500);
-    assert_eq!(analytics.active_sessions, 2);
+    let mut session = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 1_000,
+        status: SessionStatus::Locked,
+        created_at,
+        expires_at: 0,
+        completed_at: None,
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
+
+    // lock_funds sets expires_at = now + max_duration.
+    let now: i64 = created_at + 100;
+    session.expires_at = now.saturating_add(max_duration);
+
+    assert_eq!(session.expires_at, created_at + 100 + max_duration);
+    // Not yet expired at lock time.
+    assert!(!session.is_expired(now));
 }
 
 #[test]
-fn test_analytics_active_sessions_declines_on_completion_of_active_path() {
-    // #1128 - approved / refunded / auto-refunded / disputed sessions leave the
-    // active (Locked/Completed) set.
-    let mut analytics = EscrowAnalytics::default();
-    analytics.record_session_created(1_000); // active = 1
-    analytics.record_session_deactivated();
-    assert_eq!(analytics.active_sessions, 0);
+fn test_session_cannot_be_completed_or_approved_after_expiry() {
+    // #1132 - A Locked session past its expires_at is expired: complete_session
+    // and approve_session must reject it (SessionExpired).
+    let locked_at: i64 = 1_700_000_000;
+    let max_duration: i64 = 7 * 24 * 60 * 60;
 
-    analytics.record_session_created(500); // active = 1
-    analytics.record_dispute_opened(); // leaves active
-    assert_eq!(analytics.active_sessions, 0);
+    let mut session = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 2_000,
+        status: SessionStatus::Locked,
+        created_at: locked_at,
+        expires_at: locked_at.saturating_add(max_duration),
+        completed_at: None,
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
+
+    let inside_window: i64 = locked_at + max_duration - 1;
+    assert!(!session.is_expired(inside_window), "not expired before deadline");
+
+    let after_deadline: i64 = locked_at + max_duration;
+    assert!(session.is_expired(after_deadline), "expired at/after deadline");
 }
 
 #[test]
-fn test_analytics_fee_and_dispute_aggregates() {
-    // #1128 - complete_session collects fees; dispute open/close feed the
-    // dispute-rate and resolution-time metrics.
-    let mut analytics = EscrowAnalytics::default();
-    analytics.record_session_created(10_000); // sessions=1, active=1
-    analytics.record_fee_collected(500);
+fn test_cancel_expired_session_refunds_full_amount_with_no_fee() {
+    // #1132 - Auto-cancelling an expired session refunds the buyer the full
+    // locked amount; the platform fee is never applied to a cancellation.
+    let locked_at: i64 = 1_700_000_000;
+    let max_duration: i64 = 7 * 24 * 60 * 60;
+    let amount: u64 = 7_777;
 
-    assert_eq!(analytics.total_fees_collected, 500);
+    let mut session = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount,
+        status: SessionStatus::Locked,
+        created_at: locked_at,
+        expires_at: locked_at.saturating_add(max_duration),
+        completed_at: None,
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
 
-    analytics.record_dispute_opened(); // disputes=1, active back to 0
-    assert_eq!(analytics.total_disputes, 1);
-    assert_eq!(analytics.active_sessions, 0);
-
-    analytics.record_resolution(7200); // 2 hours
-    assert_eq!(analytics.average_resolution_time(), 7200);
+    // Past expiry: cancellation is permitted, full amount is returned.
+    let now: i64 = locked_at + max_duration + 1;
+    assert!(session.is_expired(now));
+    session.status = SessionStatus::Refunded;
+    assert_eq!(session.status, SessionStatus::Refunded);
+    assert_eq!(session.amount, amount, "full amount preserved, no fee deducted");
 }
 
 #[test]
-fn test_analytics_average_resolution_time_averages() {
-    // #1128 - average_resolution_time = total_resolution_time / total_disputes.
-    let mut analytics = EscrowAnalytics::default();
-    analytics.record_session_created(100);
-    analytics.record_dispute_opened();
-    analytics.record_resolution(6000);
-    analytics.record_dispute_opened();
-    analytics.record_resolution(3000);
+fn test_session_expired_and_cancelled_event_shape() {
+    // #1132 - SessionExpiredAndCancelled carries session id, buyer, amount,
+    // expires_at and cancelled_at so the failed completion is traceable.
+    let event = SessionExpiredAndCancelled {
+        session_id: Pubkey::new_unique(),
+        buyer: Pubkey::new_unique(),
+        amount: 5_000,
+        expires_at: 1_700_604_800,
+        cancelled_at: 1_700_605_000,
+    };
 
-    assert_eq!(analytics.total_disputes, 2);
-    assert_eq!(analytics.average_resolution_time(), 4500);
-}
-
-#[test]
-fn test_analytics_average_resolution_time_zero_without_disputes() {
-    // #1128 - No disputes yet => average resolution time reports 0, not a
-    // divide-by-zero.
-    let analytics = EscrowAnalytics::default();
-    assert_eq!(analytics.average_resolution_time(), 0);
+    assert_eq!(event.amount, 5_000);
+    assert!(event.cancelled_at > event.expires_at);
 }

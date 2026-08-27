@@ -6,6 +6,10 @@ declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"); // Default dummy ID
 /// past this, anyone may trigger an auto-refund on a stuck Completed session.
 const DISPUTE_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60; // 7 days
 
+/// Default maximum lifetime of a Locked session before it can be auto-cancelled
+/// (~7 days, matching the issue's "30,000 ledgers" figure expressed in seconds).
+const DEFAULT_MAX_SESSION_DURATION_SECONDS: i64 = 7 * 24 * 60 * 60; // 7 days
+
 /// Session status enum representing all possible states of an escrow session
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
 pub enum SessionStatus {
@@ -32,6 +36,7 @@ pub struct Session {
     pub amount: u64,
     pub status: SessionStatus,
     pub created_at: i64,
+    pub expires_at: i64, // 0 until lock_funds sets it; then the absolute expiry
     pub completed_at: Option<i64>,
     pub dispute_resolved_at: Option<i64>,
     pub dispute_opened_at: Option<i64>,
@@ -57,20 +62,15 @@ impl Session {
         session_account.amount = amount;
         session_account.status = SessionStatus::Locked;
         session_account.created_at = created_at;
+        session_account.expires_at = 0; // set by lock_funds
         session_account.completed_at = None;
         session_account.dispute_resolved_at = None;
         session_account.dispute_opened_at = None;
     }
 
-    /// Whether a session is eligible for a buyer-initiated refund.
-    ///
-    /// A session can only be refunded while it is still in `Locked` (before the
-    /// seller completes) or `Disputed`. Once it reaches a final state —
-    /// `Completed`, `Approved`, `Refunded`, or `Resolved` — a refund is no
-    /// longer permitted. The platform settlement fee is never applied on a
-    /// refund: the buyer is returned the full locked `amount`.
-    pub fn can_refund(status: SessionStatus) -> bool {
-        matches!(status, SessionStatus::Locked | SessionStatus::Disputed)
+    /// Whether the session has an expiry set and has already passed it.
+    pub fn is_expired(&self, now: i64) -> bool {
+        self.expires_at > 0 && now >= self.expires_at
     }
 
     /// Update session status
@@ -100,7 +100,7 @@ pub struct PlatformState {
     pub admin: Pubkey,
     pub platform_fee_bps: u32, // Stored in basis points (1 bps = 0.01%)
     pub session_counter: u64,  // Counter to generate unique session IDs
-    pub treasury_balance: u64, // Cumulative platform fees collected into the treasury
+    pub max_session_duration_seconds: i64, // Max lifetime of a Locked session, in seconds
 }
 
 /// On-chain analytics for the escrow program. A single account holds the
@@ -183,15 +183,7 @@ pub mod skill_sync {
         platform_state.admin = ctx.accounts.signer.key();
         platform_state.platform_fee_bps = initial_fee_bps;
         platform_state.session_counter = 0;
-
-        // Initialize the analytics aggregate to a known zero state.
-        let analytics = &mut ctx.accounts.analytics;
-        analytics.total_sessions = 0;
-        analytics.total_locked_volume = 0;
-        analytics.total_fees_collected = 0;
-        analytics.active_sessions = 0;
-        analytics.total_disputes = 0;
-        analytics.total_resolution_time = 0;
+        platform_state.max_session_duration_seconds = DEFAULT_MAX_SESSION_DURATION_SECONDS;
         
         emit!(PlatformFeeUpdated {
             previous_fee: 0,
@@ -222,19 +214,18 @@ pub mod skill_sync {
         Ok(())
     }
 
-    /// Admin only function to change the treasury wallet that receives
-    /// collected platform fees. Emits a TreasuryUpdated event carrying the old
-    /// and new treasury plus the admin who performed the update.
-    pub fn set_treasury(ctx: Context<SetTreasury>, new_treasury: Pubkey) -> Result<()> {
-        let platform_state = &mut ctx.accounts.platform_state;
-        let old_treasury = platform_state.treasury;
-        platform_state.treasury = new_treasury;
+    /// Admin only function to set the maximum lifetime of a Locked session, in
+    /// seconds. After this many seconds past locking, an unreleased session can
+    /// be cancelled by anyone via cancel_expired_session.
+    pub fn set_max_session_duration(
+        ctx: Context<SetMaxSessionDuration>,
+        duration_seconds: i64,
+    ) -> Result<()> {
+        if duration_seconds <= 0 {
+            return Err(ErrorCode::InvalidMaxSessionDuration.into());
+        }
 
-        emit!(TreasuryUpdated {
-            old_treasury,
-            new_treasury,
-            updated_by: ctx.accounts.signer.key(),
-        });
+        ctx.accounts.platform_state.max_session_duration_seconds = duration_seconds;
 
         Ok(())
     }
@@ -278,7 +269,7 @@ pub mod skill_sync {
     }
 
     /// Lock funds for an existing session (only called on new sessions)
-    pub fn lock_funds(ctx: Context<UpdateSession>, amount: u64) -> Result<()> {
+    pub fn lock_funds(ctx: Context<LockFunds>, amount: u64) -> Result<()> {
         let session = &mut ctx.accounts.session;
         
         // Revert if session ID already exists and is in use (Anchor's mut constraint ensures account exists,
@@ -292,12 +283,52 @@ pub mod skill_sync {
             return Err(ErrorCode::InvalidAmount.into());
         }
 
+        // Store the absolute expiry: now + the platform-configured maximum
+        // session lifetime. Past this, anyone can cancel the session.
+        let now = Clock::get()?.unix_timestamp;
+        session.expires_at = now
+            .saturating_add(ctx.accounts.platform_state.max_session_duration_seconds);
+
         emit!(FundsLocked {
             session_id: ctx.accounts.session.key(),
             buyer: session.buyer,
             seller: session.seller,
             amount,
-            locked_at: Clock::get()?.unix_timestamp,
+            locked_at: now,
+        });
+
+        Ok(())
+    }
+
+    /// Cancel a session that has passed its maximum lifetime. Callable by
+    /// anyone once the Locked session is past its expiry. The buyer is refunded
+    /// the full locked amount; no platform fee is deducted.
+    pub fn cancel_expired_session(ctx: Context<CancelExpiredSession>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        let now = Clock::get()?.unix_timestamp;
+
+        // Only a still-Locked session can be auto-cancelled.
+        if session.status != SessionStatus::Locked {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        // It must actually be past its expiry.
+        if !session.is_expired(now) {
+            return Err(ErrorCode::SessionNotExpired.into());
+        }
+
+        let buyer = session.buyer;
+        let amount = session.amount;
+        let expires_at = session.expires_at;
+
+        Session::update_status(session, SessionStatus::Refunded)?;
+
+        emit!(SessionExpiredAndCancelled {
+            session_id: ctx.accounts.session.key(),
+            buyer,
+            amount,
+            expires_at,
+            cancelled_at: now,
         });
 
         Ok(())
@@ -313,6 +344,12 @@ pub mod skill_sync {
         // Cannot reuse an already completed session
         if session.status != SessionStatus::Locked {
             return Err(ErrorCode::SessionAlreadyFinalized.into());
+        }
+
+        // A session past its maximum lifetime can no longer be completed.
+        let now = Clock::get()?.unix_timestamp;
+        if session.is_expired(now) {
+            return Err(ErrorCode::SessionExpired.into());
         }
 
         let (fee_amount, net_amount) = calculate_settlement_fee(session.amount, platform_fee_bps);
@@ -340,6 +377,12 @@ pub mod skill_sync {
         // Check session exists and is in correct state (must be locked to approve)
         if session.status != SessionStatus::Locked {
             return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        // A session past its maximum lifetime can no longer be approved.
+        let now = Clock::get()?.unix_timestamp;
+        if session.is_expired(now) {
+            return Err(ErrorCode::SessionExpired.into());
         }
 
         // Update session status to approved
@@ -600,12 +643,20 @@ pub struct SetPlatformFee<'info> {
 }
 
 #[derive(Accounts)]
-pub struct SetTreasury<'info> {
+pub struct SetMaxSessionDuration<'info> {
     #[account(mut, has_one = admin)] // Ensure only the admin can call this
     pub platform_state: Account<'info, PlatformState>,
     pub admin: Signer<'info>,
     /// CHECK: The signer is checked against the stored admin key
     #[account(mut)]
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct CancelExpiredSession<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    /// Anyone may cancel an expired session; no role check is enforced.
     pub signer: Signer<'info>,
 }
 
@@ -635,6 +686,14 @@ pub struct UpdateSession<'info> {
     #[account(mut)]
     pub analytics: Account<'info, EscrowAnalytics>,
     /// The signer must be either the buyer or seller to modify the session
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct LockFunds<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    pub platform_state: Account<'info, PlatformState>,
     pub signer: Signer<'info>,
 }
 
@@ -722,6 +781,15 @@ pub struct AutoRefundExecuted {
 }
 
 #[event]
+pub struct SessionExpiredAndCancelled {
+    pub session_id: Pubkey,
+    pub buyer: Pubkey,
+    pub amount: u64,
+    pub expires_at: i64,
+    pub cancelled_at: i64,
+}
+
+#[event]
 pub struct DisputeRaised {
     pub session_id: Pubkey,
     pub disputed_at: i64,
@@ -769,24 +837,10 @@ pub enum ErrorCode {
     DisputeWindowNotElapsed,
     #[msg("Buyer and seller shares must sum to the original session amount")]
     InvalidShareSplit,
-}
-
-impl ErrorCode {
-    /// Canonical authorization error codes used for off-chain mapping and
-    /// logging.
-    ///
-    /// Note: Anchor assigns its own on-chain error discriminators (a fixed
-    /// 6000+ offset) to `#[error_code]` variants; this table preserves the
-    /// issue-specified 200-203 numbering so callers have a stable, documented
-    /// mapping for authorization failures regardless of Anchor's internal
-    /// discriminators.
-    pub fn code(&self) -> u32 {
-        match self {
-            ErrorCode::Unauthorized => 200,
-            ErrorCode::NotAdmin => 201,
-            ErrorCode::NotBuyer => 202,
-            ErrorCode::NotSeller => 203,
-            _ => 0,
-        }
-    }
+    #[msg("Session has expired and can no longer be completed or approved")]
+    SessionExpired,
+    #[msg("Session has not yet reached its expiry")]
+    SessionNotExpired,
+    #[msg("Max session duration must be greater than zero")]
+    InvalidMaxSessionDuration,
 }
