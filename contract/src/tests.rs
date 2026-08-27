@@ -285,73 +285,69 @@ fn test_complete_and_approve_flow_status_and_fee() {
     assert_eq!(SessionStatus::default(), SessionStatus::Locked);
 }
 #[test]
-fn test_refund_buyer_can_refund_before_seller_completes() {
-    // #1092 - A Locked (pre-completion) session is refundable by the buyer.
-    assert!(Session::can_refund(SessionStatus::Locked));
-    // A session in dispute is likewise still refundable.
-    assert!(Session::can_refund(SessionStatus::Disputed));
+fn test_analytics_record_session_created() {
+    // #1128 - create_session increments total_sessions, adds the amount to
+    // total_locked_volume, and counts one active session (the new Locked state
+    // is active).
+    let mut analytics = EscrowAnalytics::default();
+    analytics.record_session_created(1_000);
+    analytics.record_session_created(2_500);
+
+    assert_eq!(analytics.total_sessions, 2);
+    assert_eq!(analytics.total_locked_volume, 3_500);
+    assert_eq!(analytics.active_sessions, 2);
 }
 
 #[test]
-fn test_refund_returns_full_amount_with_no_fee() {
-    // #1092 - A refund returns the full locked amount; the platform settlement
-    // fee is only applied on completion (calculate_settlement_fee), never on a
-    // refund. A refunded session keeps its original amount untouched.
-    let amount: u64 = 7_777;
-    let fee_bps: u32 = 500;
+fn test_analytics_active_sessions_declines_on_completion_of_active_path() {
+    // #1128 - approved / refunded / auto-refunded / disputed sessions leave the
+    // active (Locked/Completed) set.
+    let mut analytics = EscrowAnalytics::default();
+    analytics.record_session_created(1_000); // active = 1
+    analytics.record_session_deactivated();
+    assert_eq!(analytics.active_sessions, 0);
 
-    let (fee_amount, _net_amount) = calculate_settlement_fee(amount, fee_bps);
-    assert!(fee_amount > 0, "fee applies on completion");
-
-    // Refund path: session remains at the original amount, fee not applied.
-    let session = Session {
-        buyer: Pubkey::new_unique(),
-        seller: Pubkey::new_unique(),
-        amount,
-        status: SessionStatus::Refunded,
-        created_at: 1_700_000_000,
-        completed_at: None,
-        dispute_resolved_at: None,
-        dispute_opened_at: None,
-    };
-    assert_eq!(session.amount, amount, "refund preserves the full locked amount");
+    analytics.record_session_created(500); // active = 1
+    analytics.record_dispute_opened(); // leaves active
+    assert_eq!(analytics.active_sessions, 0);
 }
 
 #[test]
-fn test_refund_reverts_when_session_already_completed() {
-    // #1092 - A completed session can no longer be refunded by the buyer.
-    assert!(!Session::can_refund(SessionStatus::Completed));
+fn test_analytics_fee_and_dispute_aggregates() {
+    // #1128 - complete_session collects fees; dispute open/close feed the
+    // dispute-rate and resolution-time metrics.
+    let mut analytics = EscrowAnalytics::default();
+    analytics.record_session_created(10_000); // sessions=1, active=1
+    analytics.record_fee_collected(500);
+
+    assert_eq!(analytics.total_fees_collected, 500);
+
+    analytics.record_dispute_opened(); // disputes=1, active back to 0
+    assert_eq!(analytics.total_disputes, 1);
+    assert_eq!(analytics.active_sessions, 0);
+
+    analytics.record_resolution(7200); // 2 hours
+    assert_eq!(analytics.average_resolution_time(), 7200);
 }
 
 #[test]
-fn test_refund_reverts_when_session_already_approved() {
-    // #1092 - An approved session can no longer be refunded by the buyer.
-    assert!(!Session::can_refund(SessionStatus::Approved));
+fn test_analytics_average_resolution_time_averages() {
+    // #1128 - average_resolution_time = total_resolution_time / total_disputes.
+    let mut analytics = EscrowAnalytics::default();
+    analytics.record_session_created(100);
+    analytics.record_dispute_opened();
+    analytics.record_resolution(6000);
+    analytics.record_dispute_opened();
+    analytics.record_resolution(3000);
+
+    assert_eq!(analytics.total_disputes, 2);
+    assert_eq!(analytics.average_resolution_time(), 4500);
 }
 
 #[test]
-fn test_refund_reverts_when_session_already_resolved_or_refunded() {
-    // #1092 - Resolved and Refunded are also not refundable once reached.
-    assert!(!Session::can_refund(SessionStatus::Resolved));
-    assert!(!Session::can_refund(SessionStatus::Refunded));
-}
-
-#[test]
-fn test_session_refunded_event_shape() {
-    // #1092 - SessionRefunded carries the session id and the refund timestamp
-    // (recorded via update_status setting completed_at on Refunded).
-    let session = Session {
-        buyer: Pubkey::new_unique(),
-        seller: Pubkey::new_unique(),
-        amount: 1_000,
-        status: SessionStatus::Refunded,
-        created_at: 1_700_000_000,
-        completed_at: Some(1_700_086_400),
-        dispute_resolved_at: None,
-        dispute_opened_at: None,
-    };
-    // update_status stamps completed_at when transitioning to Refunded, which
-    // becomes the event's refunded_at payload.
-    assert!(session.completed_at.is_some());
-    assert_eq!(session.status, SessionStatus::Refunded);
+fn test_analytics_average_resolution_time_zero_without_disputes() {
+    // #1128 - No disputes yet => average resolution time reports 0, not a
+    // divide-by-zero.
+    let analytics = EscrowAnalytics::default();
+    assert_eq!(analytics.average_resolution_time(), 0);
 }

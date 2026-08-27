@@ -103,6 +103,61 @@ pub struct PlatformState {
     pub treasury_balance: u64, // Cumulative platform fees collected into the treasury
 }
 
+/// On-chain analytics for the escrow program. A single account holds the
+/// cumulative aggregates that back the read-only view functions, so the views
+/// never iterate accounts and are O(1).
+#[account]
+#[derive(InitSpace, Default)]
+pub struct EscrowAnalytics {
+    pub total_sessions: u64,           // Sessions ever created
+    pub total_locked_volume: u64,      // Sum of all session amounts ever locked
+    pub total_fees_collected: u64,     // Sum of platform fees collected on completion
+    pub active_sessions: u64,          // Sessions currently in Locked or Completed state
+    pub total_disputes: u64,           // Disputes ever opened
+    pub total_resolution_time: u64,    // Cumulative seconds to resolve disputes
+}
+
+impl EscrowAnalytics {
+    /// A new session starts in `Locked` and so is immediately active.
+    pub fn record_session_created(&mut self, amount: u64) {
+        self.total_sessions = self.total_sessions.saturating_add(1);
+        self.total_locked_volume = self.total_locked_volume.saturating_add(amount);
+        self.active_sessions = self.active_sessions.saturating_add(1);
+    }
+
+    /// A session leaves the active set (leaves `Locked` or `Completed`).
+    pub fn record_session_deactivated(&mut self) {
+        self.active_sessions = self.active_sessions.saturating_sub(1);
+    }
+
+    /// A completion collects a platform fee into the aggregate.
+    pub fn record_fee_collected(&mut self, fee_amount: u64) {
+        self.total_fees_collected = self.total_fees_collected.saturating_add(fee_amount);
+    }
+
+    /// A dispute is opened; it also moves the session out of the active set.
+    pub fn record_dispute_opened(&mut self) {
+        self.total_disputes = self.total_disputes.saturating_add(1);
+        self.record_session_deactivated();
+    }
+
+    /// A dispute is resolved after `resolution_time` seconds.
+    pub fn record_resolution(&mut self, resolution_time: u64) {
+        self.total_resolution_time = self
+            .total_resolution_time
+            .saturating_add(resolution_time);
+    }
+
+    /// Average dispute resolution time in seconds; 0 when no dispute was opened.
+    pub fn average_resolution_time(&self) -> u64 {
+        if self.total_disputes == 0 {
+            0
+        } else {
+            self.total_resolution_time / self.total_disputes
+        }
+    }
+}
+
 /// Split a session amount into (fee_amount, net_amount) given a platform fee in basis points.
 pub fn calculate_settlement_fee(amount: u64, fee_bps: u32) -> (u64, u64) {
     let fee_amount = (amount as u128)
@@ -128,7 +183,15 @@ pub mod skill_sync {
         platform_state.admin = ctx.accounts.signer.key();
         platform_state.platform_fee_bps = initial_fee_bps;
         platform_state.session_counter = 0;
-        platform_state.treasury_balance = 0;
+
+        // Initialize the analytics aggregate to a known zero state.
+        let analytics = &mut ctx.accounts.analytics;
+        analytics.total_sessions = 0;
+        analytics.total_locked_volume = 0;
+        analytics.total_fees_collected = 0;
+        analytics.active_sessions = 0;
+        analytics.total_disputes = 0;
+        analytics.total_resolution_time = 0;
         
         emit!(PlatformFeeUpdated {
             previous_fee: 0,
@@ -184,6 +247,7 @@ pub mod skill_sync {
     ) -> Result<()> {
         let session = &mut ctx.accounts.session;
         let platform_state = &mut ctx.accounts.platform_state;
+        let analytics = &mut ctx.accounts.analytics;
         let buyer = ctx.accounts.buyer.key();
         let created_at = Clock::get()?.unix_timestamp;
 
@@ -195,6 +259,9 @@ pub mod skill_sync {
 
         // Save the session using our helper function
         Session::save_session(session, buyer, seller, amount, created_at);
+
+        // A new session starts Locked and is immediately active for analytics.
+        analytics.record_session_created(amount);
 
         // Increment session counter for next unique session
         platform_state.session_counter += 1;
@@ -240,8 +307,8 @@ pub mod skill_sync {
     /// Deducts the platform settlement fee (in bps) from the session amount.
     pub fn complete_session(ctx: Context<CompleteSession>) -> Result<()> {
         let session = &mut ctx.accounts.session;
-        let platform_state = &mut ctx.accounts.platform_state;
-        let platform_fee_bps = platform_state.platform_fee_bps;
+        let analytics = &mut ctx.accounts.analytics;
+        let platform_fee_bps = ctx.accounts.platform_state.platform_fee_bps;
 
         // Cannot reuse an already completed session
         if session.status != SessionStatus::Locked {
@@ -250,11 +317,8 @@ pub mod skill_sync {
 
         let (fee_amount, net_amount) = calculate_settlement_fee(session.amount, platform_fee_bps);
 
-        // Accumulate the settlement fee into the cumulative treasury balance so
-        // it can be tracked across many sessions.
-        platform_state.treasury_balance = platform_state
-            .treasury_balance
-            .saturating_add(fee_amount);
+        // Collect the settlement fee into the analytics aggregate.
+        analytics.record_fee_collected(fee_amount);
 
         // Update session status to completed
         Session::update_status(session, SessionStatus::Completed)?;
@@ -280,6 +344,9 @@ pub mod skill_sync {
 
         // Update session status to approved
         Session::update_status(session, SessionStatus::Approved)?;
+
+        // Approved leaves the active (Locked/Completed) set.
+        ctx.accounts.analytics.record_session_deactivated();
 
         emit!(SessionApproved {
             session_id: ctx.accounts.session.key(),
@@ -309,8 +376,15 @@ pub mod skill_sync {
             return Err(ErrorCode::InvalidSessionState.into());
         }
 
+        // A Locked refund leaves the active set; a Disputed one already left it.
+        let was_locked = session.status == SessionStatus::Locked;
+
         // Update session status to refunded
         Session::update_status(session, SessionStatus::Refunded)?;
+
+        if was_locked {
+            ctx.accounts.analytics.record_session_deactivated();
+        }
 
         emit!(SessionRefunded {
             session_id: ctx.accounts.session.key(),
@@ -341,6 +415,9 @@ pub mod skill_sync {
 
         Session::update_status(session, SessionStatus::Refunded)?;
 
+        // A Completed session that is auto-refunded leaves the active set.
+        ctx.accounts.analytics.record_session_deactivated();
+
         emit!(AutoRefundExecuted {
             session_id: ctx.accounts.session.key(),
             buyer,
@@ -363,6 +440,9 @@ pub mod skill_sync {
 
         // Update session status to disputed
         session.status = SessionStatus::Disputed;
+
+        // Count the dispute and move the session out of the active set.
+        ctx.accounts.analytics.record_dispute_opened();
 
         emit!(DisputeRaised {
             session_id: ctx.accounts.session.key(),
@@ -390,6 +470,9 @@ pub mod skill_sync {
         session.status = SessionStatus::Disputed;
         session.dispute_opened_at = Some(now);
 
+        // Count the dispute and move the session out of the active set.
+        ctx.accounts.analytics.record_dispute_opened();
+
         emit!(DisputeOpened {
             session_id: ctx.accounts.session.key(),
             reason,
@@ -411,6 +494,7 @@ pub mod skill_sync {
     ) -> Result<()> {
         let session = &mut ctx.accounts.session;
         let platform_state = &ctx.accounts.platform_state;
+        let analytics = &mut ctx.accounts.analytics;
 
         // Ensure only admin can resolve disputes
         if ctx.accounts.signer.key() != platform_state.admin {
@@ -427,18 +511,53 @@ pub mod skill_sync {
             return Err(ErrorCode::InvalidShareSplit.into());
         }
 
+        // Capture when the dispute was opened before update_status overwrites the
+        // resolution timestamp.
+        let opened_at = session.dispute_opened_at.ok_or(ErrorCode::InvalidSessionState)?;
+
         // Update session status to resolved
         Session::update_status(session, SessionStatus::Resolved)?;
+
+        // Record how long (in seconds) resolution took.
+        let resolved_at = session.dispute_resolved_at.unwrap();
+        let resolution_time = resolved_at.saturating_sub(opened_at) as u64;
+        analytics.record_resolution(resolution_time);
 
         emit!(DisputeResolved {
             session_id: ctx.accounts.session.key(),
             resolution,
             buyer_share,
             seller_share,
-            resolved_at: session.dispute_resolved_at.unwrap(),
+            resolved_at,
         });
 
         Ok(())
+    }
+
+    /// Sum of all session amounts ever locked into escrow.
+    pub fn total_volume_locked(ctx: Context<ReadAnalytics>) -> Result<i128> {
+        Ok(ctx.accounts.analytics.total_locked_volume as i128)
+    }
+
+    /// Total platform fees collected into the treasury across all completed sessions.
+    pub fn total_fees_collected(ctx: Context<ReadAnalytics>) -> Result<i128> {
+        Ok(ctx.accounts.analytics.total_fees_collected as i128)
+    }
+
+    /// Number of sessions currently in the `Locked` or `Completed` state.
+    pub fn active_sessions_count(ctx: Context<ReadAnalytics>) -> Result<u32> {
+        Ok(ctx.accounts.analytics.active_sessions as u32)
+    }
+
+    /// Dispute rate as (disputes_opened, total_sessions).
+    pub fn dispute_rate(ctx: Context<ReadAnalytics>) -> Result<(u32, u32)> {
+        let analytics = &ctx.accounts.analytics;
+        Ok((analytics.total_disputes as u32, analytics.total_sessions as u32))
+    }
+
+    /// Average time (in seconds) to resolve a dispute; 0 when no dispute yet.
+    pub fn average_resolution_time(ctx: Context<ReadAnalytics>) -> Result<u64> {
+        Ok(ctx.accounts.analytics.average_resolution_time())
     }
 }
 
@@ -450,9 +569,24 @@ pub struct Initialize<'info> {
         space = 8 + PlatformState::INIT_SPACE, // 8 bytes for discriminator
     )]
     pub platform_state: Account<'info, PlatformState>,
+    #[account(
+        init,
+        payer = signer,
+        seeds = [b"analytics"],
+        bump,
+        space = 8 + EscrowAnalytics::INIT_SPACE,
+    )]
+    pub analytics: Account<'info, EscrowAnalytics>,
     #[account(mut)]
     pub signer: Signer<'info>,
     pub system_program: Program<'info, System>,
+}
+
+/// Read-only context for the analytics view functions.
+#[derive(Accounts)]
+pub struct ReadAnalytics<'info> {
+    #[account(seeds = [b"analytics"], bump)]
+    pub analytics: Account<'info, EscrowAnalytics>,
 }
 
 #[derive(Accounts)]
@@ -488,6 +622,8 @@ pub struct CreateSession<'info> {
     )]
     pub session: Account<'info, Session>,
     #[account(mut)]
+    pub analytics: Account<'info, EscrowAnalytics>,
+    #[account(mut)]
     pub buyer: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -496,6 +632,8 @@ pub struct CreateSession<'info> {
 pub struct UpdateSession<'info> {
     #[account(mut)]
     pub session: Account<'info, Session>,
+    #[account(mut)]
+    pub analytics: Account<'info, EscrowAnalytics>,
     /// The signer must be either the buyer or seller to modify the session
     pub signer: Signer<'info>,
 }
@@ -506,6 +644,8 @@ pub struct CompleteSession<'info> {
     pub session: Account<'info, Session>,
     #[account(mut)]
     pub platform_state: Account<'info, PlatformState>,
+    #[account(mut)]
+    pub analytics: Account<'info, EscrowAnalytics>,
     pub signer: Signer<'info>,
 }
 
@@ -514,6 +654,8 @@ pub struct ResolveDispute<'info> {
     #[account(mut)]
     pub session: Account<'info, Session>,
     pub platform_state: Account<'info, PlatformState>,
+    #[account(mut)]
+    pub analytics: Account<'info, EscrowAnalytics>,
     #[account(mut)]
     pub signer: Signer<'info>,
 }
