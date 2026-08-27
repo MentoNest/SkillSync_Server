@@ -89,6 +89,7 @@ pub struct PlatformState {
     pub admin: Pubkey,
     pub platform_fee_bps: u32, // Stored in basis points (1 bps = 0.01%)
     pub session_counter: u64,  // Counter to generate unique session IDs
+    pub treasury: Pubkey,      // Wallet that receives collected platform fees
 }
 
 /// Split a session amount into (fee_amount, net_amount) given a platform fee in basis points.
@@ -116,6 +117,9 @@ pub mod skill_sync {
         platform_state.admin = ctx.accounts.signer.key();
         platform_state.platform_fee_bps = initial_fee_bps;
         platform_state.session_counter = 0;
+        // Until explicitly changed via set_treasury, the initializing admin is
+        // the treasury that receives collected platform fees.
+        platform_state.treasury = ctx.accounts.signer.key();
         
         emit!(PlatformFeeUpdated {
             previous_fee: 0,
@@ -140,6 +144,23 @@ pub mod skill_sync {
         emit!(PlatformFeeUpdated {
             previous_fee,
             new_fee: new_fee_bps,
+            updated_by: ctx.accounts.signer.key(),
+        });
+
+        Ok(())
+    }
+
+    /// Admin only function to change the treasury wallet that receives
+    /// collected platform fees. Emits a TreasuryUpdated event carrying the old
+    /// and new treasury plus the admin who performed the update.
+    pub fn set_treasury(ctx: Context<SetTreasury>, new_treasury: Pubkey) -> Result<()> {
+        let platform_state = &mut ctx.accounts.platform_state;
+        let old_treasury = platform_state.treasury;
+        platform_state.treasury = new_treasury;
+
+        emit!(TreasuryUpdated {
+            old_treasury,
+            new_treasury,
             updated_by: ctx.accounts.signer.key(),
         });
 
@@ -416,6 +437,16 @@ pub struct SetPlatformFee<'info> {
 }
 
 #[derive(Accounts)]
+pub struct SetTreasury<'info> {
+    #[account(mut, has_one = admin)] // Ensure only the admin can call this
+    pub platform_state: Account<'info, PlatformState>,
+    pub admin: Signer<'info>,
+    /// CHECK: The signer is checked against the stored admin key
+    #[account(mut)]
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct CreateSession<'info> {
     #[account(mut)]
     pub platform_state: Account<'info, PlatformState>,
@@ -461,6 +492,13 @@ pub struct ResolveDispute<'info> {
 pub struct PlatformFeeUpdated {
     pub previous_fee: u32,
     pub new_fee: u32,
+    pub updated_by: Pubkey,
+}
+
+#[event]
+pub struct TreasuryUpdated {
+    pub old_treasury: Pubkey,
+    pub new_treasury: Pubkey,
     pub updated_by: Pubkey,
 }
 

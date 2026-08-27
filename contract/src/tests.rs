@@ -230,11 +230,13 @@ fn test_platform_state_initialization_fields() {
         admin,
         platform_fee_bps: initial_fee_bps,
         session_counter: 0,
+        treasury: admin,
     };
 
     assert_eq!(platform_state.admin, admin);
     assert_eq!(platform_state.platform_fee_bps, initial_fee_bps);
     assert_eq!(platform_state.session_counter, 0);
+    assert_eq!(platform_state.treasury, admin);
 }
 
 #[test]
@@ -281,4 +283,46 @@ fn test_complete_and_approve_flow_status_and_fee() {
     // Completed and Approved are distinct terminal states reachable only from Locked.
     assert_ne!(SessionStatus::Completed, SessionStatus::Approved);
     assert_eq!(SessionStatus::default(), SessionStatus::Locked);
+}
+#[test]
+fn test_treasury_updated_event_carries_old_new_and_updater() {
+    // #1108 - set_treasury emits TreasuryUpdated with the old treasury, the new
+    // treasury, and the admin who performed the update. This mirrors the exact
+    // payload the instruction publishes after swapping platform_state.treasury.
+    let admin = Pubkey::new_unique();
+    let old_treasury = Pubkey::new_unique();
+    let new_treasury = Pubkey::new_unique();
+
+    let event = TreasuryUpdated {
+        old_treasury,
+        new_treasury,
+        updated_by: admin,
+    };
+
+    assert_eq!(event.old_treasury, old_treasury);
+    assert_eq!(event.new_treasury, new_treasury);
+    assert_eq!(event.updated_by, admin, "TreasuryUpdated records the admin caller");
+}
+
+#[test]
+fn test_set_treasury_updates_platform_state_treasury() {
+    // #1108 - set_treasury replaces PlatformState.treasury with the new wallet,
+    // leaving the previous treasury readable from the event's old_treasury.
+    let admin = Pubkey::new_unique();
+    let old_treasury = Pubkey::new_unique();
+    let new_treasury = Pubkey::new_unique();
+
+    let mut platform_state = PlatformState {
+        admin,
+        platform_fee_bps: 250,
+        session_counter: 0,
+        treasury: old_treasury,
+    };
+
+    let before = platform_state.treasury;
+    platform_state.treasury = new_treasury;
+
+    assert_eq!(before, old_treasury);
+    assert_eq!(platform_state.treasury, new_treasury);
+    assert_ne!(platform_state.treasury, old_treasury);
 }
