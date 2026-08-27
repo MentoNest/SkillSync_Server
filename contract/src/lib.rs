@@ -317,10 +317,18 @@ pub mod skill_sync {
             return Err(ErrorCode::DisputeWindowNotElapsed.into());
         }
 
+        // Capture the buyer, amount, and the original completion time before the
+        // refund transition overwrites completed_at with the refund timestamp.
+        let buyer = session.buyer;
+        let amount = session.amount;
+
         Session::update_status(session, SessionStatus::Refunded)?;
 
         emit!(AutoRefundExecuted {
             session_id: ctx.accounts.session.key(),
+            buyer,
+            amount,
+            completed_at,
             refunded_at: session.completed_at.unwrap(),
         });
 
@@ -531,6 +539,9 @@ pub struct SessionRefunded {
 #[event]
 pub struct AutoRefundExecuted {
     pub session_id: Pubkey,
+    pub buyer: Pubkey,
+    pub amount: u64,
+    pub completed_at: i64,
     pub refunded_at: i64,
 }
 
