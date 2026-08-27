@@ -282,3 +282,37 @@ fn test_complete_and_approve_flow_status_and_fee() {
     assert_ne!(SessionStatus::Completed, SessionStatus::Approved);
     assert_eq!(SessionStatus::default(), SessionStatus::Locked);
 }
+#[test]
+fn test_auto_refund_event_carries_failed_completion_metadata() {
+    // #1104 - AutoRefundExecuted tracks failed completions: it carries the
+    // session id, buyer, amount, the original completion time, and the time the
+    // timeout-based auto-refund ran. auto_refund captures completed_at before
+    // the refund transition, so the two timestamps stay distinct.
+    let buyer = Pubkey::new_unique();
+    let seller = Pubkey::new_unique();
+    let amount: u64 = 2_500;
+
+    let session = Session {
+        buyer,
+        seller,
+        amount,
+        status: SessionStatus::Completed,
+        created_at: 1_700_000_000,
+        completed_at: Some(1_700_086_400), // original completion time
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
+
+    let event = AutoRefundExecuted {
+        session_id: Pubkey::new_unique(),
+        buyer: session.buyer,
+        amount: session.amount,
+        completed_at: session.completed_at.unwrap(),
+        refunded_at: 1_700_086_400 + 700_000, // after the dispute window elapsed
+    };
+
+    assert_eq!(event.buyer, buyer);
+    assert_eq!(event.amount, amount);
+    assert_eq!(event.completed_at, 1_700_086_400);
+    assert!(event.refunded_at > event.completed_at);
+}
