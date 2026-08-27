@@ -282,3 +282,70 @@ fn test_complete_and_approve_flow_status_and_fee() {
     assert_ne!(SessionStatus::Completed, SessionStatus::Approved);
     assert_eq!(SessionStatus::default(), SessionStatus::Locked);
 }
+#[test]
+fn test_analytics_record_session_created() {
+    // #1128 - create_session increments total_sessions, adds the amount to
+    // total_locked_volume, and counts one active session (the new Locked state
+    // is active).
+    let mut analytics = EscrowAnalytics::default();
+    analytics.record_session_created(1_000);
+    analytics.record_session_created(2_500);
+
+    assert_eq!(analytics.total_sessions, 2);
+    assert_eq!(analytics.total_locked_volume, 3_500);
+    assert_eq!(analytics.active_sessions, 2);
+}
+
+#[test]
+fn test_analytics_active_sessions_declines_on_completion_of_active_path() {
+    // #1128 - approved / refunded / auto-refunded / disputed sessions leave the
+    // active (Locked/Completed) set.
+    let mut analytics = EscrowAnalytics::default();
+    analytics.record_session_created(1_000); // active = 1
+    analytics.record_session_deactivated();
+    assert_eq!(analytics.active_sessions, 0);
+
+    analytics.record_session_created(500); // active = 1
+    analytics.record_dispute_opened(); // leaves active
+    assert_eq!(analytics.active_sessions, 0);
+}
+
+#[test]
+fn test_analytics_fee_and_dispute_aggregates() {
+    // #1128 - complete_session collects fees; dispute open/close feed the
+    // dispute-rate and resolution-time metrics.
+    let mut analytics = EscrowAnalytics::default();
+    analytics.record_session_created(10_000); // sessions=1, active=1
+    analytics.record_fee_collected(500);
+
+    assert_eq!(analytics.total_fees_collected, 500);
+
+    analytics.record_dispute_opened(); // disputes=1, active back to 0
+    assert_eq!(analytics.total_disputes, 1);
+    assert_eq!(analytics.active_sessions, 0);
+
+    analytics.record_resolution(7200); // 2 hours
+    assert_eq!(analytics.average_resolution_time(), 7200);
+}
+
+#[test]
+fn test_analytics_average_resolution_time_averages() {
+    // #1128 - average_resolution_time = total_resolution_time / total_disputes.
+    let mut analytics = EscrowAnalytics::default();
+    analytics.record_session_created(100);
+    analytics.record_dispute_opened();
+    analytics.record_resolution(6000);
+    analytics.record_dispute_opened();
+    analytics.record_resolution(3000);
+
+    assert_eq!(analytics.total_disputes, 2);
+    assert_eq!(analytics.average_resolution_time(), 4500);
+}
+
+#[test]
+fn test_analytics_average_resolution_time_zero_without_disputes() {
+    // #1128 - No disputes yet => average resolution time reports 0, not a
+    // divide-by-zero.
+    let analytics = EscrowAnalytics::default();
+    assert_eq!(analytics.average_resolution_time(), 0);
+}
