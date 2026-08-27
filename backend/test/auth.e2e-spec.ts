@@ -16,8 +16,8 @@ describe('AuthController (e2e)', () => {
     await app.init();
   });
 
-  it('/auth/nonce/:wallet (GET) should issue nonce challenge', () => {
-    const validWallet = '0x71C841832047387195060979DC80EbbE62DCE35B';
+  it('/auth/nonce/:walletAddress (GET) should issue nonce challenge', () => {
+    const validWallet = 'GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ';
     return request(app.getHttpServer())
       .get(`/auth/nonce/${validWallet}`)
       .expect(200);

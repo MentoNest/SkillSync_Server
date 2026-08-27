@@ -17,6 +17,7 @@ import { User, ProfileType } from '../user/entities/user.entity';
 import { RedisService } from './services/redis.service';
 import { NotificationService } from './services/notification.service';
 import { SuspiciousDetectionService } from './services/suspicious-detection.service';
+import { WalletStrategy } from './strategies/wallet.strategy';
 import { LoginDto } from './dto/login.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { NonceResponseDto } from './dto/nonce-response.dto';
@@ -37,27 +38,36 @@ export class AuthService {
     private readonly redisService: RedisService,
     private readonly notificationService: NotificationService,
     private readonly suspiciousDetectionService: SuspiciousDetectionService,
+    private readonly walletStrategy: WalletStrategy,
   ) {}
 
+  private static readonly NONCE_TTL_SECONDS = 300; // 5 minutes
+
   /**
-   * Generate one-time cryptographic nonce challenge for wallet authentication
+   * #1146: Generate one-time cryptographic nonce challenge for Stellar wallet authentication.
+   * The nonce is a 256-bit random value (hex encoded) stored in Redis under
+   * `nonce:{walletAddress}` with a 5 minute TTL. Requesting a new nonce for the
+   * same wallet overwrites (invalidates) any previously issued unused nonce.
    */
   async generateNonce(walletAddress: string): Promise<NonceResponseDto> {
-    if (!walletAddress || !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
-      throw new BadRequestException('Valid 42-character Ethereum wallet address is required');
+    if (!this.walletStrategy.isValidAddress(walletAddress)) {
+      throw new BadRequestException('Valid Stellar wallet address (56-character G-address) is required');
     }
 
-    const normalizedAddress = walletAddress.toLowerCase();
-    const nonce = `Sign this one-time challenge to authenticate with SkillSync: ${crypto.randomBytes(16).toString('hex')}`;
-    const ttlSeconds = 300; // 5 minutes
+    const normalizedAddress = walletAddress.trim().toLowerCase();
+    const nonce = crypto.randomBytes(32).toString('hex'); // 256 bits of entropy
+    const expiresAt = new Date(Date.now() + AuthService.NONCE_TTL_SECONDS * 1000);
 
-    await this.redisService.set(`nonce:${normalizedAddress}`, nonce, ttlSeconds);
+    await this.redisService.set(
+      `nonce:${normalizedAddress}`,
+      JSON.stringify({ nonce, expiresAt: expiresAt.toISOString() }),
+      AuthService.NONCE_TTL_SECONDS,
+    );
 
     return {
       walletAddress: normalizedAddress,
       nonce,
-      issuedAt: new Date(),
-      expiresInSeconds: ttlSeconds,
+      expiresAt,
     };
   }
 

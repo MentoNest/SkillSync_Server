@@ -16,10 +16,9 @@ describe('AuthController', () => {
   beforeEach(async () => {
     mockAuthService = {
       generateNonce: jest.fn().mockResolvedValue({
-        walletAddress: '0x71c841832047387195060979dc80ebbe62dce35b',
+        walletAddress: 'ga7qynf7sowq3glr2bgmzehxavirza4kvwltjjfc7mgxua74p7ujvsgz',
         nonce: 'challenge-123',
-        issuedAt: new Date(),
-        expiresInSeconds: 300,
+        expiresAt: new Date(Date.now() + 300_000),
       }),
       login: jest.fn().mockResolvedValue({
         accessToken: 'token-abc',
@@ -76,9 +75,13 @@ describe('AuthController', () => {
   });
 
   describe('getNonce', () => {
-    it('should return nonce challenge', async () => {
-      const result = await controller.getNonce('0x71c841832047387195060979dc80ebbe62dce35b');
+    it('should return nonce challenge with expiry', async () => {
+      const result = await controller.getNonce('GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ');
       expect(result.nonce).toBe('challenge-123');
+      expect(result.expiresAt).toBeDefined();
+      expect(mockAuthService.generateNonce).toHaveBeenCalledWith(
+        'GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ',
+      );
     });
   });
 

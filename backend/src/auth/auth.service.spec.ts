@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { JwtService } from '@nestjs/jwt';
+import { BadRequestException } from '@nestjs/common';
+import { Keypair } from '@stellar/stellar-sdk';
 import { AuthService } from './auth.service';
 import { UserService } from '../user/user.service';
 import { RefreshToken } from './entities/refresh-token.entity';
@@ -8,6 +10,7 @@ import { AuditLog } from './entities/audit-log.entity';
 import { RedisService } from './services/redis.service';
 import { NotificationService } from './services/notification.service';
 import { SuspiciousDetectionService } from './services/suspicious-detection.service';
+import { WalletStrategy } from './strategies/wallet.strategy';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -35,19 +38,29 @@ describe('AuthService', () => {
     mockUserService = {
       findById: jest.fn().mockResolvedValue({
         id: 'user-123',
-        walletAddress: '0x71c841832047387195060979dc80ebbe62dce35b',
+        walletAddress: 'ga7qynf7sowq3glr2bgmzehxavirza4kvwltjjfc7mgxua74p7ujvsgz',
         tokenVersion: 1,
         roles: [],
       }),
+      findByWalletAddress: jest.fn(),
+      create: jest.fn(),
+      recordLogin: jest.fn(),
       incrementTokenVersion: jest.fn().mockResolvedValue(2),
     };
 
+    // Simulate Redis-backed nonce storage so issue/consume flows work end-to-end
+    const redisStore = new Map<string, string>();
     mockRedisService = {
-      set: jest.fn(),
-      get: jest.fn(),
-      del: jest.fn(),
+      set: jest.fn(async (key: string, value: string) => {
+        redisStore.set(key, value);
+      }),
+      get: jest.fn(async (key: string) => redisStore.get(key) ?? null),
+      del: jest.fn(async (key: string) => {
+        redisStore.delete(key);
+      }),
       incr: jest.fn(),
       expire: jest.fn(),
+      __store: redisStore,
     };
 
     mockSuspiciousDetectionService = {
@@ -90,6 +103,10 @@ describe('AuthService', () => {
           provide: SuspiciousDetectionService,
           useValue: mockSuspiciousDetectionService,
         },
+        {
+          provide: WalletStrategy,
+          useValue: new WalletStrategy(),
+        },
       ],
     }).compile();
 
@@ -114,13 +131,36 @@ describe('AuthService', () => {
   });
 
   describe('generateNonce', () => {
-    it('should generate a nonce challenge and cache in redis', async () => {
-      const wallet = '0x71C841832047387195060979DC80EbbE62DCE35B';
+    const keypair = Keypair.random();
+    const wallet = keypair.publicKey();
+
+    it('should generate a 256-bit nonce, store it in Redis with a 5 minute TTL', async () => {
       const result = await service.generateNonce(wallet);
 
       expect(result.walletAddress).toBe(wallet.toLowerCase());
-      expect(result.nonce).toContain('Sign this one-time challenge');
-      expect(mockRedisService.set).toHaveBeenCalled();
+      expect(result.nonce).toMatch(/^[0-9a-f]{64}$/); // 32 bytes hex
+      expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now());
+      expect(result.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + 300_000 + 1000);
+      expect(mockRedisService.set).toHaveBeenCalledWith(
+        `nonce:${wallet.toLowerCase()}`,
+        expect.any(String),
+        300,
+      );
+    });
+
+    it('should reject invalid (non-Stellar) wallet addresses', async () => {
+      await expect(service.generateNonce('0x71C841832047387195060979DC80EbbE62DCE35B')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should invalidate the previous unused nonce when a new one is requested', async () => {
+      const first = await service.generateNonce(wallet);
+      const second = await service.generateNonce(wallet);
+
+      expect(second.nonce).not.toBe(first.nonce);
+      const stored = JSON.parse(mockRedisService.__store.get(`nonce:${wallet.toLowerCase()}`));
+      expect(stored.nonce).toBe(second.nonce);
     });
   });
 });
