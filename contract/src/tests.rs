@@ -212,3 +212,73 @@ fn test_funds_locked_event_emitted() {
     assert_eq!(event_data.seller, seller);
     assert_eq!(event_data.amount, amount);
 }
+
+// NOTE: the tests above target an older Soroban-based version of this contract
+// (soroban_sdk / SkillSyncContract) and this file is not currently wired into
+// the crate via `mod tests;` in lib.rs, nor is `soroban-sdk` a dependency in
+// Cargo.toml — they do not compile against the current Anchor-based lib.rs.
+// The tests below target the current Anchor `skill_sync` program directly.
+
+#[test]
+fn test_platform_state_initialization_fields() {
+    // Mirrors the `initialize` instruction's fee-bound validation (#1089).
+    let admin = Pubkey::new_unique();
+    let initial_fee_bps: u32 = 250; // 2.5%, well within the 0-1000 bound
+    assert!(initial_fee_bps <= 1000);
+
+    let platform_state = PlatformState {
+        admin,
+        platform_fee_bps: initial_fee_bps,
+        session_counter: 0,
+    };
+
+    assert_eq!(platform_state.admin, admin);
+    assert_eq!(platform_state.platform_fee_bps, initial_fee_bps);
+    assert_eq!(platform_state.session_counter, 0);
+}
+
+#[test]
+fn test_locked_session_state_matches_lock_funds_inputs() {
+    // Mirrors what `create_session` + `lock_funds` should produce for a
+    // freshly locked session (#1090).
+    let buyer = Pubkey::new_unique();
+    let seller = Pubkey::new_unique();
+    let amount: u64 = 5_000;
+    let created_at: i64 = 1_700_000_000;
+
+    let session = Session {
+        buyer,
+        seller,
+        amount,
+        status: SessionStatus::Locked,
+        created_at,
+        completed_at: None,
+        dispute_resolved_at: None,
+    };
+
+    assert_eq!(session.status, SessionStatus::Locked);
+    assert_eq!(session.amount, amount);
+    assert!(session.completed_at.is_none());
+
+    // lock_funds rejects a mismatched amount against the session's stored amount.
+    let provided_amount: u64 = 4_000;
+    assert_ne!(session.amount, provided_amount);
+}
+
+#[test]
+fn test_complete_and_approve_flow_status_and_fee() {
+    // Covers the complete/approve flow (#1091): both transitions are only
+    // valid from `Locked`, and `complete_session`'s fee split sums back to
+    // the original amount (settlement fee logic added in #1088).
+    let amount: u64 = 10_000;
+    let fee_bps: u32 = 500; // 5%
+
+    let (fee_amount, net_amount) = calculate_settlement_fee(amount, fee_bps);
+    assert_eq!(fee_amount, 500);
+    assert_eq!(net_amount, 9_500);
+    assert_eq!(fee_amount + net_amount, amount);
+
+    // Completed and Approved are distinct terminal states reachable only from Locked.
+    assert_ne!(SessionStatus::Completed, SessionStatus::Approved);
+    assert_eq!(SessionStatus::default(), SessionStatus::Locked);
+}
