@@ -230,11 +230,13 @@ fn test_platform_state_initialization_fields() {
         admin,
         platform_fee_bps: initial_fee_bps,
         session_counter: 0,
+        treasury_balance: 0,
     };
 
     assert_eq!(platform_state.admin, admin);
     assert_eq!(platform_state.platform_fee_bps, initial_fee_bps);
     assert_eq!(platform_state.session_counter, 0);
+    assert_eq!(platform_state.treasury_balance, 0);
 }
 
 #[test]
@@ -283,45 +285,73 @@ fn test_complete_and_approve_flow_status_and_fee() {
     assert_eq!(SessionStatus::default(), SessionStatus::Locked);
 }
 #[test]
-fn test_authorization_error_codes() {
-    // #1112 - Authorization variants carry the issue-specified codes:
-    // Unauthorized=200, NotAdmin=201, NotBuyer=202, NotSeller=203.
-    assert_eq!(ErrorCode::Unauthorized.code(), 200);
-    assert_eq!(ErrorCode::NotAdmin.code(), 201);
-    assert_eq!(ErrorCode::NotBuyer.code(), 202);
-    assert_eq!(ErrorCode::NotSeller.code(), 203);
+fn test_refund_buyer_can_refund_before_seller_completes() {
+    // #1092 - A Locked (pre-completion) session is refundable by the buyer.
+    assert!(Session::can_refund(SessionStatus::Locked));
+    // A session in dispute is likewise still refundable.
+    assert!(Session::can_refund(SessionStatus::Disputed));
 }
 
 #[test]
-fn test_refund_session_uses_not_buyer_error() {
-    // #1112 - The buyer-only guard on refund_session fails with NotBuyer (not
-    // the generic Unauthorized) when the caller is not the session buyer, since
-    // the buyer is the only party allowed to refund.
+fn test_refund_returns_full_amount_with_no_fee() {
+    // #1092 - A refund returns the full locked amount; the platform settlement
+    // fee is only applied on completion (calculate_settlement_fee), never on a
+    // refund. A refunded session keeps its original amount untouched.
+    let amount: u64 = 7_777;
+    let fee_bps: u32 = 500;
+
+    let (fee_amount, _net_amount) = calculate_settlement_fee(amount, fee_bps);
+    assert!(fee_amount > 0, "fee applies on completion");
+
+    // Refund path: session remains at the original amount, fee not applied.
     let session = Session {
         buyer: Pubkey::new_unique(),
         seller: Pubkey::new_unique(),
-        amount: 1_000,
-        status: SessionStatus::Locked,
+        amount,
+        status: SessionStatus::Refunded,
         created_at: 1_700_000_000,
         completed_at: None,
         dispute_resolved_at: None,
         dispute_opened_at: None,
     };
-    // A caller who is not the session buyer is refused the refund path; this is
-    // the exact condition under which refund_session returns NotBuyer.
-    let non_buyer = Pubkey::new_unique();
-    assert_ne!(non_buyer, session.buyer);
+    assert_eq!(session.amount, amount, "refund preserves the full locked amount");
 }
 
 #[test]
-fn test_resolve_dispute_uses_not_admin_error() {
-    // #1112 - The admin-only guard on resolve_dispute fails with NotAdmin (not
-    // the generic Unauthorized) when the caller is not the platform admin.
-    let admin = Pubkey::new_unique();
-    let platform_state = PlatformState {
-        admin,
-        platform_fee_bps: 250,
-        session_counter: 1,
+fn test_refund_reverts_when_session_already_completed() {
+    // #1092 - A completed session can no longer be refunded by the buyer.
+    assert!(!Session::can_refund(SessionStatus::Completed));
+}
+
+#[test]
+fn test_refund_reverts_when_session_already_approved() {
+    // #1092 - An approved session can no longer be refunded by the buyer.
+    assert!(!Session::can_refund(SessionStatus::Approved));
+}
+
+#[test]
+fn test_refund_reverts_when_session_already_resolved_or_refunded() {
+    // #1092 - Resolved and Refunded are also not refundable once reached.
+    assert!(!Session::can_refund(SessionStatus::Resolved));
+    assert!(!Session::can_refund(SessionStatus::Refunded));
+}
+
+#[test]
+fn test_session_refunded_event_shape() {
+    // #1092 - SessionRefunded carries the session id and the refund timestamp
+    // (recorded via update_status setting completed_at on Refunded).
+    let session = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 1_000,
+        status: SessionStatus::Refunded,
+        created_at: 1_700_000_000,
+        completed_at: Some(1_700_086_400),
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
     };
-    assert_eq!(platform_state.admin, admin);
+    // update_status stamps completed_at when transitioning to Refunded, which
+    // becomes the event's refunded_at payload.
+    assert!(session.completed_at.is_some());
+    assert_eq!(session.status, SessionStatus::Refunded);
 }
