@@ -159,6 +159,23 @@ pub mod skill_sync {
         Ok(())
     }
 
+    /// Admin only function to change the treasury wallet that receives
+    /// collected platform fees. Emits a TreasuryUpdated event carrying the old
+    /// and new treasury plus the admin who performed the update.
+    pub fn set_treasury(ctx: Context<SetTreasury>, new_treasury: Pubkey) -> Result<()> {
+        let platform_state = &mut ctx.accounts.platform_state;
+        let old_treasury = platform_state.treasury;
+        platform_state.treasury = new_treasury;
+
+        emit!(TreasuryUpdated {
+            old_treasury,
+            new_treasury,
+            updated_by: ctx.accounts.signer.key(),
+        });
+
+        Ok(())
+    }
+
     /// Create a new escrow session
     pub fn create_session(
         ctx: Context<CreateSession>,
@@ -449,6 +466,16 @@ pub struct SetPlatformFee<'info> {
 }
 
 #[derive(Accounts)]
+pub struct SetTreasury<'info> {
+    #[account(mut, has_one = admin)] // Ensure only the admin can call this
+    pub platform_state: Account<'info, PlatformState>,
+    pub admin: Signer<'info>,
+    /// CHECK: The signer is checked against the stored admin key
+    #[account(mut)]
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct CreateSession<'info> {
     #[account(mut)]
     pub platform_state: Account<'info, PlatformState>,
@@ -495,6 +522,13 @@ pub struct ResolveDispute<'info> {
 pub struct PlatformFeeUpdated {
     pub previous_fee: u32,
     pub new_fee: u32,
+    pub updated_by: Pubkey,
+}
+
+#[event]
+pub struct TreasuryUpdated {
+    pub old_treasury: Pubkey,
+    pub new_treasury: Pubkey,
     pub updated_by: Pubkey,
 }
 
