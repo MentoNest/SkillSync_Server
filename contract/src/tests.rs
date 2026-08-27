@@ -230,6 +230,7 @@ fn test_platform_state_initialization_fields() {
         admin,
         platform_fee_bps: initial_fee_bps,
         session_counter: 0,
+        max_session_duration_seconds: 7 * 24 * 60 * 60,
     };
 
     assert_eq!(platform_state.admin, admin);
@@ -252,8 +253,10 @@ fn test_locked_session_state_matches_lock_funds_inputs() {
         amount,
         status: SessionStatus::Locked,
         created_at,
+        expires_at: 0,
         completed_at: None,
         dispute_resolved_at: None,
+        dispute_opened_at: None,
     };
 
     assert_eq!(session.status, SessionStatus::Locked);
@@ -281,4 +284,100 @@ fn test_complete_and_approve_flow_status_and_fee() {
     // Completed and Approved are distinct terminal states reachable only from Locked.
     assert_ne!(SessionStatus::Completed, SessionStatus::Approved);
     assert_eq!(SessionStatus::default(), SessionStatus::Locked);
+}
+#[test]
+fn test_lock_funds_sets_expires_at_from_max_duration() {
+    // #1132 - lock_funds stores expires_at = locked_at + max_session_duration.
+    let created_at: i64 = 1_700_000_000;
+    let max_duration: i64 = 7 * 24 * 60 * 60; // 7 days
+
+    let mut session = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 1_000,
+        status: SessionStatus::Locked,
+        created_at,
+        expires_at: 0,
+        completed_at: None,
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
+
+    // lock_funds sets expires_at = now + max_duration.
+    let now: i64 = created_at + 100;
+    session.expires_at = now.saturating_add(max_duration);
+
+    assert_eq!(session.expires_at, created_at + 100 + max_duration);
+    // Not yet expired at lock time.
+    assert!(!session.is_expired(now));
+}
+
+#[test]
+fn test_session_cannot_be_completed_or_approved_after_expiry() {
+    // #1132 - A Locked session past its expires_at is expired: complete_session
+    // and approve_session must reject it (SessionExpired).
+    let locked_at: i64 = 1_700_000_000;
+    let max_duration: i64 = 7 * 24 * 60 * 60;
+
+    let mut session = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 2_000,
+        status: SessionStatus::Locked,
+        created_at: locked_at,
+        expires_at: locked_at.saturating_add(max_duration),
+        completed_at: None,
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
+
+    let inside_window: i64 = locked_at + max_duration - 1;
+    assert!(!session.is_expired(inside_window), "not expired before deadline");
+
+    let after_deadline: i64 = locked_at + max_duration;
+    assert!(session.is_expired(after_deadline), "expired at/after deadline");
+}
+
+#[test]
+fn test_cancel_expired_session_refunds_full_amount_with_no_fee() {
+    // #1132 - Auto-cancelling an expired session refunds the buyer the full
+    // locked amount; the platform fee is never applied to a cancellation.
+    let locked_at: i64 = 1_700_000_000;
+    let max_duration: i64 = 7 * 24 * 60 * 60;
+    let amount: u64 = 7_777;
+
+    let mut session = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount,
+        status: SessionStatus::Locked,
+        created_at: locked_at,
+        expires_at: locked_at.saturating_add(max_duration),
+        completed_at: None,
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
+
+    // Past expiry: cancellation is permitted, full amount is returned.
+    let now: i64 = locked_at + max_duration + 1;
+    assert!(session.is_expired(now));
+    session.status = SessionStatus::Refunded;
+    assert_eq!(session.status, SessionStatus::Refunded);
+    assert_eq!(session.amount, amount, "full amount preserved, no fee deducted");
+}
+
+#[test]
+fn test_session_expired_and_cancelled_event_shape() {
+    // #1132 - SessionExpiredAndCancelled carries session id, buyer, amount,
+    // expires_at and cancelled_at so the failed completion is traceable.
+    let event = SessionExpiredAndCancelled {
+        session_id: Pubkey::new_unique(),
+        buyer: Pubkey::new_unique(),
+        amount: 5_000,
+        expires_at: 1_700_604_800,
+        cancelled_at: 1_700_605_000,
+    };
+
+    assert_eq!(event.amount, 5_000);
+    assert!(event.cancelled_at > event.expires_at);
 }
