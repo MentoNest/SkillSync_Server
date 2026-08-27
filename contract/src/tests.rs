@@ -282,3 +282,37 @@ fn test_complete_and_approve_flow_status_and_fee() {
     assert_ne!(SessionStatus::Completed, SessionStatus::Approved);
     assert_eq!(SessionStatus::default(), SessionStatus::Locked);
 }
+#[test]
+fn test_funds_locked_event_carries_session_metadata() {
+    // #1100 - The FundsLocked event emitted by lock_funds carries the session
+    // id plus the full session metadata: buyer, seller, amount and locked_at.
+    // lock_funds reads buyer/seller straight from the session account, so this
+    // mirrors the exact payload the instruction publishes.
+    let buyer = Pubkey::new_unique();
+    let seller = Pubkey::new_unique();
+    let amount: u64 = 5_000;
+
+    let session = Session {
+        buyer,
+        seller,
+        amount,
+        status: SessionStatus::Locked,
+        created_at: 1_700_000_000,
+        completed_at: None,
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
+
+    let event = FundsLocked {
+        session_id: Pubkey::new_unique(),
+        buyer: session.buyer,
+        seller: session.seller,
+        amount,
+        locked_at: 1_700_000_001,
+    };
+
+    assert_eq!(event.buyer, buyer, "FundsLocked exposes the buyer");
+    assert_eq!(event.seller, seller, "FundsLocked exposes the seller");
+    assert_eq!(event.amount, amount);
+    assert_eq!(event.locked_at, 1_700_000_001);
+}

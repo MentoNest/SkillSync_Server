@@ -197,6 +197,8 @@ pub mod skill_sync {
 
         emit!(FundsLocked {
             session_id: ctx.accounts.session.key(),
+            buyer: session.buyer,
+            seller: session.seller,
             amount,
             locked_at: Clock::get()?.unix_timestamp,
         });
@@ -476,6 +478,8 @@ pub struct SessionCreated {
 #[event]
 pub struct FundsLocked {
     pub session_id: Pubkey,
+    pub buyer: Pubkey,
+    pub seller: Pubkey,
     pub amount: u64,
     pub locked_at: i64,
 }
