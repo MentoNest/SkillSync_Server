@@ -295,7 +295,7 @@ pub mod skill_sync {
 
         // Only the buyer can request a refund
         if ctx.accounts.signer.key() != session.buyer {
-            return Err(ErrorCode::Unauthorized.into());
+            return Err(ErrorCode::NotBuyer.into());
         }
 
         // Check session not already refunded or otherwise finalized. The full
@@ -414,7 +414,7 @@ pub mod skill_sync {
 
         // Ensure only admin can resolve disputes
         if ctx.accounts.signer.key() != platform_state.admin {
-            return Err(ErrorCode::Unauthorized.into());
+            return Err(ErrorCode::NotAdmin.into());
         }
 
         // Can only resolve disputed sessions
@@ -615,10 +615,36 @@ pub enum ErrorCode {
     SessionAlreadyRefunded,
     #[msg("Invalid amount provided")]
     InvalidAmount,
-    #[msg("Unauthorized: Only admin can perform this action")]
+    #[msg("Unauthorized: caller is not authorized for this action")]
     Unauthorized,
+    #[msg("Unauthorized: Only admin can perform this action")]
+    NotAdmin,
+    #[msg("Unauthorized: Only the session buyer can perform this action")]
+    NotBuyer,
+    #[msg("Unauthorized: Only the session seller can perform this action")]
+    NotSeller,
     #[msg("Dispute window has not elapsed yet")]
     DisputeWindowNotElapsed,
     #[msg("Buyer and seller shares must sum to the original session amount")]
     InvalidShareSplit,
+}
+
+impl ErrorCode {
+    /// Canonical authorization error codes used for off-chain mapping and
+    /// logging.
+    ///
+    /// Note: Anchor assigns its own on-chain error discriminators (a fixed
+    /// 6000+ offset) to `#[error_code]` variants; this table preserves the
+    /// issue-specified 200-203 numbering so callers have a stable, documented
+    /// mapping for authorization failures regardless of Anchor's internal
+    /// discriminators.
+    pub fn code(&self) -> u32 {
+        match self {
+            ErrorCode::Unauthorized => 200,
+            ErrorCode::NotAdmin => 201,
+            ErrorCode::NotBuyer => 202,
+            ErrorCode::NotSeller => 203,
+            _ => 0,
+        }
+    }
 }
