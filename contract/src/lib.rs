@@ -62,6 +62,17 @@ impl Session {
         session_account.dispute_opened_at = None;
     }
 
+    /// Whether a session is eligible for a buyer-initiated refund.
+    ///
+    /// A session can only be refunded while it is still in `Locked` (before the
+    /// seller completes) or `Disputed`. Once it reaches a final state —
+    /// `Completed`, `Approved`, `Refunded`, or `Resolved` — a refund is no
+    /// longer permitted. The platform settlement fee is never applied on a
+    /// refund: the buyer is returned the full locked `amount`.
+    pub fn can_refund(status: SessionStatus) -> bool {
+        matches!(status, SessionStatus::Locked | SessionStatus::Disputed)
+    }
+
     /// Update session status
     pub fn update_status(session_account: &mut Account<Session>, new_status: SessionStatus) -> Result<()> {
         let current_timestamp = Clock::get()?.unix_timestamp;
@@ -89,6 +100,7 @@ pub struct PlatformState {
     pub admin: Pubkey,
     pub platform_fee_bps: u32, // Stored in basis points (1 bps = 0.01%)
     pub session_counter: u64,  // Counter to generate unique session IDs
+    pub treasury_balance: u64, // Cumulative platform fees collected into the treasury
 }
 
 /// Split a session amount into (fee_amount, net_amount) given a platform fee in basis points.
@@ -116,6 +128,7 @@ pub mod skill_sync {
         platform_state.admin = ctx.accounts.signer.key();
         platform_state.platform_fee_bps = initial_fee_bps;
         platform_state.session_counter = 0;
+        platform_state.treasury_balance = 0;
         
         emit!(PlatformFeeUpdated {
             previous_fee: 0,
@@ -210,7 +223,8 @@ pub mod skill_sync {
     /// Deducts the platform settlement fee (in bps) from the session amount.
     pub fn complete_session(ctx: Context<CompleteSession>) -> Result<()> {
         let session = &mut ctx.accounts.session;
-        let platform_fee_bps = ctx.accounts.platform_state.platform_fee_bps;
+        let platform_state = &mut ctx.accounts.platform_state;
+        let platform_fee_bps = platform_state.platform_fee_bps;
 
         // Cannot reuse an already completed session
         if session.status != SessionStatus::Locked {
@@ -218,6 +232,12 @@ pub mod skill_sync {
         }
 
         let (fee_amount, net_amount) = calculate_settlement_fee(session.amount, platform_fee_bps);
+
+        // Accumulate the settlement fee into the cumulative treasury balance so
+        // it can be tracked across many sessions.
+        platform_state.treasury_balance = platform_state
+            .treasury_balance
+            .saturating_add(fee_amount);
 
         // Update session status to completed
         Session::update_status(session, SessionStatus::Completed)?;
@@ -261,11 +281,14 @@ pub mod skill_sync {
             return Err(ErrorCode::Unauthorized.into());
         }
 
-        // Check session not already refunded or otherwise finalized
+        // Check session not already refunded or otherwise finalized. The full
+        // locked amount is returned (no fee is ever deducted on a refund), and
+        // terminal states (Completed, Approved, Refunded, Resolved) cannot be
+        // refunded.
         if session.status == SessionStatus::Refunded {
             return Err(ErrorCode::SessionAlreadyRefunded.into());
         }
-        if session.status != SessionStatus::Locked && session.status != SessionStatus::Disputed {
+        if !Session::can_refund(session.status) {
             return Err(ErrorCode::InvalidSessionState.into());
         }
 
@@ -446,6 +469,7 @@ pub struct UpdateSession<'info> {
 pub struct CompleteSession<'info> {
     #[account(mut)]
     pub session: Account<'info, Session>,
+    #[account(mut)]
     pub platform_state: Account<'info, PlatformState>,
     pub signer: Signer<'info>,
 }

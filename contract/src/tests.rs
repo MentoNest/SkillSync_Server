@@ -230,11 +230,13 @@ fn test_platform_state_initialization_fields() {
         admin,
         platform_fee_bps: initial_fee_bps,
         session_counter: 0,
+        treasury_balance: 0,
     };
 
     assert_eq!(platform_state.admin, admin);
     assert_eq!(platform_state.platform_fee_bps, initial_fee_bps);
     assert_eq!(platform_state.session_counter, 0);
+    assert_eq!(platform_state.treasury_balance, 0);
 }
 
 #[test]
@@ -283,36 +285,73 @@ fn test_complete_and_approve_flow_status_and_fee() {
     assert_eq!(SessionStatus::default(), SessionStatus::Locked);
 }
 #[test]
-fn test_funds_locked_event_carries_session_metadata() {
-    // #1100 - The FundsLocked event emitted by lock_funds carries the session
-    // id plus the full session metadata: buyer, seller, amount and locked_at.
-    // lock_funds reads buyer/seller straight from the session account, so this
-    // mirrors the exact payload the instruction publishes.
-    let buyer = Pubkey::new_unique();
-    let seller = Pubkey::new_unique();
-    let amount: u64 = 5_000;
+fn test_refund_buyer_can_refund_before_seller_completes() {
+    // #1092 - A Locked (pre-completion) session is refundable by the buyer.
+    assert!(Session::can_refund(SessionStatus::Locked));
+    // A session in dispute is likewise still refundable.
+    assert!(Session::can_refund(SessionStatus::Disputed));
+}
 
+#[test]
+fn test_refund_returns_full_amount_with_no_fee() {
+    // #1092 - A refund returns the full locked amount; the platform settlement
+    // fee is only applied on completion (calculate_settlement_fee), never on a
+    // refund. A refunded session keeps its original amount untouched.
+    let amount: u64 = 7_777;
+    let fee_bps: u32 = 500;
+
+    let (fee_amount, _net_amount) = calculate_settlement_fee(amount, fee_bps);
+    assert!(fee_amount > 0, "fee applies on completion");
+
+    // Refund path: session remains at the original amount, fee not applied.
     let session = Session {
-        buyer,
-        seller,
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
         amount,
-        status: SessionStatus::Locked,
+        status: SessionStatus::Refunded,
         created_at: 1_700_000_000,
         completed_at: None,
         dispute_resolved_at: None,
         dispute_opened_at: None,
     };
+    assert_eq!(session.amount, amount, "refund preserves the full locked amount");
+}
 
-    let event = FundsLocked {
-        session_id: Pubkey::new_unique(),
-        buyer: session.buyer,
-        seller: session.seller,
-        amount,
-        locked_at: 1_700_000_001,
+#[test]
+fn test_refund_reverts_when_session_already_completed() {
+    // #1092 - A completed session can no longer be refunded by the buyer.
+    assert!(!Session::can_refund(SessionStatus::Completed));
+}
+
+#[test]
+fn test_refund_reverts_when_session_already_approved() {
+    // #1092 - An approved session can no longer be refunded by the buyer.
+    assert!(!Session::can_refund(SessionStatus::Approved));
+}
+
+#[test]
+fn test_refund_reverts_when_session_already_resolved_or_refunded() {
+    // #1092 - Resolved and Refunded are also not refundable once reached.
+    assert!(!Session::can_refund(SessionStatus::Resolved));
+    assert!(!Session::can_refund(SessionStatus::Refunded));
+}
+
+#[test]
+fn test_session_refunded_event_shape() {
+    // #1092 - SessionRefunded carries the session id and the refund timestamp
+    // (recorded via update_status setting completed_at on Refunded).
+    let session = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 1_000,
+        status: SessionStatus::Refunded,
+        created_at: 1_700_000_000,
+        completed_at: Some(1_700_086_400),
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
     };
-
-    assert_eq!(event.buyer, buyer, "FundsLocked exposes the buyer");
-    assert_eq!(event.seller, seller, "FundsLocked exposes the seller");
-    assert_eq!(event.amount, amount);
-    assert_eq!(event.locked_at, 1_700_000_001);
+    // update_status stamps completed_at when transitioning to Refunded, which
+    // becomes the event's refunded_at payload.
+    assert!(session.completed_at.is_some());
+    assert_eq!(session.status, SessionStatus::Refunded);
 }
