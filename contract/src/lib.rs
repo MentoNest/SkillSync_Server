@@ -62,6 +62,17 @@ impl Session {
         session_account.dispute_opened_at = None;
     }
 
+    /// Whether a session is eligible for a buyer-initiated refund.
+    ///
+    /// A session can only be refunded while it is still in `Locked` (before the
+    /// seller completes) or `Disputed`. Once it reaches a final state —
+    /// `Completed`, `Approved`, `Refunded`, or `Resolved` — a refund is no
+    /// longer permitted. The platform settlement fee is never applied on a
+    /// refund: the buyer is returned the full locked `amount`.
+    pub fn can_refund(status: SessionStatus) -> bool {
+        matches!(status, SessionStatus::Locked | SessionStatus::Disputed)
+    }
+
     /// Update session status
     pub fn update_status(session_account: &mut Account<Session>, new_status: SessionStatus) -> Result<()> {
         let current_timestamp = Clock::get()?.unix_timestamp;
@@ -89,6 +100,7 @@ pub struct PlatformState {
     pub admin: Pubkey,
     pub platform_fee_bps: u32, // Stored in basis points (1 bps = 0.01%)
     pub session_counter: u64,  // Counter to generate unique session IDs
+    pub treasury_balance: u64, // Cumulative platform fees collected into the treasury
 }
 
 /// On-chain analytics for the escrow program. A single account holds the
@@ -210,6 +222,23 @@ pub mod skill_sync {
         Ok(())
     }
 
+    /// Admin only function to change the treasury wallet that receives
+    /// collected platform fees. Emits a TreasuryUpdated event carrying the old
+    /// and new treasury plus the admin who performed the update.
+    pub fn set_treasury(ctx: Context<SetTreasury>, new_treasury: Pubkey) -> Result<()> {
+        let platform_state = &mut ctx.accounts.platform_state;
+        let old_treasury = platform_state.treasury;
+        platform_state.treasury = new_treasury;
+
+        emit!(TreasuryUpdated {
+            old_treasury,
+            new_treasury,
+            updated_by: ctx.accounts.signer.key(),
+        });
+
+        Ok(())
+    }
+
     /// Create a new escrow session
     pub fn create_session(
         ctx: Context<CreateSession>,
@@ -265,6 +294,8 @@ pub mod skill_sync {
 
         emit!(FundsLocked {
             session_id: ctx.accounts.session.key(),
+            buyer: session.buyer,
+            seller: session.seller,
             amount,
             locked_at: Clock::get()?.unix_timestamp,
         });
@@ -331,14 +362,17 @@ pub mod skill_sync {
 
         // Only the buyer can request a refund
         if ctx.accounts.signer.key() != session.buyer {
-            return Err(ErrorCode::Unauthorized.into());
+            return Err(ErrorCode::NotBuyer.into());
         }
 
-        // Check session not already refunded or otherwise finalized
+        // Check session not already refunded or otherwise finalized. The full
+        // locked amount is returned (no fee is ever deducted on a refund), and
+        // terminal states (Completed, Approved, Refunded, Resolved) cannot be
+        // refunded.
         if session.status == SessionStatus::Refunded {
             return Err(ErrorCode::SessionAlreadyRefunded.into());
         }
-        if session.status != SessionStatus::Locked && session.status != SessionStatus::Disputed {
+        if !Session::can_refund(session.status) {
             return Err(ErrorCode::InvalidSessionState.into());
         }
 
@@ -374,6 +408,11 @@ pub mod skill_sync {
             return Err(ErrorCode::DisputeWindowNotElapsed.into());
         }
 
+        // Capture the buyer, amount, and the original completion time before the
+        // refund transition overwrites completed_at with the refund timestamp.
+        let buyer = session.buyer;
+        let amount = session.amount;
+
         Session::update_status(session, SessionStatus::Refunded)?;
 
         // A Completed session that is auto-refunded leaves the active set.
@@ -381,6 +420,9 @@ pub mod skill_sync {
 
         emit!(AutoRefundExecuted {
             session_id: ctx.accounts.session.key(),
+            buyer,
+            amount,
+            completed_at,
             refunded_at: session.completed_at.unwrap(),
         });
 
@@ -456,7 +498,7 @@ pub mod skill_sync {
 
         // Ensure only admin can resolve disputes
         if ctx.accounts.signer.key() != platform_state.admin {
-            return Err(ErrorCode::Unauthorized.into());
+            return Err(ErrorCode::NotAdmin.into());
         }
 
         // Can only resolve disputed sessions
@@ -558,6 +600,16 @@ pub struct SetPlatformFee<'info> {
 }
 
 #[derive(Accounts)]
+pub struct SetTreasury<'info> {
+    #[account(mut, has_one = admin)] // Ensure only the admin can call this
+    pub platform_state: Account<'info, PlatformState>,
+    pub admin: Signer<'info>,
+    /// CHECK: The signer is checked against the stored admin key
+    #[account(mut)]
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct CreateSession<'info> {
     #[account(mut)]
     pub platform_state: Account<'info, PlatformState>,
@@ -590,6 +642,7 @@ pub struct UpdateSession<'info> {
 pub struct CompleteSession<'info> {
     #[account(mut)]
     pub session: Account<'info, Session>,
+    #[account(mut)]
     pub platform_state: Account<'info, PlatformState>,
     #[account(mut)]
     pub analytics: Account<'info, EscrowAnalytics>,
@@ -615,6 +668,13 @@ pub struct PlatformFeeUpdated {
 }
 
 #[event]
+pub struct TreasuryUpdated {
+    pub old_treasury: Pubkey,
+    pub new_treasury: Pubkey,
+    pub updated_by: Pubkey,
+}
+
+#[event]
 pub struct SessionCreated {
     pub session_id: Pubkey,
     pub buyer: Pubkey,
@@ -626,6 +686,8 @@ pub struct SessionCreated {
 #[event]
 pub struct FundsLocked {
     pub session_id: Pubkey,
+    pub buyer: Pubkey,
+    pub seller: Pubkey,
     pub amount: u64,
     pub locked_at: i64,
 }
@@ -653,6 +715,9 @@ pub struct SessionRefunded {
 #[event]
 pub struct AutoRefundExecuted {
     pub session_id: Pubkey,
+    pub buyer: Pubkey,
+    pub amount: u64,
+    pub completed_at: i64,
     pub refunded_at: i64,
 }
 
@@ -692,10 +757,36 @@ pub enum ErrorCode {
     SessionAlreadyRefunded,
     #[msg("Invalid amount provided")]
     InvalidAmount,
-    #[msg("Unauthorized: Only admin can perform this action")]
+    #[msg("Unauthorized: caller is not authorized for this action")]
     Unauthorized,
+    #[msg("Unauthorized: Only admin can perform this action")]
+    NotAdmin,
+    #[msg("Unauthorized: Only the session buyer can perform this action")]
+    NotBuyer,
+    #[msg("Unauthorized: Only the session seller can perform this action")]
+    NotSeller,
     #[msg("Dispute window has not elapsed yet")]
     DisputeWindowNotElapsed,
     #[msg("Buyer and seller shares must sum to the original session amount")]
     InvalidShareSplit,
+}
+
+impl ErrorCode {
+    /// Canonical authorization error codes used for off-chain mapping and
+    /// logging.
+    ///
+    /// Note: Anchor assigns its own on-chain error discriminators (a fixed
+    /// 6000+ offset) to `#[error_code]` variants; this table preserves the
+    /// issue-specified 200-203 numbering so callers have a stable, documented
+    /// mapping for authorization failures regardless of Anchor's internal
+    /// discriminators.
+    pub fn code(&self) -> u32 {
+        match self {
+            ErrorCode::Unauthorized => 200,
+            ErrorCode::NotAdmin => 201,
+            ErrorCode::NotBuyer => 202,
+            ErrorCode::NotSeller => 203,
+            _ => 0,
+        }
+    }
 }
