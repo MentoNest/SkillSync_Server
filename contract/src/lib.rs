@@ -232,6 +232,8 @@ pub mod skill_sync {
 
         emit!(FundsLocked {
             session_id: ctx.accounts.session.key(),
+            buyer: session.buyer,
+            seller: session.seller,
             amount,
             locked_at: now,
         });
@@ -277,7 +279,8 @@ pub mod skill_sync {
     /// Deducts the platform settlement fee (in bps) from the session amount.
     pub fn complete_session(ctx: Context<CompleteSession>) -> Result<()> {
         let session = &mut ctx.accounts.session;
-        let platform_fee_bps = ctx.accounts.platform_state.platform_fee_bps;
+        let platform_state = &mut ctx.accounts.platform_state;
+        let platform_fee_bps = platform_state.platform_fee_bps;
 
         // Cannot reuse an already completed session
         if session.status != SessionStatus::Locked {
@@ -291,6 +294,12 @@ pub mod skill_sync {
         }
 
         let (fee_amount, net_amount) = calculate_settlement_fee(session.amount, platform_fee_bps);
+
+        // Accumulate the settlement fee into the cumulative treasury balance so
+        // it can be tracked across many sessions.
+        platform_state.treasury_balance = platform_state
+            .treasury_balance
+            .saturating_add(fee_amount);
 
         // Update session status to completed
         Session::update_status(session, SessionStatus::Completed)?;
@@ -337,14 +346,17 @@ pub mod skill_sync {
 
         // Only the buyer can request a refund
         if ctx.accounts.signer.key() != session.buyer {
-            return Err(ErrorCode::Unauthorized.into());
+            return Err(ErrorCode::NotBuyer.into());
         }
 
-        // Check session not already refunded or otherwise finalized
+        // Check session not already refunded or otherwise finalized. The full
+        // locked amount is returned (no fee is ever deducted on a refund), and
+        // terminal states (Completed, Approved, Refunded, Resolved) cannot be
+        // refunded.
         if session.status == SessionStatus::Refunded {
             return Err(ErrorCode::SessionAlreadyRefunded.into());
         }
-        if session.status != SessionStatus::Locked && session.status != SessionStatus::Disputed {
+        if !Session::can_refund(session.status) {
             return Err(ErrorCode::InvalidSessionState.into());
         }
 
@@ -373,10 +385,18 @@ pub mod skill_sync {
             return Err(ErrorCode::DisputeWindowNotElapsed.into());
         }
 
+        // Capture the buyer, amount, and the original completion time before the
+        // refund transition overwrites completed_at with the refund timestamp.
+        let buyer = session.buyer;
+        let amount = session.amount;
+
         Session::update_status(session, SessionStatus::Refunded)?;
 
         emit!(AutoRefundExecuted {
             session_id: ctx.accounts.session.key(),
+            buyer,
+            amount,
+            completed_at,
             refunded_at: session.completed_at.unwrap(),
         });
 
@@ -445,7 +465,7 @@ pub mod skill_sync {
 
         // Ensure only admin can resolve disputes
         if ctx.accounts.signer.key() != platform_state.admin {
-            return Err(ErrorCode::Unauthorized.into());
+            return Err(ErrorCode::NotAdmin.into());
         }
 
         // Can only resolve disputed sessions
@@ -551,6 +571,7 @@ pub struct LockFunds<'info> {
 pub struct CompleteSession<'info> {
     #[account(mut)]
     pub session: Account<'info, Session>,
+    #[account(mut)]
     pub platform_state: Account<'info, PlatformState>,
     pub signer: Signer<'info>,
 }
@@ -572,6 +593,13 @@ pub struct PlatformFeeUpdated {
 }
 
 #[event]
+pub struct TreasuryUpdated {
+    pub old_treasury: Pubkey,
+    pub new_treasury: Pubkey,
+    pub updated_by: Pubkey,
+}
+
+#[event]
 pub struct SessionCreated {
     pub session_id: Pubkey,
     pub buyer: Pubkey,
@@ -583,6 +611,8 @@ pub struct SessionCreated {
 #[event]
 pub struct FundsLocked {
     pub session_id: Pubkey,
+    pub buyer: Pubkey,
+    pub seller: Pubkey,
     pub amount: u64,
     pub locked_at: i64,
 }
@@ -610,6 +640,9 @@ pub struct SessionRefunded {
 #[event]
 pub struct AutoRefundExecuted {
     pub session_id: Pubkey,
+    pub buyer: Pubkey,
+    pub amount: u64,
+    pub completed_at: i64,
     pub refunded_at: i64,
 }
 
@@ -658,8 +691,14 @@ pub enum ErrorCode {
     SessionAlreadyRefunded,
     #[msg("Invalid amount provided")]
     InvalidAmount,
-    #[msg("Unauthorized: Only admin can perform this action")]
+    #[msg("Unauthorized: caller is not authorized for this action")]
     Unauthorized,
+    #[msg("Unauthorized: Only admin can perform this action")]
+    NotAdmin,
+    #[msg("Unauthorized: Only the session buyer can perform this action")]
+    NotBuyer,
+    #[msg("Unauthorized: Only the session seller can perform this action")]
+    NotSeller,
     #[msg("Dispute window has not elapsed yet")]
     DisputeWindowNotElapsed,
     #[msg("Buyer and seller shares must sum to the original session amount")]
