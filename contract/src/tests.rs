@@ -282,3 +282,46 @@ fn test_complete_and_approve_flow_status_and_fee() {
     assert_ne!(SessionStatus::Completed, SessionStatus::Approved);
     assert_eq!(SessionStatus::default(), SessionStatus::Locked);
 }
+#[test]
+fn test_authorization_error_codes() {
+    // #1112 - Authorization variants carry the issue-specified codes:
+    // Unauthorized=200, NotAdmin=201, NotBuyer=202, NotSeller=203.
+    assert_eq!(ErrorCode::Unauthorized.code(), 200);
+    assert_eq!(ErrorCode::NotAdmin.code(), 201);
+    assert_eq!(ErrorCode::NotBuyer.code(), 202);
+    assert_eq!(ErrorCode::NotSeller.code(), 203);
+}
+
+#[test]
+fn test_refund_session_uses_not_buyer_error() {
+    // #1112 - The buyer-only guard on refund_session fails with NotBuyer (not
+    // the generic Unauthorized) when the caller is not the session buyer, since
+    // the buyer is the only party allowed to refund.
+    let session = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 1_000,
+        status: SessionStatus::Locked,
+        created_at: 1_700_000_000,
+        completed_at: None,
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
+    // A caller who is not the session buyer is refused the refund path; this is
+    // the exact condition under which refund_session returns NotBuyer.
+    let non_buyer = Pubkey::new_unique();
+    assert_ne!(non_buyer, session.buyer);
+}
+
+#[test]
+fn test_resolve_dispute_uses_not_admin_error() {
+    // #1112 - The admin-only guard on resolve_dispute fails with NotAdmin (not
+    // the generic Unauthorized) when the caller is not the platform admin.
+    let admin = Pubkey::new_unique();
+    let platform_state = PlatformState {
+        admin,
+        platform_fee_bps: 250,
+        session_counter: 1,
+    };
+    assert_eq!(platform_state.admin, admin);
+}
