@@ -458,11 +458,11 @@ mod test_multi_session {
 // ============================================================================
 
 mod test_skillsync_escrow {
-    use super::super::{SkillSyncEscrow, SkillSyncEscrowClient, Status};
+    use super::super::{EscrowError, FeeSplit, SkillSyncEscrow, SkillSyncEscrowClient, Status};
     use soroban_sdk::{
         testutils::Address as _,
         token::{Client as TokenClient, StellarAssetClient},
-        Address, BytesN, Env, IntoVal, Symbol,
+        vec, Address, BytesN, Env, IntoVal, Symbol, Vec,
     };
 
     fn make_id(env: &Env, n: u8) -> BytesN<32> {
@@ -530,7 +530,7 @@ mod test_skillsync_escrow {
     }
 
     #[test]
-    #[should_panic(expected = "amount must be positive")]
+    #[should_panic]
     fn test_lock_funds_zero_amount_reverts() {
         let (env, admin, buyer, seller, token_id, cid) = setup();
         let client = SkillSyncEscrowClient::new(&env, &cid);
@@ -695,5 +695,431 @@ mod test_skillsync_escrow {
             (Symbol::new(&env, "DisputeWindowUpdated"),).into_val(&env)
         );
         assert_eq!(last.2, 500_u32.into_val(&env));
+    }
+
+    // =========================================================================
+    // Financial Validation Errors Tests (Issue 1: 400 - 404)
+    // =========================================================================
+
+    #[test]
+    fn test_invalid_amount_error_400() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        // Zero amount on lock_funds -> InvalidAmount (400)
+        let res_zero = client.try_lock_funds(&make_id(&env, 40), &buyer, &seller, &0, &token_id);
+        assert_eq!(res_zero, Err(Ok(EscrowError::InvalidAmount)));
+
+        // Negative amount on lock_funds -> InvalidAmount (400)
+        let res_neg = client.try_lock_funds(&make_id(&env, 41), &buyer, &seller, &-100, &token_id);
+        assert_eq!(res_neg, Err(Ok(EscrowError::InvalidAmount)));
+
+        // Zero or negative on calculate_fee -> InvalidAmount (400)
+        let res_fee_zero = client.try_calculate_fee(&0, &100);
+        assert_eq!(res_fee_zero, Err(Ok(EscrowError::InvalidAmount)));
+
+        let res_fee_neg = client.try_calculate_fee(&-50, &100);
+        assert_eq!(res_fee_neg, Err(Ok(EscrowError::InvalidAmount)));
+
+        // Zero amount or negative split in validate_split -> InvalidAmount (400)
+        let res_split_zero = client.try_validate_split(&0, &0, &0);
+        assert_eq!(res_split_zero, Err(Ok(EscrowError::InvalidAmount)));
+
+        let res_split_neg = client.try_validate_split(&100, &-20, &120);
+        assert_eq!(res_split_neg, Err(Ok(EscrowError::InvalidAmount)));
+    }
+
+    #[test]
+    fn test_insufficient_balance_error_401() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        // Buyer only has 1000 minted tokens; try to lock 1001 -> InsufficientBalance (401)
+        let res = client.try_lock_funds(&make_id(&env, 42), &buyer, &seller, &1001, &token_id);
+        assert_eq!(res, Err(Ok(EscrowError::InsufficientBalance)));
+    }
+
+    #[test]
+    fn test_fee_too_high_error_402() {
+        let (env, admin, _, _, _, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        // Fee exceeding 1000 bps (e.g. 1001 bps) -> FeeTooHigh (402)
+        let res_set = client.try_set_platform_fee(&1001);
+        assert_eq!(res_set, Err(Ok(EscrowError::FeeTooHigh)));
+
+        let res_set_high = client.try_set_platform_fee(&5000);
+        assert_eq!(res_set_high, Err(Ok(EscrowError::FeeTooHigh)));
+
+        // calculate_fee with fee > 1000 bps -> FeeTooHigh (402)
+        let res_calc = client.try_calculate_fee(&1000, &1001);
+        assert_eq!(res_calc, Err(Ok(EscrowError::FeeTooHigh)));
+
+        // Max fee 1000 bps succeeds
+        assert!(client.try_set_platform_fee(&1000).is_ok());
+        assert_eq!(client.get_platform_fee(), 1000);
+    }
+
+    #[test]
+    fn test_invalid_split_error_403() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        // validate_split sum mismatch -> InvalidSplit (403)
+        let res = client.try_validate_split(&1000, &400, &500); // 400 + 500 = 900 != 1000
+        assert_eq!(res, Err(Ok(EscrowError::InvalidSplit)));
+
+        let res_over = client.try_validate_split(&1000, &600, &500); // 600 + 500 = 1100 != 1000
+        assert_eq!(res_over, Err(Ok(EscrowError::InvalidSplit)));
+
+        // resolve_dispute with mismatching split -> InvalidSplit (403)
+        let id = make_id(&env, 43);
+        client.lock_funds(&id, &buyer, &seller, &500, &token_id);
+        client.dispute_session(&id);
+
+        let res_dispute = client.try_resolve_dispute(&id, &200, &200, &token_id); // sum 400 != 500
+        assert_eq!(res_dispute, Err(Ok(EscrowError::InvalidSplit)));
+    }
+
+    #[test]
+    fn test_overflow_error_404() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        // validate_split arithmetic overflow on sum -> Overflow (404)
+        let res_overflow = client.try_validate_split(&100, &i128::MAX, &1);
+        assert_eq!(res_overflow, Err(Ok(EscrowError::Overflow)));
+
+        // batch_lock_funds with overflowing total amount -> Overflow (404)
+        let mut sessions: Vec<(BytesN<32>, Address, i128)> = Vec::new(&env);
+        sessions.push_back((make_id(&env, 44), seller.clone(), i128::MAX));
+        sessions.push_back((make_id(&env, 45), seller.clone(), 1));
+
+        let res_batch_overflow = client.try_batch_lock_funds(&sessions, &buyer, &token_id);
+        assert_eq!(res_batch_overflow, Err(Ok(EscrowError::Overflow)));
+    }
+
+    // =========================================================================
+    // Dispute & Resolution Happy Path Tests
+    // =========================================================================
+
+    #[test]
+    fn test_dispute_and_resolve_happy_path() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        let id = make_id(&env, 50);
+        client.lock_funds(&id, &buyer, &seller, &500, &token_id);
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&buyer), 500);
+
+        client.dispute_session(&id);
+        let s = client.get_session(&id);
+        assert!(matches!(s.status, Status::Disputed));
+
+        // Resolve: 300 to buyer, 200 to seller
+        client.resolve_dispute(&id, &300, &200, &token_id);
+        let s_resolved = client.get_session(&id);
+        assert!(matches!(s_resolved.status, Status::Resolved));
+        assert!(s_resolved.dispute_resolved_at > 0);
+
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&buyer), 800);
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&seller), 200);
+    }
+
+    // =========================================================================
+    // Batch Operations Module Tests (Issue 2)
+    // =========================================================================
+
+    #[test]
+    fn test_batch_lock_funds_success() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        let seller2 = Address::generate(&env);
+
+        let id1 = make_id(&env, 60);
+        let id2 = make_id(&env, 61);
+        let id3 = make_id(&env, 62);
+
+        let mut sessions: Vec<(BytesN<32>, Address, i128)> = Vec::new(&env);
+        sessions.push_back((id1.clone(), seller.clone(), 200));
+        sessions.push_back((id2.clone(), seller2.clone(), 300));
+        sessions.push_back((id3.clone(), seller.clone(), 400));
+
+        // Lock 3 sessions totalling 900
+        client.batch_lock_funds(&sessions, &buyer, &token_id);
+
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&buyer), 100);
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&cid), 900);
+
+        let s1 = client.get_session(&id1);
+        assert!(matches!(s1.status, Status::Locked));
+        assert_eq!(s1.amount, 200);
+        assert_eq!(s1.seller, seller);
+
+        let s2 = client.get_session(&id2);
+        assert!(matches!(s2.status, Status::Locked));
+        assert_eq!(s2.amount, 300);
+        assert_eq!(s2.seller, seller2);
+
+        let s3 = client.get_session(&id3);
+        assert!(matches!(s3.status, Status::Locked));
+        assert_eq!(s3.amount, 400);
+    }
+
+    #[test]
+    fn test_batch_lock_funds_invalid_amount_reverts_entire_batch() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        let id1 = make_id(&env, 63);
+        let id2 = make_id(&env, 64);
+
+        let mut sessions: Vec<(BytesN<32>, Address, i128)> = Vec::new(&env);
+        sessions.push_back((id1.clone(), seller.clone(), 200));
+        sessions.push_back((id2.clone(), seller.clone(), 0)); // invalid amount
+
+        let res = client.try_batch_lock_funds(&sessions, &buyer, &token_id);
+        assert_eq!(res, Err(Ok(EscrowError::InvalidAmount)));
+
+        // Verify no funds were transferred and no session saved
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&buyer), 1000);
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&cid), 0);
+    }
+
+    #[test]
+    fn test_batch_lock_funds_insufficient_balance_reverts_entire_batch() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        let id1 = make_id(&env, 65);
+        let id2 = make_id(&env, 66);
+
+        let mut sessions: Vec<(BytesN<32>, Address, i128)> = Vec::new(&env);
+        sessions.push_back((id1.clone(), seller.clone(), 600));
+        sessions.push_back((id2.clone(), seller.clone(), 500)); // Total 1100 > 1000 balance
+
+        let res = client.try_batch_lock_funds(&sessions, &buyer, &token_id);
+        assert_eq!(res, Err(Ok(EscrowError::InsufficientBalance)));
+
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&buyer), 1000);
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&cid), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "DuplicateSessionId")]
+    fn test_batch_lock_funds_duplicate_session_reverts_entire_batch() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        let existing_id = make_id(&env, 67);
+        client.lock_funds(&existing_id, &buyer, &seller, &100, &token_id);
+
+        let id2 = make_id(&env, 68);
+        let mut sessions: Vec<(BytesN<32>, Address, i128)> = Vec::new(&env);
+        sessions.push_back((existing_id.clone(), seller.clone(), 200));
+        sessions.push_back((id2.clone(), seller.clone(), 200));
+
+        client.batch_lock_funds(&sessions, &buyer, &token_id);
+    }
+
+    #[test]
+    fn test_batch_lock_funds_empty_noop() {
+        let (env, admin, buyer, _, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        let empty: Vec<(BytesN<32>, Address, i128)> = Vec::new(&env);
+        client.batch_lock_funds(&empty, &buyer, &token_id);
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&buyer), 1000);
+    }
+
+    #[test]
+    fn test_batch_complete_success() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        let id1 = make_id(&env, 70);
+        let id2 = make_id(&env, 71);
+
+        let mut sessions: Vec<(BytesN<32>, Address, i128)> = Vec::new(&env);
+        sessions.push_back((id1.clone(), seller.clone(), 200));
+        sessions.push_back((id2.clone(), seller.clone(), 300));
+        client.batch_lock_funds(&sessions, &buyer, &token_id);
+
+        let mut ids: Vec<BytesN<32>> = Vec::new(&env);
+        ids.push_back(id1.clone());
+        ids.push_back(id2.clone());
+
+        client.batch_complete(&ids);
+
+        let s1 = client.get_session(&id1);
+        assert!(matches!(s1.status, Status::Completed));
+        assert!(s1.completed_at > 0);
+
+        let s2 = client.get_session(&id2);
+        assert!(matches!(s2.status, Status::Completed));
+        assert!(s2.completed_at > 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "DuplicateSessionId")]
+    fn test_batch_complete_already_completed_reverts() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        let id1 = make_id(&env, 72);
+        let id2 = make_id(&env, 73);
+        client.lock_funds(&id1, &buyer, &seller, &100, &token_id);
+        client.lock_funds(&id2, &buyer, &seller, &100, &token_id);
+
+        client.complete_session(&id1); // already completed
+
+        let mut ids: Vec<BytesN<32>> = Vec::new(&env);
+        ids.push_back(id1.clone());
+        ids.push_back(id2.clone());
+
+        client.batch_complete(&ids); // Should panic on id1
+    }
+
+    #[test]
+    fn test_batch_approve_success() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        let seller2 = Address::generate(&env);
+
+        let id1 = make_id(&env, 80);
+        let id2 = make_id(&env, 81);
+
+        let mut sessions: Vec<(BytesN<32>, Address, i128)> = Vec::new(&env);
+        sessions.push_back((id1.clone(), seller.clone(), 300));
+        sessions.push_back((id2.clone(), seller2.clone(), 400));
+        client.batch_lock_funds(&sessions, &buyer, &token_id);
+
+        let mut ids: Vec<BytesN<32>> = Vec::new(&env);
+        ids.push_back(id1.clone());
+        ids.push_back(id2.clone());
+
+        // Complete both
+        client.batch_complete(&ids);
+
+        // Approve both
+        client.batch_approve(&ids, &token_id);
+
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&seller), 300);
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&seller2), 400);
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&cid), 0);
+
+        let s1 = client.get_session(&id1);
+        assert!(matches!(s1.status, Status::Approved));
+
+        let s2 = client.get_session(&id2);
+        assert!(matches!(s2.status, Status::Approved));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_batch_approve_not_completed_reverts() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        let id1 = make_id(&env, 82);
+        let id2 = make_id(&env, 83);
+        client.lock_funds(&id1, &buyer, &seller, &100, &token_id);
+        client.lock_funds(&id2, &buyer, &seller, &100, &token_id);
+
+        client.complete_session(&id1); // only id1 is completed
+
+        let mut ids: Vec<BytesN<32>> = Vec::new(&env);
+        ids.push_back(id1);
+        ids.push_back(id2); // id2 is Locked, not Completed
+
+        client.batch_approve(&ids, &token_id); // should panic
+    }
+
+    #[test]
+    fn test_batch_refund_success() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        let id1 = make_id(&env, 90);
+        let id2 = make_id(&env, 91);
+
+        let mut sessions: Vec<(BytesN<32>, Address, i128)> = Vec::new(&env);
+        sessions.push_back((id1.clone(), seller.clone(), 250));
+        sessions.push_back((id2.clone(), seller.clone(), 350));
+        client.batch_lock_funds(&sessions, &buyer, &token_id);
+
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&buyer), 400);
+
+        let mut ids: Vec<BytesN<32>> = Vec::new(&env);
+        ids.push_back(id1.clone());
+        ids.push_back(id2.clone());
+
+        client.batch_refund(&ids, &token_id);
+
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&buyer), 1000);
+        assert_eq!(TokenClient::new(&env, &token_id).balance(&cid), 0);
+
+        let s1 = client.get_session(&id1);
+        assert!(matches!(s1.status, Status::Refunded));
+
+        let s2 = client.get_session(&id2);
+        assert!(matches!(s2.status, Status::Refunded));
+    }
+
+    #[test]
+    #[should_panic(expected = "DuplicateSessionId")]
+    fn test_batch_refund_already_refunded_reverts() {
+        let (env, admin, buyer, seller, token_id, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        let id1 = make_id(&env, 92);
+        let id2 = make_id(&env, 93);
+        client.lock_funds(&id1, &buyer, &seller, &100, &token_id);
+        client.lock_funds(&id2, &buyer, &seller, &100, &token_id);
+
+        client.refund_session(&id1, &token_id); // already refunded
+
+        let mut ids: Vec<BytesN<32>> = Vec::new(&env);
+        ids.push_back(id1);
+        ids.push_back(id2);
+
+        client.batch_refund(&ids, &token_id); // should panic
+    }
+
+    #[test]
+    fn test_skillsync_platform_fee_and_treasury() {
+        let (env, admin, _, _, _, cid) = setup();
+        let client = SkillSyncEscrowClient::new(&env, &cid);
+        client.initialize(&admin);
+
+        let treasury = Address::generate(&env);
+        client.set_treasury(&treasury);
+        assert_eq!(client.get_treasury(), treasury);
+
+        client.set_platform_fee(&250); // 2.5%
+        assert_eq!(client.get_platform_fee(), 250);
+
+        let split: FeeSplit = client.calculate_fee(&1000, &250);
+        assert_eq!(split.treasury_amount, 25);
+        assert_eq!(split.seller_amount, 975);
     }
 }

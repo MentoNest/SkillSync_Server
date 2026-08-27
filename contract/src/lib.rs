@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, IntoVal,
-    Symbol,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, token,
+    Address, BytesN, Env, IntoVal, Symbol, Vec,
 };
 
 // ============================================================================
@@ -279,6 +279,7 @@ impl EscrowContract {
 // ============================================================================
 
 pub type Bytes32 = BytesN<32>;
+pub const MAX_FEE_BPS: u32 = 1000;
 
 /// Session status enum (#525)
 #[contracttype]
@@ -310,17 +311,25 @@ pub enum SkillSyncKey {
     Session(Bytes32),
     Admin,
     DisputeWindow,
+    Treasury,
+    PlatformFee,
 }
 
-/// Error codes for SkillSyncEscrow (#526)
-#[contracttype]
-#[derive(Clone, Copy, PartialEq, Debug)]
+/// Error codes for SkillSyncEscrow (#526, financial validation errors)
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum EscrowError {
     DuplicateSessionId = 1,
     SessionNotFound = 2,
     InvalidState = 3,
     Unauthorized = 4,
+    // Financial validation errors
+    InvalidAmount = 400,
+    InsufficientBalance = 401,
+    FeeTooHigh = 402,
+    InvalidSplit = 403,
+    Overflow = 404,
 }
 
 const DEFAULT_DISPUTE_WINDOW: u32 = 1000;
@@ -368,9 +377,11 @@ impl SkillSyncEscrow {
         Self::save_session_internal(&env, &id, &session);
     }
 
-    // ── #523 + #526: lock_funds ───────────────────────────────────────────────
+    // ── #523 + #526 + Financial Validation: lock_funds ────────────────────────
 
     /// Lock funds into a new escrow session.
+    /// Returns EscrowError::InvalidAmount if amount <= 0 (400).
+    /// Returns EscrowError::InsufficientBalance if buyer has insufficient balance (401).
     /// Returns EscrowError::DuplicateSessionId if session_id already exists (#526).
     pub fn lock_funds(
         env: Env,
@@ -381,7 +392,9 @@ impl SkillSyncEscrow {
         token_id: Address,
     ) {
         buyer.require_auth();
-        assert!(amount > 0, "amount must be positive");
+        if amount <= 0 {
+            panic_with_error!(&env, EscrowError::InvalidAmount);
+        }
         if env
             .storage()
             .persistent()
@@ -390,7 +403,12 @@ impl SkillSyncEscrow {
             panic!("DuplicateSessionId");
         }
 
-        token::Client::new(&env, &token_id).transfer(
+        let token_client = token::Client::new(&env, &token_id);
+        if token_client.balance(&buyer) < amount {
+            panic_with_error!(&env, EscrowError::InsufficientBalance);
+        }
+
+        token_client.transfer(
             &buyer,
             &env.current_contract_address(),
             &amount,
@@ -477,6 +495,311 @@ impl SkillSyncEscrow {
         Self::save_session_internal(&env, &session_id, &session);
         env.events()
             .publish((Symbol::new(&env, "SessionRefunded"), session_id), session.amount);
+    }
+
+    // ── Platform Fee & Treasury ───────────────────────────────────────────────
+
+    pub fn set_platform_fee(env: Env, new_fee_bps: u32) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&SkillSyncKey::Admin)
+            .expect("not initialized");
+        admin.require_auth();
+        if new_fee_bps > MAX_FEE_BPS {
+            panic_with_error!(&env, EscrowError::FeeTooHigh);
+        }
+        env.storage()
+            .persistent()
+            .set(&SkillSyncKey::PlatformFee, &new_fee_bps);
+        env.events()
+            .publish((Symbol::new(&env, "PlatformFeeUpdated"),), new_fee_bps);
+    }
+
+    pub fn get_platform_fee(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&SkillSyncKey::PlatformFee)
+            .unwrap_or(0_u32)
+    }
+
+    pub fn set_treasury(env: Env, new_treasury: Address) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&SkillSyncKey::Admin)
+            .expect("not initialized");
+        admin.require_auth();
+        env.storage()
+            .persistent()
+            .set(&SkillSyncKey::Treasury, &new_treasury);
+        env.events()
+            .publish((Symbol::new(&env, "TreasuryUpdated"),), new_treasury);
+    }
+
+    pub fn get_treasury(env: Env) -> Address {
+        env.storage()
+            .persistent()
+            .get(&SkillSyncKey::Treasury)
+            .expect("treasury not set")
+    }
+
+    pub fn calculate_fee(env: Env, amount: i128, fee_bps: u32) -> FeeSplit {
+        if amount <= 0 {
+            panic_with_error!(&env, EscrowError::InvalidAmount);
+        }
+        if fee_bps > MAX_FEE_BPS {
+            panic_with_error!(&env, EscrowError::FeeTooHigh);
+        }
+
+        let treasury_amount = match amount.checked_mul(fee_bps as i128) {
+            Some(prod) => prod / BPS_DENOMINATOR,
+            None => panic_with_error!(&env, EscrowError::Overflow),
+        };
+        let seller_amount = amount - treasury_amount;
+
+        FeeSplit {
+            seller_amount,
+            treasury_amount,
+        }
+    }
+
+    // ── Dispute & Resolution ──────────────────────────────────────────────────
+
+    pub fn dispute_session(env: Env, session_id: Bytes32) {
+        let mut session = Self::get_session_internal(&env, &session_id);
+        session.buyer.require_auth();
+        assert!(
+            session.status == Status::Locked || session.status == Status::Completed,
+            "InvalidState"
+        );
+        session.status = Status::Disputed;
+        Self::save_session_internal(&env, &session_id, &session);
+        env.events()
+            .publish((Symbol::new(&env, "SessionDisputed"), session_id), ());
+    }
+
+    pub fn resolve_dispute(
+        env: Env,
+        session_id: Bytes32,
+        buyer_amount: i128,
+        seller_amount: i128,
+        token_id: Address,
+    ) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&SkillSyncKey::Admin)
+            .expect("not initialized");
+        admin.require_auth();
+
+        let mut session = Self::get_session_internal(&env, &session_id);
+        assert!(
+            session.status == Status::Disputed,
+            "InvalidState: session must be Disputed"
+        );
+
+        if buyer_amount < 0 || seller_amount < 0 {
+            panic_with_error!(&env, EscrowError::InvalidAmount);
+        }
+
+        let total_split = match buyer_amount.checked_add(seller_amount) {
+            Some(val) => val,
+            None => panic_with_error!(&env, EscrowError::Overflow),
+        };
+
+        if total_split != session.amount {
+            panic_with_error!(&env, EscrowError::InvalidSplit);
+        }
+
+        let token_client = token::Client::new(&env, &token_id);
+        if buyer_amount > 0 {
+            token_client.transfer(
+                &env.current_contract_address(),
+                &session.buyer,
+                &buyer_amount,
+            );
+        }
+        if seller_amount > 0 {
+            token_client.transfer(
+                &env.current_contract_address(),
+                &session.seller,
+                &seller_amount,
+            );
+        }
+
+        session.status = Status::Resolved;
+        session.dispute_resolved_at = env.ledger().timestamp();
+        Self::save_session_internal(&env, &session_id, &session);
+
+        env.events().publish(
+            (Symbol::new(&env, "DisputeResolved"), session_id),
+            (buyer_amount, seller_amount),
+        );
+    }
+
+    pub fn validate_split(env: Env, amount: i128, buyer_amount: i128, seller_amount: i128) {
+        if amount <= 0 || buyer_amount < 0 || seller_amount < 0 {
+            panic_with_error!(&env, EscrowError::InvalidAmount);
+        }
+        let total = match buyer_amount.checked_add(seller_amount) {
+            Some(v) => v,
+            None => panic_with_error!(&env, EscrowError::Overflow),
+        };
+        if total != amount {
+            panic_with_error!(&env, EscrowError::InvalidSplit);
+        }
+    }
+
+    // ── Batch Operations ──────────────────────────────────────────────────────
+
+    /// Batch lock funds for multiple sessions in one transaction.
+    /// Any single failure causes the entire batch to revert.
+    /// Gas-efficient looping with early break on error.
+    pub fn batch_lock_funds(
+        env: Env,
+        sessions: Vec<(Bytes32, Address, i128)>,
+        buyer: Address,
+        token_id: Address,
+    ) {
+        if sessions.is_empty() {
+            return;
+        }
+        buyer.require_auth();
+
+        let mut total_amount: i128 = 0;
+
+        // Gas-efficient validation loop with early break on error
+        for (session_id, _, amount) in sessions.iter() {
+            if amount <= 0 {
+                panic_with_error!(&env, EscrowError::InvalidAmount);
+            }
+            total_amount = match total_amount.checked_add(amount) {
+                Some(sum) => sum,
+                None => panic_with_error!(&env, EscrowError::Overflow),
+            };
+            if env
+                .storage()
+                .persistent()
+                .has(&SkillSyncKey::Session(session_id.clone()))
+            {
+                panic!("DuplicateSessionId");
+            }
+        }
+
+        let token_client = token::Client::new(&env, &token_id);
+        if token_client.balance(&buyer) < total_amount {
+            panic_with_error!(&env, EscrowError::InsufficientBalance);
+        }
+
+        // Single gas-efficient token transfer for the entire batch
+        token_client.transfer(&buyer, &env.current_contract_address(), &total_amount);
+
+        let now = env.ledger().sequence() as u64;
+        for (session_id, seller, amount) in sessions.iter() {
+            if env
+                .storage()
+                .persistent()
+                .has(&SkillSyncKey::Session(session_id.clone()))
+            {
+                panic!("DuplicateSessionId");
+            }
+            let session = SessionData {
+                buyer: buyer.clone(),
+                seller,
+                amount,
+                status: Status::Locked,
+                created_at: now,
+                completed_at: 0,
+                dispute_resolved_at: 0,
+            };
+            Self::save_session_internal(&env, &session_id, &session);
+            env.events()
+                .publish((Symbol::new(&env, "FundsLocked"), session_id), amount);
+        }
+    }
+
+    /// Batch approve completed sessions for buyer.
+    /// Any single failure causes the entire batch to revert.
+    /// Gas-efficient looping with early break on error.
+    pub fn batch_approve(env: Env, session_ids: Vec<Bytes32>, token_id: Address) {
+        if session_ids.is_empty() {
+            return;
+        }
+        let token_client = token::Client::new(&env, &token_id);
+        for session_id in session_ids.iter() {
+            let mut session = Self::get_session_internal(&env, &session_id);
+            session.buyer.require_auth();
+            assert!(
+                session.status == Status::Completed,
+                "InvalidState: session must be Completed"
+            );
+            token_client.transfer(
+                &env.current_contract_address(),
+                &session.seller,
+                &session.amount,
+            );
+            session.status = Status::Approved;
+            Self::save_session_internal(&env, &session_id, &session);
+            env.events()
+                .publish((Symbol::new(&env, "SessionApproved"), session_id), session.amount);
+        }
+    }
+
+    /// Batch complete sessions for seller.
+    /// Any single failure causes the entire batch to revert.
+    /// Gas-efficient looping with early break on error.
+    pub fn batch_complete(env: Env, session_ids: Vec<Bytes32>) {
+        if session_ids.is_empty() {
+            return;
+        }
+        let now = env.ledger().timestamp();
+        for session_id in session_ids.iter() {
+            let mut session = Self::get_session_internal(&env, &session_id);
+            session.seller.require_auth();
+            if session.status == Status::Completed {
+                panic!("DuplicateSessionId");
+            }
+            assert!(
+                session.status == Status::Locked,
+                "InvalidState: session must be Locked"
+            );
+            session.status = Status::Completed;
+            session.completed_at = now;
+            Self::save_session_internal(&env, &session_id, &session);
+            env.events()
+                .publish((Symbol::new(&env, "SessionCompleted"), session_id), ());
+        }
+    }
+
+    /// Batch refund locked sessions for buyer.
+    /// Any single failure causes the entire batch to revert.
+    /// Gas-efficient looping with early break on error.
+    pub fn batch_refund(env: Env, session_ids: Vec<Bytes32>, token_id: Address) {
+        if session_ids.is_empty() {
+            return;
+        }
+        let token_client = token::Client::new(&env, &token_id);
+        for session_id in session_ids.iter() {
+            let mut session = Self::get_session_internal(&env, &session_id);
+            session.buyer.require_auth();
+            if session.status == Status::Refunded {
+                panic!("DuplicateSessionId");
+            }
+            assert!(
+                session.status == Status::Locked,
+                "InvalidState: session must be Locked"
+            );
+            token_client.transfer(
+                &env.current_contract_address(),
+                &session.buyer,
+                &session.amount,
+            );
+            session.status = Status::Refunded;
+            Self::save_session_internal(&env, &session_id, &session);
+            env.events()
+                .publish((Symbol::new(&env, "SessionRefunded"), session_id), session.amount);
+        }
     }
 
     // ── #521: dispute window ──────────────────────────────────────────────────
