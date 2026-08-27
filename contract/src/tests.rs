@@ -230,11 +230,13 @@ fn test_platform_state_initialization_fields() {
         admin,
         platform_fee_bps: initial_fee_bps,
         session_counter: 0,
+        treasury_balance: 0,
     };
 
     assert_eq!(platform_state.admin, admin);
     assert_eq!(platform_state.platform_fee_bps, initial_fee_bps);
     assert_eq!(platform_state.session_counter, 0);
+    assert_eq!(platform_state.treasury_balance, 0);
 }
 
 #[test]
@@ -281,4 +283,65 @@ fn test_complete_and_approve_flow_status_and_fee() {
     // Completed and Approved are distinct terminal states reachable only from Locked.
     assert_ne!(SessionStatus::Completed, SessionStatus::Approved);
     assert_eq!(SessionStatus::default(), SessionStatus::Locked);
+}
+#[test]
+fn test_fee_zero_bps_seller_receives_full_amount() {
+    // #1096 - A 0 bps fee leaves the seller with the entire amount.
+    let (fee_amount, net_amount) = calculate_settlement_fee(5_000, 0);
+    assert_eq!(fee_amount, 0);
+    assert_eq!(net_amount, 5_000, "seller receives full amount with 0 bps fee");
+}
+
+#[test]
+fn test_fee_ten_percent_seller_receives_ninety_percent() {
+    // #1096 - A 1000 bps (10%) fee means the seller receives 90%.
+    let amount: u64 = 10_000;
+    let (fee_amount, net_amount) = calculate_settlement_fee(amount, 1000);
+    assert_eq!(fee_amount, 1_000);
+    assert_eq!(net_amount, 9_000, "seller receives 90% of the amount");
+}
+
+#[test]
+fn test_fee_odd_amount_rounds_down_to_smallest_unit() {
+    // #1096 - Non-divisible amounts round the fee down to the smallest unit
+    // (integer floor), and never round up into the seller's principal.
+    let (fee_amount, net_amount) = calculate_settlement_fee(1_234, 123);
+    // 1234 * 123 / 10000 = 15.1782 -> floors to 15
+    assert_eq!(fee_amount, 15);
+    assert_eq!(net_amount, 1_234 - 15);
+    assert_eq!(fee_amount + net_amount, 1_234);
+}
+
+#[test]
+fn test_fee_never_exceeds_amount() {
+    // #1096 - The fee can never exceed the session amount; the net payout is
+    // clamped to zero at worst (saturating arithmetic), never underflowing.
+    let (fee_amount, net_amount) = calculate_settlement_fee(100, 1000);
+    assert!(fee_amount <= 100);
+    assert_eq!(net_amount, 90);
+
+    // Even at the maximum configured fee (1000 bps) the net is never negative.
+    let (fee_amount, net_amount) = calculate_settlement_fee(1, 1000);
+    assert_eq!(fee_amount, 0);
+    assert_eq!(net_amount, 1);
+    assert!(fee_amount <= 1);
+}
+
+#[test]
+fn test_treasury_balance_accumulates_across_sessions() {
+    // #1096 - complete_session credits the settlement fee into
+    // PlatformState::treasury_balance, so the cumulative treasury equals the
+    // sum of the fees from each completed session. This mirrors the exact
+    // arithmetic the instruction performs (calculate_settlement_fee).
+    let fee_bps: u32 = 500; // 5%
+    let session_amounts: [u64; 3] = [1_000, 2_500, 4_900];
+
+    let mut treasury_balance: u64 = 0;
+    for &amount in &session_amounts {
+        let (fee_amount, _net) = calculate_settlement_fee(amount, fee_bps);
+        treasury_balance = treasury_balance.saturating_add(fee_amount);
+    }
+
+    // 5% of 1000 + 2500 + 4900 = 50 + 125 + 245 = 420
+    assert_eq!(treasury_balance, 420);
 }
