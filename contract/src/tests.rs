@@ -382,3 +382,49 @@ fn test_session_expired_and_cancelled_event_shape() {
     assert_eq!(event.amount, 5_000);
     assert!(event.cancelled_at > event.expires_at);
 }
+
+#[test]
+fn test_rbac_predefined_roles_and_assignment() {
+    assert_eq!(DEFAULT_ADMIN_ROLE, [0u8; 32]);
+    assert_ne!(FEE_MANAGER_ROLE, DEFAULT_ADMIN_ROLE);
+    assert_ne!(DISPUTE_RESOLVER_ROLE, DEFAULT_ADMIN_ROLE);
+    assert_ne!(UPGRADER_ROLE, DEFAULT_ADMIN_ROLE);
+
+    let admin = Pubkey::new_unique();
+    let fee_manager = Pubkey::new_unique();
+    let other = Pubkey::new_unique();
+
+    let role_assignment = RoleAssignment {
+        role: FEE_MANAGER_ROLE,
+        account: fee_manager,
+        granted_at: 1_700_000_000,
+        is_active: true,
+    };
+
+    // fee_manager has FEE_MANAGER_ROLE
+    assert!(role_assignment.has_role(FEE_MANAGER_ROLE, &fee_manager));
+    // other does not have FEE_MANAGER_ROLE
+    assert!(!role_assignment.has_role(FEE_MANAGER_ROLE, &other));
+
+    // Admin passes check_role directly
+    assert!(check_role(&admin, None, &admin, FEE_MANAGER_ROLE).is_ok());
+    // fee_manager passes check_role with assignment
+    assert!(check_role(&admin, Some(&role_assignment), &fee_manager, FEE_MANAGER_ROLE).is_ok());
+    // other fails check_role
+    assert!(check_role(&admin, None, &other, FEE_MANAGER_ROLE).is_err());
+}
+
+#[test]
+fn test_timeout_and_dispute_error_codes() {
+    // Verify timeout and dispute error codes (500-503)
+    let err_window = ErrorCode::DisputeWindowNotElapsed;
+    let err_already_open = ErrorCode::DisputeAlreadyOpen;
+    let err_not_open = ErrorCode::DisputeNotOpen;
+    let err_not_allowed = ErrorCode::ResolutionNotAllowed;
+
+    assert_eq!(err_window as u32, 500);
+    assert_eq!(err_already_open as u32, 501);
+    assert_eq!(err_not_open as u32, 502);
+    assert_eq!(err_not_allowed as u32, 503);
+}
+

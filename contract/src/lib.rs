@@ -10,6 +10,48 @@ const DISPUTE_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60; // 7 days
 /// (~7 days, matching the issue's "30,000 ledgers" figure expressed in seconds).
 const DEFAULT_MAX_SESSION_DURATION_SECONDS: i64 = 7 * 24 * 60 * 60; // 7 days
 
+/// Predefined RBAC Roles
+pub const DEFAULT_ADMIN_ROLE: [u8; 32] = [0u8; 32];
+pub const FEE_MANAGER_ROLE: [u8; 32] = *b"ROLE_FEE_MANAGER________________";
+pub const DISPUTE_RESOLVER_ROLE: [u8; 32] = *b"ROLE_DISPUTE_RESOLVER___________";
+pub const UPGRADER_ROLE: [u8; 32] = *b"ROLE_UPGRADER___________________";
+
+/// Role assignment account for multi-role RBAC
+#[account]
+#[derive(InitSpace)]
+pub struct RoleAssignment {
+    pub role: [u8; 32],
+    pub account: Pubkey,
+    pub granted_at: i64,
+    pub is_active: bool,
+}
+
+impl RoleAssignment {
+    pub fn has_role(&self, role: [u8; 32], account: &Pubkey) -> bool {
+        self.is_active
+            && self.account == *account
+            && (self.role == role || self.role == DEFAULT_ADMIN_ROLE)
+    }
+}
+
+/// Helper function to check role permissions (only_role modifier logic)
+pub fn check_role(
+    admin: &Pubkey,
+    role_assignment: Option<&Account<RoleAssignment>>,
+    signer: &Pubkey,
+    required_role: [u8; 32],
+) -> Result<()> {
+    if *admin == *signer {
+        return Ok(());
+    }
+    if let Some(assignment) = role_assignment {
+        if assignment.has_role(required_role, signer) {
+            return Ok(());
+        }
+    }
+    Err(ErrorCode::Unauthorized.into())
+}
+
 /// Session status enum representing all possible states of an escrow session
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
 pub enum SessionStatus {
@@ -212,6 +254,74 @@ pub mod skill_sync {
         });
 
         Ok(())
+    }
+
+    /// Grant a role to an account (admin only)
+    pub fn grant_role(
+        ctx: Context<GrantRole>,
+        role: [u8; 32],
+        account: Pubkey,
+    ) -> Result<()> {
+        let admin = ctx.accounts.admin.key();
+        if ctx.accounts.platform_state.admin != admin {
+            return Err(ErrorCode::NotAdmin.into());
+        }
+
+        let role_assignment = &mut ctx.accounts.role_assignment;
+        let now = Clock::get()?.unix_timestamp;
+        role_assignment.role = role;
+        role_assignment.account = account;
+        role_assignment.granted_at = now;
+        role_assignment.is_active = true;
+
+        emit!(RoleGranted {
+            role,
+            account,
+            granted_by: admin,
+            granted_at: now,
+        });
+
+        Ok(())
+    }
+
+    /// Revoke a role from an account (admin only)
+    pub fn revoke_role(
+        ctx: Context<RevokeRole>,
+        role: [u8; 32],
+        account: Pubkey,
+    ) -> Result<()> {
+        let admin = ctx.accounts.admin.key();
+        if ctx.accounts.platform_state.admin != admin {
+            return Err(ErrorCode::NotAdmin.into());
+        }
+
+        let now = Clock::get()?.unix_timestamp;
+
+        emit!(RoleRevoked {
+            role,
+            account,
+            revoked_by: admin,
+            revoked_at: now,
+        });
+
+        Ok(())
+    }
+
+    /// View function to check if an account has a specific role
+    pub fn has_role(
+        ctx: Context<HasRoleContext>,
+        role: [u8; 32],
+        account: Pubkey,
+    ) -> Result<bool> {
+        if ctx.accounts.platform_state.admin == account {
+            return Ok(true);
+        }
+        if let Some(assignment) = &ctx.accounts.role_assignment {
+            if assignment.has_role(role, &account) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Admin only function to set the maximum lifetime of a Locked session, in
@@ -476,9 +586,13 @@ pub mod skill_sync {
     pub fn raise_dispute(ctx: Context<UpdateSession>) -> Result<()> {
         let session = &mut ctx.accounts.session;
 
+        if session.status == SessionStatus::Disputed {
+            return Err(ErrorCode::DisputeAlreadyOpen.into());
+        }
+
         // Can only dispute locked sessions
         if session.status != SessionStatus::Locked {
-            return Err(ErrorCode::InvalidSessionState.into());
+            return Err(ErrorCode::ResolutionNotAllowed.into());
         }
 
         // Update session status to disputed
@@ -505,8 +619,12 @@ pub mod skill_sync {
             return Err(ErrorCode::Unauthorized.into());
         }
 
+        if session.status == SessionStatus::Disputed {
+            return Err(ErrorCode::DisputeAlreadyOpen.into());
+        }
+
         if session.status != SessionStatus::Completed && session.status != SessionStatus::Locked {
-            return Err(ErrorCode::InvalidSessionState.into());
+            return Err(ErrorCode::ResolutionNotAllowed.into());
         }
 
         let now = Clock::get()?.unix_timestamp;
@@ -546,7 +664,7 @@ pub mod skill_sync {
 
         // Can only resolve disputed sessions
         if session.status != SessionStatus::Disputed {
-            return Err(ErrorCode::InvalidSessionState.into());
+            return Err(ErrorCode::DisputeNotOpen.into());
         }
 
         // Total shares must equal the original locked amount
@@ -719,6 +837,67 @@ pub struct ResolveDispute<'info> {
     pub signer: Signer<'info>,
 }
 
+#[derive(Accounts)]
+#[instruction(role: [u8; 32], account: Pubkey)]
+pub struct GrantRole<'info> {
+    #[account(mut)]
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + RoleAssignment::INIT_SPACE,
+        seeds = [b"role", role.as_ref(), account.as_ref()],
+        bump
+    )]
+    pub role_assignment: Account<'info, RoleAssignment>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(role: [u8; 32], account: Pubkey)]
+pub struct RevokeRole<'info> {
+    #[account(mut)]
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(
+        mut,
+        seeds = [b"role", role.as_ref(), account.as_ref()],
+        bump,
+        close = admin
+    )]
+    pub role_assignment: Account<'info, RoleAssignment>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
+#[instruction(role: [u8; 32], account: Pubkey)]
+pub struct HasRoleContext<'info> {
+    #[account(
+        seeds = [b"role", role.as_ref(), account.as_ref()],
+        bump
+    )]
+    pub role_assignment: Option<Account<'info, RoleAssignment>>,
+    pub platform_state: Account<'info, PlatformState>,
+}
+
+#[event]
+pub struct RoleGranted {
+    pub role: [u8; 32],
+    pub account: Pubkey,
+    pub granted_by: Pubkey,
+    pub granted_at: i64,
+}
+
+#[event]
+pub struct RoleRevoked {
+    pub role: [u8; 32],
+    pub account: Pubkey,
+    pub revoked_by: Pubkey,
+    pub revoked_at: i64,
+}
+
 #[event]
 pub struct PlatformFeeUpdated {
     pub previous_fee: u32,
@@ -834,7 +1013,13 @@ pub enum ErrorCode {
     #[msg("Unauthorized: Only the session seller can perform this action")]
     NotSeller,
     #[msg("Dispute window has not elapsed yet")]
-    DisputeWindowNotElapsed,
+    DisputeWindowNotElapsed = 500,
+    #[msg("Dispute already exists for session")]
+    DisputeAlreadyOpen = 501,
+    #[msg("No open dispute to resolve")]
+    DisputeNotOpen = 502,
+    #[msg("Session not eligible for resolution")]
+    ResolutionNotAllowed = 503,
     #[msg("Buyer and seller shares must sum to the original session amount")]
     InvalidShareSplit,
     #[msg("Session has expired and can no longer be completed or approved")]
