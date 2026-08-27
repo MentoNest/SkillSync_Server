@@ -62,6 +62,17 @@ impl Session {
         session_account.dispute_opened_at = None;
     }
 
+    /// Whether a session is eligible for a buyer-initiated refund.
+    ///
+    /// A session can only be refunded while it is still in `Locked` (before the
+    /// seller completes) or `Disputed`. Once it reaches a final state —
+    /// `Completed`, `Approved`, `Refunded`, or `Resolved` — a refund is no
+    /// longer permitted. The platform settlement fee is never applied on a
+    /// refund: the buyer is returned the full locked `amount`.
+    pub fn can_refund(status: SessionStatus) -> bool {
+        matches!(status, SessionStatus::Locked | SessionStatus::Disputed)
+    }
+
     /// Update session status
     pub fn update_status(session_account: &mut Account<Session>, new_status: SessionStatus) -> Result<()> {
         let current_timestamp = Clock::get()?.unix_timestamp;
@@ -259,11 +270,14 @@ pub mod skill_sync {
             return Err(ErrorCode::Unauthorized.into());
         }
 
-        // Check session not already refunded or otherwise finalized
+        // Check session not already refunded or otherwise finalized. The full
+        // locked amount is returned (no fee is ever deducted on a refund), and
+        // terminal states (Completed, Approved, Refunded, Resolved) cannot be
+        // refunded.
         if session.status == SessionStatus::Refunded {
             return Err(ErrorCode::SessionAlreadyRefunded.into());
         }
-        if session.status != SessionStatus::Locked && session.status != SessionStatus::Disputed {
+        if !Session::can_refund(session.status) {
             return Err(ErrorCode::InvalidSessionState.into());
         }
 
