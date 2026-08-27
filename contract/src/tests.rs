@@ -230,11 +230,13 @@ fn test_platform_state_initialization_fields() {
         admin,
         platform_fee_bps: initial_fee_bps,
         session_counter: 0,
+        treasury_balance: 0,
     };
 
     assert_eq!(platform_state.admin, admin);
     assert_eq!(platform_state.platform_fee_bps, initial_fee_bps);
     assert_eq!(platform_state.session_counter, 0);
+    assert_eq!(platform_state.treasury_balance, 0);
 }
 
 #[test]

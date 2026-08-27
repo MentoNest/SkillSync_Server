@@ -100,6 +100,7 @@ pub struct PlatformState {
     pub admin: Pubkey,
     pub platform_fee_bps: u32, // Stored in basis points (1 bps = 0.01%)
     pub session_counter: u64,  // Counter to generate unique session IDs
+    pub treasury_balance: u64, // Cumulative platform fees collected into the treasury
 }
 
 /// Split a session amount into (fee_amount, net_amount) given a platform fee in basis points.
@@ -127,6 +128,7 @@ pub mod skill_sync {
         platform_state.admin = ctx.accounts.signer.key();
         platform_state.platform_fee_bps = initial_fee_bps;
         platform_state.session_counter = 0;
+        platform_state.treasury_balance = 0;
         
         emit!(PlatformFeeUpdated {
             previous_fee: 0,
@@ -219,7 +221,8 @@ pub mod skill_sync {
     /// Deducts the platform settlement fee (in bps) from the session amount.
     pub fn complete_session(ctx: Context<CompleteSession>) -> Result<()> {
         let session = &mut ctx.accounts.session;
-        let platform_fee_bps = ctx.accounts.platform_state.platform_fee_bps;
+        let platform_state = &mut ctx.accounts.platform_state;
+        let platform_fee_bps = platform_state.platform_fee_bps;
 
         // Cannot reuse an already completed session
         if session.status != SessionStatus::Locked {
@@ -227,6 +230,12 @@ pub mod skill_sync {
         }
 
         let (fee_amount, net_amount) = calculate_settlement_fee(session.amount, platform_fee_bps);
+
+        // Accumulate the settlement fee into the cumulative treasury balance so
+        // it can be tracked across many sessions.
+        platform_state.treasury_balance = platform_state
+            .treasury_balance
+            .saturating_add(fee_amount);
 
         // Update session status to completed
         Session::update_status(session, SessionStatus::Completed)?;
@@ -458,6 +467,7 @@ pub struct UpdateSession<'info> {
 pub struct CompleteSession<'info> {
     #[account(mut)]
     pub session: Account<'info, Session>,
+    #[account(mut)]
     pub platform_state: Account<'info, PlatformState>,
     pub signer: Signer<'info>,
 }
