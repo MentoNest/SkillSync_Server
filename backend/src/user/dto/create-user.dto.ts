@@ -12,13 +12,13 @@ import { ProfileType } from '../entities/user.entity';
 
 export class CreateUserDto {
   @ApiPropertyOptional({
-    description: 'Ethereum-compatible wallet address',
-    example: '0x71C841832047387195060979DC80EbbE62DCE35B',
+    description: 'Stellar wallet address (Ed25519 public key, G-address)',
+    example: 'GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ',
   })
   @IsOptional()
   @IsString()
-  @Matches(/^0x[a-fA-F0-9]{40}$/, {
-    message: 'walletAddress must be a valid 42-character Ethereum address',
+  @Matches(/^G[A-Z2-7]{55}$/, {
+    message: 'walletAddress must be a valid 56-character Stellar public key (G-address)',
   })
   walletAddress?: string;
 

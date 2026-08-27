@@ -17,7 +17,8 @@ import { User, ProfileType } from '../user/entities/user.entity';
 import { RedisService } from './services/redis.service';
 import { NotificationService } from './services/notification.service';
 import { SuspiciousDetectionService } from './services/suspicious-detection.service';
-import { LoginDto } from './dto/login.dto';
+import { WalletStrategy } from './strategies/wallet.strategy';
+import { LoginDto, StellarNetwork } from './dto/login.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { NonceResponseDto } from './dto/nonce-response.dto';
 import { RevokeAllResponseDto } from './dto/revoke-all-response.dto';
@@ -37,27 +38,36 @@ export class AuthService {
     private readonly redisService: RedisService,
     private readonly notificationService: NotificationService,
     private readonly suspiciousDetectionService: SuspiciousDetectionService,
+    private readonly walletStrategy: WalletStrategy,
   ) {}
 
+  private static readonly NONCE_TTL_SECONDS = 300; // 5 minutes
+
   /**
-   * Generate one-time cryptographic nonce challenge for wallet authentication
+   * #1146: Generate one-time cryptographic nonce challenge for Stellar wallet authentication.
+   * The nonce is a 256-bit random value (hex encoded) stored in Redis under
+   * `nonce:{walletAddress}` with a 5 minute TTL. Requesting a new nonce for the
+   * same wallet overwrites (invalidates) any previously issued unused nonce.
    */
   async generateNonce(walletAddress: string): Promise<NonceResponseDto> {
-    if (!walletAddress || !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
-      throw new BadRequestException('Valid 42-character Ethereum wallet address is required');
+    if (!this.walletStrategy.isValidAddress(walletAddress)) {
+      throw new BadRequestException('Valid Stellar wallet address (56-character G-address) is required');
     }
 
-    const normalizedAddress = walletAddress.toLowerCase();
-    const nonce = `Sign this one-time challenge to authenticate with SkillSync: ${crypto.randomBytes(16).toString('hex')}`;
-    const ttlSeconds = 300; // 5 minutes
+    const normalizedAddress = walletAddress.trim().toLowerCase();
+    const nonce = crypto.randomBytes(32).toString('hex'); // 256 bits of entropy
+    const expiresAt = new Date(Date.now() + AuthService.NONCE_TTL_SECONDS * 1000);
 
-    await this.redisService.set(`nonce:${normalizedAddress}`, nonce, ttlSeconds);
+    await this.redisService.set(
+      `nonce:${normalizedAddress}`,
+      JSON.stringify({ nonce, expiresAt: expiresAt.toISOString() }),
+      AuthService.NONCE_TTL_SECONDS,
+    );
 
     return {
       walletAddress: normalizedAddress,
       nonce,
-      issuedAt: new Date(),
-      expiresInSeconds: ttlSeconds,
+      expiresAt,
     };
   }
 
@@ -72,32 +82,7 @@ export class AuthService {
     let user: User | null = null;
 
     if (loginDto.walletAddress) {
-      const normalizedWallet = loginDto.walletAddress.toLowerCase();
-      const expectedNonce = await this.redisService.get(`nonce:${normalizedWallet}`);
-
-      if (!loginDto.signature) {
-        await this.suspiciousDetectionService.recordFailedLogin({
-          walletAddress: normalizedWallet,
-          ipAddress,
-          userAgent,
-          reason: 'MISSING_WALLET_SIGNATURE',
-        });
-        throw new BadRequestException('Cryptographic signature is required for wallet login');
-      }
-
-      // Check if user exists or auto-provision
-      user = await this.userService.findByWalletAddress(normalizedWallet);
-      if (!user) {
-        // Auto create user on first wallet connect
-        const created = await this.userService.create({
-          walletAddress: normalizedWallet,
-          profileType: ProfileType.MENTEE,
-        });
-        user = await this.userService.findById(created.id);
-      }
-
-      // Consume nonce
-      await this.redisService.del(`nonce:${normalizedWallet}`);
+      user = await this.loginWithWalletSignature(loginDto, ipAddress, userAgent);
     } else if (loginDto.email && loginDto.password) {
       user = await this.userService.findByEmail(loginDto.email);
       if (!user) {
@@ -155,6 +140,133 @@ export class AuthService {
     await this.userService.recordLogin(user.id, ipAddress);
 
     return this.generateTokens(user, ipAddress, userAgent);
+  }
+
+  /**
+   * #1147: Verify a Stellar wallet signature over the issued nonce.
+   * - Expiration is checked before verification (expired nonces are rejected).
+   * - The used nonce is deleted from Redis immediately after the verification
+   *   attempt (regardless of outcome) to prevent replay attacks.
+   * - Invalid signatures return 401 Unauthorized with a clear message.
+   * - Successful verification creates/retrieves the user account automatically.
+   * - Every attempt (success/failure) is recorded in the audit log.
+   */
+  private async loginWithWalletSignature(
+    loginDto: LoginDto,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<User> {
+    const normalizedWallet = loginDto.walletAddress!.trim().toLowerCase();
+    const redisKey = `nonce:${normalizedWallet}`;
+    const network = loginDto.network || StellarNetwork.MAINNET;
+
+    const fail = async (message: string, reason: string): Promise<never> => {
+      await this.recordLoginAudit({
+        walletAddress: normalizedWallet,
+        ipAddress,
+        userAgent,
+        eventType: 'login_failed',
+        network,
+        reason,
+      });
+      await this.suspiciousDetectionService.recordFailedLogin({
+        walletAddress: normalizedWallet,
+        ipAddress,
+        userAgent,
+        reason,
+      });
+      throw new UnauthorizedException(message);
+    };
+
+    // Nonce expiration is checked before any signature verification
+    const storedRaw = await this.redisService.get(redisKey);
+    if (!storedRaw) {
+      return fail('Nonce expired or not found. Request a new nonce via GET /auth/nonce/:walletAddress', 'NONCE_EXPIRED_OR_MISSING');
+    }
+
+    let storedNonce: { nonce: string; expiresAt: string };
+    try {
+      storedNonce = JSON.parse(storedRaw);
+    } catch {
+      return fail('Nonce expired or not found. Request a new nonce via GET /auth/nonce/:walletAddress', 'NONCE_CORRUPTED');
+    }
+
+    // Invalidate the nonce immediately after this verification attempt (replay protection)
+    await this.redisService.del(redisKey);
+
+    if (!storedNonce?.nonce || new Date(storedNonce.expiresAt).getTime() <= Date.now()) {
+      return fail('Nonce has expired. Request a new nonce via GET /auth/nonce/:walletAddress', 'NONCE_EXPIRED');
+    }
+
+    if (loginDto.nonce && loginDto.nonce !== storedNonce.nonce) {
+      return fail('Provided nonce does not match the issued challenge', 'NONCE_MISMATCH');
+    }
+
+    if (!loginDto.signature) {
+      return fail('Cryptographic signature is required for wallet login', 'MISSING_WALLET_SIGNATURE');
+    }
+
+    // Recover/verify the signature with the Stellar SDK (StrKey + Keypair.verify)
+    const signatureValid = this.walletStrategy.verifySignature(
+      normalizedWallet,
+      storedNonce.nonce,
+      loginDto.signature,
+    );
+    if (!signatureValid) {
+      return fail('Invalid wallet signature. Signature verification failed for the provided nonce', 'INVALID_SIGNATURE');
+    }
+
+    // Retrieve or auto-provision the user account
+    let user = await this.userService.findByWalletAddress(normalizedWallet);
+    if (!user) {
+      const created = await this.userService.create({
+        walletAddress: normalizedWallet,
+        profileType: ProfileType.MENTEE,
+      });
+      user = await this.userService.findById(created.id);
+    }
+
+    await this.recordLoginAudit({
+      walletAddress: normalizedWallet,
+      userId: user.id,
+      ipAddress,
+      userAgent,
+      eventType: 'login_success',
+      network,
+    });
+
+    return user;
+  }
+
+  /**
+   * #1147: Create an audit log entry for each wallet login attempt.
+   */
+  private async recordLoginAudit(params: {
+    walletAddress: string;
+    userId?: string;
+    ipAddress?: string;
+    userAgent?: string;
+    eventType: 'login_success' | 'login_failed';
+    network: StellarNetwork;
+    reason?: string;
+  }): Promise<void> {
+    const geo = this.suspiciousDetectionService.getGeoLocation(params.ipAddress);
+    await this.auditLogRepository.save(
+      this.auditLogRepository.create({
+        userId: params.userId || null,
+        walletAddress: params.walletAddress,
+        ipAddress: params.ipAddress || null,
+        eventType: params.eventType,
+        isSuspicious: params.eventType === 'login_failed',
+        suspiciousReason: params.reason || null,
+        geoCountry: geo.country,
+        geoCity: geo.city,
+        geoLat: geo.lat,
+        geoLon: geo.lon,
+        userAgent: params.userAgent || null,
+        metadata: { method: 'stellar_wallet', network: params.network, reason: params.reason || null },
+      }),
+    );
   }
 
   /**

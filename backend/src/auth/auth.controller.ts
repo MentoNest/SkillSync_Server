@@ -35,6 +35,8 @@ import { Roles } from '../decorators/roles.decorator';
 import { CurrentUser } from '../user/decorators/current-user.decorator';
 import { User } from '../user/entities/user.entity';
 import { RevokeAllRateLimitGuard } from './guards/revoke-all-rate-limit.guard';
+import { NonceRateLimitGuard } from './guards/nonce-rate-limit.guard';
+import { WalletLoginRateLimitGuard } from './guards/wallet-login-rate-limit.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -47,29 +49,34 @@ export class AuthController {
   // Wallet Authentication Endpoints
   // ---------------------------------------------------------------------------
   @ApiTags('Wallet')
-  @Get('nonce/:wallet')
+  @Get('nonce/:walletAddress')
+  @UseGuards(NonceRateLimitGuard)
   @ApiOperation({
-    summary: 'Request cryptographic nonce challenge for wallet signature',
+    summary: 'Request cryptographic nonce challenge for Stellar wallet signature (#1146)',
     description:
-      'Generates a unique, one-time cryptographic nonce for a given Ethereum-compatible wallet address. The challenge expires in 5 minutes and must be signed by the user wallet private key.',
+      'Generates a unique, one-time cryptographic nonce (256-bit, crypto.randomBytes(32)) for a given Stellar wallet address. The nonce is stored in Redis under nonce:{walletAddress} with a 5 minute TTL and must be signed with the wallet private key. Requesting a new nonce invalidates any previous unused nonce. Rate limited to 5 requests per minute per wallet.',
   })
   @ApiParam({
-    name: 'wallet',
-    description: '42-character Ethereum hex wallet address',
-    example: '0x71C841832047387195060979DC80EbbE62DCE35B',
+    name: 'walletAddress',
+    description: '56-character Stellar Ed25519 public key (G-address)',
+    example: 'GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Nonce challenge generated successfully',
+    description: 'Nonce challenge generated successfully ({ nonce, expiresAt })',
     type: NonceResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid wallet address format (must be 42 characters hex starting with 0x)',
+    description: 'Invalid Stellar wallet address format (must be a 56-character G-address)',
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded (maximum 5 nonce requests per minute per wallet)',
   })
   @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Internal server error' })
-  async getNonce(@Param('wallet') wallet: string): Promise<NonceResponseDto> {
-    return this.authService.generateNonce(wallet);
+  async getNonce(@Param('walletAddress') walletAddress: string): Promise<NonceResponseDto> {
+    return this.authService.generateNonce(walletAddress);
   }
 
   // ---------------------------------------------------------------------------
@@ -77,11 +84,12 @@ export class AuthController {
   // ---------------------------------------------------------------------------
   @ApiTags('Authentication')
   @Post('login')
+  @UseGuards(WalletLoginRateLimitGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Authenticate user with wallet signature or email credentials',
+    summary: 'Authenticate user with Stellar wallet signature or email credentials (#1147)',
     description:
-      'Validates credentials, evaluates suspicious login indicators (IP anomalies, distance jumps, failed attempts), provisions/retrieves user profile, and returns access and refresh JWT tokens.',
+      'Verifies a Stellar wallet signature over the previously issued nonce using the Stellar SDK (StrKey + Keypair.verify). The nonce is invalidated immediately after the verification attempt to prevent replay attacks. Successful login creates/retrieves the user account and returns access and refresh tokens. Every attempt is audit logged. Rate limited to 10 attempts per 15 minutes per wallet.',
   })
   @ApiBody({ type: LoginDto })
   @ApiResponse({
@@ -91,15 +99,19 @@ export class AuthController {
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
-    description: 'Missing required credentials or invalid signature',
+    description: 'Missing required credentials',
   })
   @ApiResponse({
     status: HttpStatus.UNAUTHORIZED,
-    description: 'Invalid email or password / authentication failed',
+    description: 'Invalid signature, expired/missing nonce, or invalid email/password',
   })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'Account locked due to consecutive failed attempts or suspicious activity',
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded (maximum 10 login attempts per 15 minutes per wallet)',
   })
   @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Internal server error' })
   async login(
