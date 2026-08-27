@@ -382,3 +382,28 @@ fn test_session_expired_and_cancelled_event_shape() {
     assert_eq!(event.amount, 5_000);
     assert!(event.cancelled_at > event.expires_at);
 }
+
+#[test]
+fn test_financial_error_codes_defined() {
+    // Verify financial validation errors (InvalidAmount, InsufficientBalance, FeeTooHigh, InvalidSplit, Overflow)
+    let _err_amount = ErrorCode::InvalidAmount;
+    let _err_balance = ErrorCode::InsufficientBalance;
+    let _err_fee = ErrorCode::FeeTooHigh;
+    let _err_split = ErrorCode::InvalidSplit;
+    let _err_overflow = ErrorCode::Overflow;
+}
+
+#[test]
+fn test_settlement_fee_calculation_zero_and_max() {
+    // Zero fee
+    let (fee, net) = calculate_settlement_fee(10_000, 0);
+    assert_eq!(fee, 0);
+    assert_eq!(net, 10_000);
+
+    // Max fee (10% = 1000 bps)
+    let (fee_max, net_max) = calculate_settlement_fee(10_000, 1000);
+    assert_eq!(fee_max, 1_000);
+    assert_eq!(net_max, 9_000);
+    assert_eq!(fee_max + net_max, 10_000);
+}
+

@@ -825,6 +825,14 @@ pub enum ErrorCode {
     SessionAlreadyRefunded,
     #[msg("Invalid amount provided")]
     InvalidAmount,
+    #[msg("Insufficient balance for operation")]
+    InsufficientBalance,
+    #[msg("Platform fee exceeds allowed maximum")]
+    FeeTooHigh,
+    #[msg("Invalid split amounts for session settlement")]
+    InvalidSplit,
+    #[msg("Arithmetic overflow occurred")]
+    Overflow,
     #[msg("Unauthorized: caller is not authorized for this action")]
     Unauthorized,
     #[msg("Unauthorized: Only admin can perform this action")]
