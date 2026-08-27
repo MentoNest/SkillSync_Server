@@ -1,290 +1,18 @@
-#![no_std]
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, token,
-    Address, BytesN, Env, IntoVal, Symbol, Vec,
-};
+use anchor_lang::prelude::*;
 
-// ============================================================================
-// Single Session Escrow Contract (Contract)
-// ============================================================================
+declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"); // Default dummy ID, replace with your own
 
-#[contracttype]
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum SingleSessionState {
-    Pending,
-    Locked,
-    Completed,
-    Disputed,
-    Refunded,
-}
+/// Window after completion during which a session can still be disputed;
+/// past this, anyone may trigger an auto-refund on a stuck Completed session.
+const DISPUTE_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60; // 7 days
 
-#[contract]
-pub struct Contract;
+/// Default maximum lifetime of a Locked session before it can be auto-cancelled
+/// (~7 days, matching the issue's "30,000 ledgers" figure expressed in seconds).
+const DEFAULT_MAX_SESSION_DURATION_SECONDS: i64 = 7 * 24 * 60 * 60; // 7 days
 
-#[contractimpl]
-impl Contract {
-    pub fn init(env: Env, buyer: Address, seller: Address, amount: i128) {
-        env.storage().instance().set(&symbol_short!("buyer"), &buyer);
-        env.storage().instance().set(&symbol_short!("seller"), &seller);
-        env.storage().instance().set(&symbol_short!("amount"), &amount);
-        env.storage().instance().set(&symbol_short!("state"), &SingleSessionState::Pending);
-    }
-
-    pub fn lock(env: Env) {
-        let buyer: Address = env.storage().instance().get(&symbol_short!("buyer")).unwrap();
-        buyer.require_auth();
-        env.storage().instance().set(&symbol_short!("state"), &SingleSessionState::Locked);
-    }
-
-    pub fn complete(env: Env) {
-        let buyer: Address = env.storage().instance().get(&symbol_short!("buyer")).unwrap();
-        buyer.require_auth();
-        env.storage().instance().set(&symbol_short!("state"), &SingleSessionState::Completed);
-    }
-
-    pub fn approve(env: Env) {
-        let seller: Address = env.storage().instance().get(&symbol_short!("seller")).unwrap();
-        seller.require_auth();
-        env.storage().instance().set(&symbol_short!("state"), &SingleSessionState::Pending);
-    }
-
-    pub fn dispute(env: Env) {
-        let buyer: Address = env.storage().instance().get(&symbol_short!("buyer")).unwrap();
-        buyer.require_auth();
-        env.storage().instance().set(&symbol_short!("state"), &SingleSessionState::Disputed);
-    }
-
-    pub fn resolve(env: Env, admin: Address, _buyer_pct: u32) {
-        admin.require_auth();
-        env.storage().instance().set(&symbol_short!("state"), &SingleSessionState::Refunded);
-    }
-
-    pub fn refund(env: Env) {
-        env.storage().instance().set(&symbol_short!("state"), &SingleSessionState::Refunded);
-    }
-
-    pub fn get_state(env: Env) -> SingleSessionState {
-        env.storage()
-            .instance()
-            .get(&symbol_short!("state"))
-            .unwrap_or(SingleSessionState::Pending)
-    }
-}
-
-// ============================================================================
-// Multi Session Escrow Contract (EscrowContract)
-// ============================================================================
-
-pub const DISPUTE_WINDOW: u64 = 7 * 24 * 3600; // 7 days
-const BPS_DENOMINATOR: i128 = 10_000;
-const TREASURY_KEY: Symbol = symbol_short!("TREASURY");
-
-#[contracttype]
-#[derive(Clone)]
-pub enum DataKey {
-    Session(u64),
-    Admin,
-    PlatformFee,
-    Treasury,
-}
-
-#[contracttype]
-#[derive(Clone, PartialEq, Debug)]
-pub enum SessionState {
-    Locked,
-    Completed,
-    Approved,
-    Refunded,
-    AutoRefunded,
-}
-
-#[contracttype]
-#[derive(Clone)]
-pub struct Session {
-    pub buyer: Address,
-    pub seller: Address,
-    pub amount: i128,
-    pub state: SessionState,
-    pub completed_at: u64,
-}
-
-/// Result of splitting a session payment into seller and treasury portions.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FeeSplit {
-    pub seller_amount: i128,
-    pub treasury_amount: i128,
-}
-
-#[contract]
-pub struct EscrowContract;
-
-#[contractimpl]
-impl EscrowContract {
-    pub fn initialize(env: Env, admin: Address, treasury: Address) {
-        if env.storage().persistent().has(&DataKey::Admin) {
-            panic!("already initialized");
-        }
-        env.storage().persistent().set(&DataKey::Admin, &admin);
-        env.storage().persistent().set(&DataKey::Treasury, &treasury);
-        env.storage().persistent().set(&DataKey::PlatformFee, &0_u32);
-    }
-
-    pub fn set_treasury(env: Env, new_treasury: Address) {
-        let admin: Address = env.storage().persistent().get(&DataKey::Admin).expect("not initialized");
-        admin.require_auth();
-        env.storage().persistent().set(&DataKey::Treasury, &new_treasury);
-        env.events().publish((Symbol::new(&env, "TreasuryUpdated"),), new_treasury);
-    }
-
-    pub fn get_treasury(env: Env) -> Address {
-        env.storage().persistent().get(&DataKey::Treasury).expect("treasury not set")
-    }
-
-    pub fn set_platform_fee(env: Env, new_fee_bps: u32) {
-        let admin: Address = env.storage().persistent().get(&DataKey::Admin).expect("not initialized");
-        admin.require_auth();
-        if new_fee_bps > 1000 {
-            panic!("fee_bps must not exceed 1000");
-        }
-        env.storage().persistent().set(&DataKey::PlatformFee, &new_fee_bps);
-        env.events().publish((Symbol::new(&env, "PlatformFeeUpdated"),), new_fee_bps);
-    }
-
-    pub fn get_platform_fee(env: Env) -> u32 {
-        env.storage().persistent().get(&DataKey::PlatformFee).unwrap_or(0_u32)
-    }
-
-    pub fn lock_funds(env: Env, session_id: u64, buyer: Address, seller: Address, amount: i128, token_id: Address) {
-        buyer.require_auth();
-        assert!(amount > 0, "amount must be positive");
-        assert!(!env.storage().persistent().has(&DataKey::Session(session_id)), "duplicate session");
-        token::Client::new(&env, &token_id).transfer(&buyer, &env.current_contract_address(), &amount);
-        env.storage().persistent().set(
-            &DataKey::Session(session_id),
-            &Session {
-                buyer,
-                seller,
-                amount,
-                state: SessionState::Locked,
-                completed_at: 0,
-            },
-        );
-        env.events().publish((symbol_short!("LOCKED"), session_id), amount);
-    }
-
-    pub fn complete(env: Env, session_id: u64) {
-        let mut s: Session = env.storage().persistent().get(&DataKey::Session(session_id)).unwrap();
-        s.seller.require_auth();
-        assert_eq!(s.state, SessionState::Locked);
-        s.state = SessionState::Completed;
-        s.completed_at = env.ledger().timestamp();
-        env.storage().persistent().set(&DataKey::Session(session_id), &s);
-    }
-
-    pub fn approve(env: Env, session_id: u64, token_id: Address) {
-        let mut s: Session = env.storage().persistent().get(&DataKey::Session(session_id)).unwrap();
-        s.buyer.require_auth();
-        assert_eq!(s.state, SessionState::Completed);
-
-        let fee_bps = Self::get_platform_fee(env.clone());
-        let fee = s.amount * fee_bps as i128 / 10_000;
-        let payout = s.amount - fee;
-
-        let t = token::Client::new(&env, &token_id);
-        t.transfer(&env.current_contract_address(), &s.seller, &payout);
-        if fee > 0 {
-            let treasury = Self::get_treasury(env.clone());
-            t.transfer(&env.current_contract_address(), &treasury, &fee);
-        }
-        s.state = SessionState::Approved;
-        env.storage().persistent().set(&DataKey::Session(session_id), &s);
-    }
-
-    pub fn refund(env: Env, session_id: u64, token_id: Address) {
-        let mut s: Session = env.storage().persistent().get(&DataKey::Session(session_id)).unwrap();
-        s.buyer.require_auth();
-        assert_eq!(s.state, SessionState::Locked);
-        token::Client::new(&env, &token_id).transfer(&env.current_contract_address(), &s.buyer, &s.amount);
-        s.state = SessionState::Refunded;
-        env.storage().persistent().set(&DataKey::Session(session_id), &s);
-        env.events().publish((symbol_short!("REFUNDED"), session_id), s.amount);
-    }
-
-    pub fn auto_refund(env: Env, session_id: u64, token_id: Address) {
-        let mut s: Session = env.storage().persistent().get(&DataKey::Session(session_id)).unwrap();
-        assert_eq!(s.state, SessionState::Completed);
-        assert!(env.ledger().timestamp() >= s.completed_at + DISPUTE_WINDOW, "window not passed");
-        token::Client::new(&env, &token_id).transfer(&env.current_contract_address(), &s.buyer, &s.amount);
-        s.state = SessionState::AutoRefunded;
-        env.storage().persistent().set(&DataKey::Session(session_id), &s);
-        env.events().publish((symbol_short!("AUTOREF"), session_id), s.amount);
-    }
-
-    pub fn get_session(env: Env, session_id: u64) -> Session {
-        env.storage().persistent().get(&DataKey::Session(session_id)).unwrap()
-    }
-
-    /// Pure fee calculation. Splits `amount` between seller and treasury using
-    /// `fee_bps` (basis points; 10_000 bps == 100%).
-    ///
-    /// The treasury share is rounded DOWN to the smallest unit, so the seller
-    /// always receives any remainder. The treasury share can therefore never
-    /// exceed `amount` for valid inputs (`fee_bps <= 10_000`).
-    pub fn calculate_fee(amount: i128, fee_bps: u32) -> FeeSplit {
-        if amount < 0 {
-            panic!("amount must be non-negative");
-        }
-        if (fee_bps as i128) > BPS_DENOMINATOR {
-            panic!("fee_bps must not exceed 10000");
-        }
-
-        let treasury_amount = amount
-            .checked_mul(fee_bps as i128)
-            .expect("fee multiplication overflow")
-            / BPS_DENOMINATOR;
-        let seller_amount = amount - treasury_amount;
-
-        FeeSplit {
-            seller_amount,
-            treasury_amount,
-        }
-    }
-
-    /// Settles a single session payment: computes the split and adds the
-    /// treasury portion to the cumulative treasury balance held in instance
-    /// storage. Returns the resulting `FeeSplit`.
-    pub fn settle_session(env: Env, amount: i128, fee_bps: u32) -> FeeSplit {
-        let split = Self::calculate_fee(amount, fee_bps);
-        let current: i128 = env
-            .storage()
-            .instance()
-            .get(&TREASURY_KEY)
-            .unwrap_or(0);
-        env.storage()
-            .instance()
-            .set(&TREASURY_KEY, &(current + split.treasury_amount));
-        split
-    }
-
-    /// Returns the cumulative treasury balance accumulated across all
-    /// `settle_session` calls for this contract instance.
-    pub fn treasury_balance(env: Env) -> i128 {
-        env.storage().instance().get(&TREASURY_KEY).unwrap_or(0)
-    }
-}
-
-// ============================================================================
-// SkillSync Escrow Contract — issues #521 #522 #523 #525 #526 #527
-// ============================================================================
-
-pub type Bytes32 = BytesN<32>;
-pub const MAX_FEE_BPS: u32 = 1000;
-
-/// Session status enum (#525)
-#[contracttype]
-#[derive(Clone, PartialEq, Debug)]
-pub enum Status {
+/// Session status enum representing all possible states of an escrow session
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
+pub enum SessionStatus {
     Locked,
     Completed,
     Approved,
@@ -293,555 +21,834 @@ pub enum Status {
     Resolved,
 }
 
-/// Session struct (#525)
-#[contracttype]
-#[derive(Clone)]
-pub struct SessionData {
-    pub buyer: Address,
-    pub seller: Address,
-    pub amount: i128,
-    pub status: Status,
-    pub created_at: u64,
-    pub completed_at: u64,
-    pub dispute_resolved_at: u64,
-}
-
-#[contracttype]
-pub enum SkillSyncKey {
-    Session(Bytes32),
-    Admin,
-    DisputeWindow,
-    Treasury,
-    PlatformFee,
-}
-
-/// Error codes for SkillSyncEscrow (#526, financial validation errors)
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum EscrowError {
-    DuplicateSessionId = 1,
-    SessionNotFound = 2,
-    InvalidState = 3,
-    Unauthorized = 4,
-    // Financial validation errors
-    InvalidAmount = 400,
-    InsufficientBalance = 401,
-    FeeTooHigh = 402,
-    InvalidSplit = 403,
-    Overflow = 404,
-}
-
-const DEFAULT_DISPUTE_WINDOW: u32 = 1000;
-
-#[contract]
-pub struct SkillSyncEscrow;
-
-impl SkillSyncEscrow {
-    fn get_session_internal(env: &Env, id: &Bytes32) -> SessionData {
-        env.storage()
-            .persistent()
-            .get(&SkillSyncKey::Session(id.clone()))
-            .expect("session not found")
-    }
-
-    fn save_session_internal(env: &Env, id: &Bytes32, session: &SessionData) {
-        env.storage()
-            .persistent()
-            .set(&SkillSyncKey::Session(id.clone()), session);
+impl Default for SessionStatus {
+    fn default() -> Self {
+        SessionStatus::Locked
     }
 }
 
-#[contractimpl]
-impl SkillSyncEscrow {
-    pub fn initialize(env: Env, admin: Address) {
-        if env.storage().persistent().has(&SkillSyncKey::Admin) {
-            panic!("already initialized");
-        }
-        env.storage().persistent().set(&SkillSyncKey::Admin, &admin);
+/// Session struct containing all required fields for an escrow session
+#[account]
+#[derive(InitSpace)]
+pub struct Session {
+    pub buyer: Pubkey,
+    pub seller: Pubkey,
+    pub amount: u64,
+    pub status: SessionStatus,
+    pub created_at: i64,
+    pub expires_at: i64, // 0 until lock_funds sets it; then the absolute expiry
+    pub completed_at: Option<i64>,
+    pub dispute_resolved_at: Option<i64>,
+    pub dispute_opened_at: Option<i64>,
+}
+
+// Helper implementation for Session management
+impl Session {
+    /// Get a session (this is a helper that can be used to load the session account)
+    pub fn get_session(session_account: &Account<Session>) -> &Session {
+        session_account.into()
     }
 
-    // ── #525: session storage helpers ────────────────────────────────────────
-
-    pub fn get_session(env: Env, id: Bytes32) -> SessionData {
-        Self::get_session_internal(&env, &id)
-    }
-
-    pub fn save_session(env: Env, id: Bytes32, session: SessionData) {
-        let admin: Address = env
-            .storage()
-            .persistent()
-            .get(&SkillSyncKey::Admin)
-            .expect("not initialized");
-        admin.require_auth();
-        Self::save_session_internal(&env, &id, &session);
-    }
-
-    // ── #523 + #526 + Financial Validation: lock_funds ────────────────────────
-
-    /// Lock funds into a new escrow session.
-    /// Returns EscrowError::InvalidAmount if amount <= 0 (400).
-    /// Returns EscrowError::InsufficientBalance if buyer has insufficient balance (401).
-    /// Returns EscrowError::DuplicateSessionId if session_id already exists (#526).
-    pub fn lock_funds(
-        env: Env,
-        session_id: Bytes32,
-        buyer: Address,
-        seller: Address,
-        amount: i128,
-        token_id: Address,
+    /// Save or update a session (updates the session account data)
+    pub fn save_session(
+        session_account: &mut Account<Session>,
+        buyer: Pubkey,
+        seller: Pubkey,
+        amount: u64,
+        created_at: i64
     ) {
-        buyer.require_auth();
-        if amount <= 0 {
-            panic_with_error!(&env, EscrowError::InvalidAmount);
+        session_account.buyer = buyer;
+        session_account.seller = seller;
+        session_account.amount = amount;
+        session_account.status = SessionStatus::Locked;
+        session_account.created_at = created_at;
+        session_account.expires_at = 0; // set by lock_funds
+        session_account.completed_at = None;
+        session_account.dispute_resolved_at = None;
+        session_account.dispute_opened_at = None;
+    }
+
+    /// Whether the session has an expiry set and has already passed it.
+    pub fn is_expired(&self, now: i64) -> bool {
+        self.expires_at > 0 && now >= self.expires_at
+    }
+
+    /// Update session status
+    pub fn update_status(session_account: &mut Account<Session>, new_status: SessionStatus) -> Result<()> {
+        let current_timestamp = Clock::get()?.unix_timestamp;
+        
+        match new_status {
+            SessionStatus::Completed | SessionStatus::Approved | SessionStatus::Refunded => {
+                session_account.completed_at = Some(current_timestamp);
+            }
+            SessionStatus::Resolved => {
+                session_account.dispute_resolved_at = Some(current_timestamp);
+                session_account.completed_at = Some(current_timestamp);
+            }
+            _ => {}
         }
-        if env
-            .storage()
-            .persistent()
-            .has(&SkillSyncKey::Session(session_id.clone()))
-        {
-            panic!("DuplicateSessionId");
+        
+        session_account.status = new_status;
+        Ok(())
+    }
+}
+
+/// Platform state that holds platform-level configuration
+#[account]
+#[derive(InitSpace)]
+pub struct PlatformState {
+    pub admin: Pubkey,
+    pub platform_fee_bps: u32, // Stored in basis points (1 bps = 0.01%)
+    pub session_counter: u64,  // Counter to generate unique session IDs
+    pub max_session_duration_seconds: i64, // Max lifetime of a Locked session, in seconds
+}
+
+/// On-chain analytics for the escrow program. A single account holds the
+/// cumulative aggregates that back the read-only view functions, so the views
+/// never iterate accounts and are O(1).
+#[account]
+#[derive(InitSpace, Default)]
+pub struct EscrowAnalytics {
+    pub total_sessions: u64,           // Sessions ever created
+    pub total_locked_volume: u64,      // Sum of all session amounts ever locked
+    pub total_fees_collected: u64,     // Sum of platform fees collected on completion
+    pub active_sessions: u64,          // Sessions currently in Locked or Completed state
+    pub total_disputes: u64,           // Disputes ever opened
+    pub total_resolution_time: u64,    // Cumulative seconds to resolve disputes
+}
+
+impl EscrowAnalytics {
+    /// A new session starts in `Locked` and so is immediately active.
+    pub fn record_session_created(&mut self, amount: u64) {
+        self.total_sessions = self.total_sessions.saturating_add(1);
+        self.total_locked_volume = self.total_locked_volume.saturating_add(amount);
+        self.active_sessions = self.active_sessions.saturating_add(1);
+    }
+
+    /// A session leaves the active set (leaves `Locked` or `Completed`).
+    pub fn record_session_deactivated(&mut self) {
+        self.active_sessions = self.active_sessions.saturating_sub(1);
+    }
+
+    /// A completion collects a platform fee into the aggregate.
+    pub fn record_fee_collected(&mut self, fee_amount: u64) {
+        self.total_fees_collected = self.total_fees_collected.saturating_add(fee_amount);
+    }
+
+    /// A dispute is opened; it also moves the session out of the active set.
+    pub fn record_dispute_opened(&mut self) {
+        self.total_disputes = self.total_disputes.saturating_add(1);
+        self.record_session_deactivated();
+    }
+
+    /// A dispute is resolved after `resolution_time` seconds.
+    pub fn record_resolution(&mut self, resolution_time: u64) {
+        self.total_resolution_time = self
+            .total_resolution_time
+            .saturating_add(resolution_time);
+    }
+
+    /// Average dispute resolution time in seconds; 0 when no dispute was opened.
+    pub fn average_resolution_time(&self) -> u64 {
+        if self.total_disputes == 0 {
+            0
+        } else {
+            self.total_resolution_time / self.total_disputes
+        }
+    }
+}
+
+/// Split a session amount into (fee_amount, net_amount) given a platform fee in basis points.
+pub fn calculate_settlement_fee(amount: u64, fee_bps: u32) -> (u64, u64) {
+    let fee_amount = (amount as u128)
+        .saturating_mul(fee_bps as u128)
+        .checked_div(10_000)
+        .unwrap_or(0) as u64;
+    let net_amount = amount.saturating_sub(fee_amount);
+    (fee_amount, net_amount)
+}
+
+#[program]
+pub mod skill_sync {
+    use super::*;
+
+    /// Initialize the platform state with initial fee
+    pub fn initialize(ctx: Context<Initialize>, initial_fee_bps: u32) -> Result<()> {
+        // Validate initial fee
+        if initial_fee_bps > 1000 {
+            return Err(ErrorCode::FeeOutOfBounds.into());
+        }
+        
+        let platform_state = &mut ctx.accounts.platform_state;
+        platform_state.admin = ctx.accounts.signer.key();
+        platform_state.platform_fee_bps = initial_fee_bps;
+        platform_state.session_counter = 0;
+        platform_state.max_session_duration_seconds = DEFAULT_MAX_SESSION_DURATION_SECONDS;
+        
+        emit!(PlatformFeeUpdated {
+            previous_fee: 0,
+            new_fee: initial_fee_bps,
+            updated_by: ctx.accounts.signer.key(),
+        });
+        
+        Ok(())
+    }
+
+    /// Admin only function to update the platform fee
+    pub fn set_platform_fee(ctx: Context<SetPlatformFee>, new_fee_bps: u32) -> Result<()> {
+        // Validate new fee is between 0 and 1000 bps (0-10%)
+        if new_fee_bps > 1000 {
+            return Err(ErrorCode::FeeOutOfBounds.into());
         }
 
-        let token_client = token::Client::new(&env, &token_id);
-        if token_client.balance(&buyer) < amount {
-            panic_with_error!(&env, EscrowError::InsufficientBalance);
+        let platform_state = &mut ctx.accounts.platform_state;
+        let previous_fee = platform_state.platform_fee_bps;
+        platform_state.platform_fee_bps = new_fee_bps;
+
+        emit!(PlatformFeeUpdated {
+            previous_fee,
+            new_fee: new_fee_bps,
+            updated_by: ctx.accounts.signer.key(),
+        });
+
+        Ok(())
+    }
+
+    /// Admin only function to set the maximum lifetime of a Locked session, in
+    /// seconds. After this many seconds past locking, an unreleased session can
+    /// be cancelled by anyone via cancel_expired_session.
+    pub fn set_max_session_duration(
+        ctx: Context<SetMaxSessionDuration>,
+        duration_seconds: i64,
+    ) -> Result<()> {
+        if duration_seconds <= 0 {
+            return Err(ErrorCode::InvalidMaxSessionDuration.into());
         }
 
-        token_client.transfer(
-            &buyer,
-            &env.current_contract_address(),
-            &amount,
-        );
+        ctx.accounts.platform_state.max_session_duration_seconds = duration_seconds;
 
-        let session = SessionData {
+        Ok(())
+    }
+
+    /// Create a new escrow session
+    pub fn create_session(
+        ctx: Context<CreateSession>,
+        seller: Pubkey,
+        amount: u64
+    ) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        let platform_state = &mut ctx.accounts.platform_state;
+        let analytics = &mut ctx.accounts.analytics;
+        let buyer = ctx.accounts.buyer.key();
+        let created_at = Clock::get()?.unix_timestamp;
+
+        // This check is redundant because Anchor's init prevents reinitialization,
+        // but added for completeness as per requirements
+        if !session.data_is_empty() {
+            return Err(ErrorCode::DuplicateSessionId.into());
+        }
+
+        // Save the session using our helper function
+        Session::save_session(session, buyer, seller, amount, created_at);
+
+        // A new session starts Locked and is immediately active for analytics.
+        analytics.record_session_created(amount);
+
+        // Increment session counter for next unique session
+        platform_state.session_counter += 1;
+
+        emit!(SessionCreated {
+            session_id: ctx.accounts.session.key(),
             buyer,
             seller,
             amount,
-            status: Status::Locked,
-            created_at: env.ledger().sequence() as u64,
-            completed_at: 0,
-            dispute_resolved_at: 0,
-        };
-        Self::save_session_internal(&env, &session_id, &session);
+            created_at,
+        });
 
-        env.events()
-            .publish((Symbol::new(&env, "FundsLocked"), session_id), amount);
+        Ok(())
     }
 
-    // ── #527: complete_session ────────────────────────────────────────────────
-
-    /// Seller marks session as completed.
-    /// - Only seller can call.
-    /// - Session must be in Locked state.
-    /// - Sets completed_at to current ledger timestamp.
-    /// - Emits SessionCompleted event.
-    /// Returns EscrowError::DuplicateSessionId if session is already Completed (#526).
-    pub fn complete_session(env: Env, session_id: Bytes32) {
-        let mut session = Self::get_session_internal(&env, &session_id);
-        session.seller.require_auth();
-        if session.status == Status::Completed {
-            panic!("DuplicateSessionId");
-        }
-        assert!(session.status == Status::Locked, "InvalidState: session must be Locked");
-        session.status = Status::Completed;
-        session.completed_at = env.ledger().timestamp();
-        Self::save_session_internal(&env, &session_id, &session);
-        env.events()
-            .publish((Symbol::new(&env, "SessionCompleted"), session_id), ());
-    }
-
-    // ── #526: approve_session ─────────────────────────────────────────────────
-
-    /// Buyer approves completed session, releasing funds to seller.
-    /// Checks session exists and is in Completed state (#526).
-    pub fn approve_session(env: Env, session_id: Bytes32, token_id: Address) {
-        let mut session = Self::get_session_internal(&env, &session_id);
-        session.buyer.require_auth();
-        assert!(
-            session.status == Status::Completed,
-            "InvalidState: session must be Completed"
-        );
-        token::Client::new(&env, &token_id).transfer(
-            &env.current_contract_address(),
-            &session.seller,
-            &session.amount,
-        );
-        session.status = Status::Approved;
-        Self::save_session_internal(&env, &session_id, &session);
-        env.events()
-            .publish((Symbol::new(&env, "SessionApproved"), session_id), session.amount);
-    }
-
-    // ── #526: refund_session ──────────────────────────────────────────────────
-
-    /// Buyer requests refund. Session must be Locked (not already refunded) (#526).
-    pub fn refund_session(env: Env, session_id: Bytes32, token_id: Address) {
-        let mut session = Self::get_session_internal(&env, &session_id);
-        session.buyer.require_auth();
-        if session.status == Status::Refunded {
-            panic!("DuplicateSessionId");
-        }
-        assert!(
-            session.status == Status::Locked,
-            "InvalidState: session must be Locked"
-        );
-        token::Client::new(&env, &token_id).transfer(
-            &env.current_contract_address(),
-            &session.buyer,
-            &session.amount,
-        );
-        session.status = Status::Refunded;
-        Self::save_session_internal(&env, &session_id, &session);
-        env.events()
-            .publish((Symbol::new(&env, "SessionRefunded"), session_id), session.amount);
-    }
-
-    // ── Platform Fee & Treasury ───────────────────────────────────────────────
-
-    pub fn set_platform_fee(env: Env, new_fee_bps: u32) {
-        let admin: Address = env
-            .storage()
-            .persistent()
-            .get(&SkillSyncKey::Admin)
-            .expect("not initialized");
-        admin.require_auth();
-        if new_fee_bps > MAX_FEE_BPS {
-            panic_with_error!(&env, EscrowError::FeeTooHigh);
-        }
-        env.storage()
-            .persistent()
-            .set(&SkillSyncKey::PlatformFee, &new_fee_bps);
-        env.events()
-            .publish((Symbol::new(&env, "PlatformFeeUpdated"),), new_fee_bps);
-    }
-
-    pub fn get_platform_fee(env: Env) -> u32 {
-        env.storage()
-            .persistent()
-            .get(&SkillSyncKey::PlatformFee)
-            .unwrap_or(0_u32)
-    }
-
-    pub fn set_treasury(env: Env, new_treasury: Address) {
-        let admin: Address = env
-            .storage()
-            .persistent()
-            .get(&SkillSyncKey::Admin)
-            .expect("not initialized");
-        admin.require_auth();
-        env.storage()
-            .persistent()
-            .set(&SkillSyncKey::Treasury, &new_treasury);
-        env.events()
-            .publish((Symbol::new(&env, "TreasuryUpdated"),), new_treasury);
-    }
-
-    pub fn get_treasury(env: Env) -> Address {
-        env.storage()
-            .persistent()
-            .get(&SkillSyncKey::Treasury)
-            .expect("treasury not set")
-    }
-
-    pub fn calculate_fee(env: Env, amount: i128, fee_bps: u32) -> FeeSplit {
-        if amount <= 0 {
-            panic_with_error!(&env, EscrowError::InvalidAmount);
-        }
-        if fee_bps > MAX_FEE_BPS {
-            panic_with_error!(&env, EscrowError::FeeTooHigh);
+    /// Lock funds for an existing session (only called on new sessions)
+    pub fn lock_funds(ctx: Context<LockFunds>, amount: u64) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        
+        // Revert if session ID already exists and is in use (Anchor's mut constraint ensures account exists,
+        // but we check it's not already been finalized to prevent reuse)
+        if session.status != SessionStatus::Locked {
+            return Err(ErrorCode::DuplicateSessionId.into());
         }
 
-        let treasury_amount = match amount.checked_mul(fee_bps as i128) {
-            Some(prod) => prod / BPS_DENOMINATOR,
-            None => panic_with_error!(&env, EscrowError::Overflow),
-        };
-        let seller_amount = amount - treasury_amount;
-
-        FeeSplit {
-            seller_amount,
-            treasury_amount,
+        // Additional validation: ensure the amount matches
+        if session.amount != amount {
+            return Err(ErrorCode::InvalidAmount.into());
         }
+
+        // Store the absolute expiry: now + the platform-configured maximum
+        // session lifetime. Past this, anyone can cancel the session.
+        let now = Clock::get()?.unix_timestamp;
+        session.expires_at = now
+            .saturating_add(ctx.accounts.platform_state.max_session_duration_seconds);
+
+        emit!(FundsLocked {
+            session_id: ctx.accounts.session.key(),
+            buyer: session.buyer,
+            seller: session.seller,
+            amount,
+            locked_at: now,
+        });
+
+        Ok(())
     }
 
-    // ── Dispute & Resolution ──────────────────────────────────────────────────
+    /// Cancel a session that has passed its maximum lifetime. Callable by
+    /// anyone once the Locked session is past its expiry. The buyer is refunded
+    /// the full locked amount; no platform fee is deducted.
+    pub fn cancel_expired_session(ctx: Context<CancelExpiredSession>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        let now = Clock::get()?.unix_timestamp;
 
-    pub fn dispute_session(env: Env, session_id: Bytes32) {
-        let mut session = Self::get_session_internal(&env, &session_id);
-        session.buyer.require_auth();
-        assert!(
-            session.status == Status::Locked || session.status == Status::Completed,
-            "InvalidState"
-        );
-        session.status = Status::Disputed;
-        Self::save_session_internal(&env, &session_id, &session);
-        env.events()
-            .publish((Symbol::new(&env, "SessionDisputed"), session_id), ());
+        // Only a still-Locked session can be auto-cancelled.
+        if session.status != SessionStatus::Locked {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        // It must actually be past its expiry.
+        if !session.is_expired(now) {
+            return Err(ErrorCode::SessionNotExpired.into());
+        }
+
+        let buyer = session.buyer;
+        let amount = session.amount;
+        let expires_at = session.expires_at;
+
+        Session::update_status(session, SessionStatus::Refunded)?;
+
+        emit!(SessionExpiredAndCancelled {
+            session_id: ctx.accounts.session.key(),
+            buyer,
+            amount,
+            expires_at,
+            cancelled_at: now,
+        });
+
+        Ok(())
     }
 
+    /// Complete a session - can only be called on locked sessions.
+    /// Deducts the platform settlement fee (in bps) from the session amount.
+    pub fn complete_session(ctx: Context<CompleteSession>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        let analytics = &mut ctx.accounts.analytics;
+        let platform_fee_bps = ctx.accounts.platform_state.platform_fee_bps;
+
+        // Cannot reuse an already completed session
+        if session.status != SessionStatus::Locked {
+            return Err(ErrorCode::SessionAlreadyFinalized.into());
+        }
+
+        // A session past its maximum lifetime can no longer be completed.
+        let now = Clock::get()?.unix_timestamp;
+        if session.is_expired(now) {
+            return Err(ErrorCode::SessionExpired.into());
+        }
+
+        let (fee_amount, net_amount) = calculate_settlement_fee(session.amount, platform_fee_bps);
+
+        // Collect the settlement fee into the analytics aggregate.
+        analytics.record_fee_collected(fee_amount);
+
+        // Update session status to completed
+        Session::update_status(session, SessionStatus::Completed)?;
+
+        emit!(SessionCompleted {
+            session_id: ctx.accounts.session.key(),
+            completed_at: session.completed_at.unwrap(),
+            fee_amount,
+            net_amount,
+        });
+
+        Ok(())
+    }
+
+    /// Approve a session - must exist and be in correct state
+    pub fn approve_session(ctx: Context<UpdateSession>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+
+        // Check session exists and is in correct state (must be locked to approve)
+        if session.status != SessionStatus::Locked {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        // A session past its maximum lifetime can no longer be approved.
+        let now = Clock::get()?.unix_timestamp;
+        if session.is_expired(now) {
+            return Err(ErrorCode::SessionExpired.into());
+        }
+
+        // Update session status to approved
+        Session::update_status(session, SessionStatus::Approved)?;
+
+        // Approved leaves the active (Locked/Completed) set.
+        ctx.accounts.analytics.record_session_deactivated();
+
+        emit!(SessionApproved {
+            session_id: ctx.accounts.session.key(),
+            approved_at: session.completed_at.unwrap(),
+        });
+
+        Ok(())
+    }
+
+    /// Refund a session - can't refund an already refunded session
+    pub fn refund_session(ctx: Context<UpdateSession>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+
+        // Only the buyer can request a refund
+        if ctx.accounts.signer.key() != session.buyer {
+            return Err(ErrorCode::NotBuyer.into());
+        }
+
+        // Check session not already refunded or otherwise finalized. The full
+        // locked amount is returned (no fee is ever deducted on a refund), and
+        // terminal states (Completed, Approved, Refunded, Resolved) cannot be
+        // refunded.
+        if session.status == SessionStatus::Refunded {
+            return Err(ErrorCode::SessionAlreadyRefunded.into());
+        }
+        if !Session::can_refund(session.status) {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        // A Locked refund leaves the active set; a Disputed one already left it.
+        let was_locked = session.status == SessionStatus::Locked;
+
+        // Update session status to refunded
+        Session::update_status(session, SessionStatus::Refunded)?;
+
+        if was_locked {
+            ctx.accounts.analytics.record_session_deactivated();
+        }
+
+        emit!(SessionRefunded {
+            session_id: ctx.accounts.session.key(),
+            refunded_at: session.completed_at.unwrap(),
+        });
+
+        Ok(())
+    }
+
+    /// Auto-refund a session stuck in Completed state past the dispute window
+    pub fn auto_refund(ctx: Context<UpdateSession>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+
+        if session.status != SessionStatus::Completed {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        let now = Clock::get()?.unix_timestamp;
+        let completed_at = session.completed_at.ok_or(ErrorCode::InvalidSessionState)?;
+        if now < completed_at + DISPUTE_WINDOW_SECONDS {
+            return Err(ErrorCode::DisputeWindowNotElapsed.into());
+        }
+
+        // Capture the buyer, amount, and the original completion time before the
+        // refund transition overwrites completed_at with the refund timestamp.
+        let buyer = session.buyer;
+        let amount = session.amount;
+
+        Session::update_status(session, SessionStatus::Refunded)?;
+
+        // A Completed session that is auto-refunded leaves the active set.
+        ctx.accounts.analytics.record_session_deactivated();
+
+        emit!(AutoRefundExecuted {
+            session_id: ctx.accounts.session.key(),
+            buyer,
+            amount,
+            completed_at,
+            refunded_at: session.completed_at.unwrap(),
+        });
+
+        Ok(())
+    }
+
+    /// Raise a dispute on a session
+    pub fn raise_dispute(ctx: Context<UpdateSession>) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+
+        // Can only dispute locked sessions
+        if session.status != SessionStatus::Locked {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        // Update session status to disputed
+        session.status = SessionStatus::Disputed;
+
+        // Count the dispute and move the session out of the active set.
+        ctx.accounts.analytics.record_dispute_opened();
+
+        emit!(DisputeRaised {
+            session_id: ctx.accounts.session.key(),
+            disputed_at: Clock::get()?.unix_timestamp,
+        });
+
+        Ok(())
+    }
+
+    /// Open a dispute on a session (buyer or seller), with a reason. Can be
+    /// raised on a Locked or Completed session; only admin can resolve it.
+    pub fn open_dispute(ctx: Context<UpdateSession>, reason: String) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        let signer = ctx.accounts.signer.key();
+
+        if signer != session.buyer && signer != session.seller {
+            return Err(ErrorCode::Unauthorized.into());
+        }
+
+        if session.status != SessionStatus::Completed && session.status != SessionStatus::Locked {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        let now = Clock::get()?.unix_timestamp;
+        session.status = SessionStatus::Disputed;
+        session.dispute_opened_at = Some(now);
+
+        // Count the dispute and move the session out of the active set.
+        ctx.accounts.analytics.record_dispute_opened();
+
+        emit!(DisputeOpened {
+            session_id: ctx.accounts.session.key(),
+            reason,
+            disputed_at: now,
+        });
+
+        Ok(())
+    }
+
+    /// Resolve a dispute on a session (admin only), splitting funds between
+    /// buyer and seller. Note: this program doesn't move lamports/tokens yet
+    /// (consistent with the rest of this contract's status-only design) -
+    /// resolution and shares are recorded via the event for off-chain settlement.
     pub fn resolve_dispute(
-        env: Env,
-        session_id: Bytes32,
-        buyer_amount: i128,
-        seller_amount: i128,
-        token_id: Address,
-    ) {
-        let admin: Address = env
-            .storage()
-            .persistent()
-            .get(&SkillSyncKey::Admin)
-            .expect("not initialized");
-        admin.require_auth();
+        ctx: Context<ResolveDispute>,
+        resolution: u32,
+        buyer_share: i128,
+        seller_share: i128,
+    ) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        let platform_state = &ctx.accounts.platform_state;
+        let analytics = &mut ctx.accounts.analytics;
 
-        let mut session = Self::get_session_internal(&env, &session_id);
-        assert!(
-            session.status == Status::Disputed,
-            "InvalidState: session must be Disputed"
-        );
-
-        if buyer_amount < 0 || seller_amount < 0 {
-            panic_with_error!(&env, EscrowError::InvalidAmount);
+        // Ensure only admin can resolve disputes
+        if ctx.accounts.signer.key() != platform_state.admin {
+            return Err(ErrorCode::NotAdmin.into());
         }
 
-        let total_split = match buyer_amount.checked_add(seller_amount) {
-            Some(val) => val,
-            None => panic_with_error!(&env, EscrowError::Overflow),
-        };
-
-        if total_split != session.amount {
-            panic_with_error!(&env, EscrowError::InvalidSplit);
+        // Can only resolve disputed sessions
+        if session.status != SessionStatus::Disputed {
+            return Err(ErrorCode::InvalidSessionState.into());
         }
 
-        let token_client = token::Client::new(&env, &token_id);
-        if buyer_amount > 0 {
-            token_client.transfer(
-                &env.current_contract_address(),
-                &session.buyer,
-                &buyer_amount,
-            );
-        }
-        if seller_amount > 0 {
-            token_client.transfer(
-                &env.current_contract_address(),
-                &session.seller,
-                &seller_amount,
-            );
+        // Total shares must equal the original locked amount
+        if buyer_share + seller_share != session.amount as i128 {
+            return Err(ErrorCode::InvalidShareSplit.into());
         }
 
-        session.status = Status::Resolved;
-        session.dispute_resolved_at = env.ledger().timestamp();
-        Self::save_session_internal(&env, &session_id, &session);
+        // Capture when the dispute was opened before update_status overwrites the
+        // resolution timestamp.
+        let opened_at = session.dispute_opened_at.ok_or(ErrorCode::InvalidSessionState)?;
 
-        env.events().publish(
-            (Symbol::new(&env, "DisputeResolved"), session_id),
-            (buyer_amount, seller_amount),
-        );
+        // Update session status to resolved
+        Session::update_status(session, SessionStatus::Resolved)?;
+
+        // Record how long (in seconds) resolution took.
+        let resolved_at = session.dispute_resolved_at.unwrap();
+        let resolution_time = resolved_at.saturating_sub(opened_at) as u64;
+        analytics.record_resolution(resolution_time);
+
+        emit!(DisputeResolved {
+            session_id: ctx.accounts.session.key(),
+            resolution,
+            buyer_share,
+            seller_share,
+            resolved_at,
+        });
+
+        Ok(())
     }
 
-    pub fn validate_split(env: Env, amount: i128, buyer_amount: i128, seller_amount: i128) {
-        if amount <= 0 || buyer_amount < 0 || seller_amount < 0 {
-            panic_with_error!(&env, EscrowError::InvalidAmount);
-        }
-        let total = match buyer_amount.checked_add(seller_amount) {
-            Some(v) => v,
-            None => panic_with_error!(&env, EscrowError::Overflow),
-        };
-        if total != amount {
-            panic_with_error!(&env, EscrowError::InvalidSplit);
-        }
+    /// Sum of all session amounts ever locked into escrow.
+    pub fn total_volume_locked(ctx: Context<ReadAnalytics>) -> Result<i128> {
+        Ok(ctx.accounts.analytics.total_locked_volume as i128)
     }
 
-    // ── Batch Operations ──────────────────────────────────────────────────────
-
-    /// Batch lock funds for multiple sessions in one transaction.
-    /// Any single failure causes the entire batch to revert.
-    /// Gas-efficient looping with early break on error.
-    pub fn batch_lock_funds(
-        env: Env,
-        sessions: Vec<(Bytes32, Address, i128)>,
-        buyer: Address,
-        token_id: Address,
-    ) {
-        if sessions.is_empty() {
-            return;
-        }
-        buyer.require_auth();
-
-        let mut total_amount: i128 = 0;
-
-        // Gas-efficient validation loop with early break on error
-        for (session_id, _, amount) in sessions.iter() {
-            if amount <= 0 {
-                panic_with_error!(&env, EscrowError::InvalidAmount);
-            }
-            total_amount = match total_amount.checked_add(amount) {
-                Some(sum) => sum,
-                None => panic_with_error!(&env, EscrowError::Overflow),
-            };
-            if env
-                .storage()
-                .persistent()
-                .has(&SkillSyncKey::Session(session_id.clone()))
-            {
-                panic!("DuplicateSessionId");
-            }
-        }
-
-        let token_client = token::Client::new(&env, &token_id);
-        if token_client.balance(&buyer) < total_amount {
-            panic_with_error!(&env, EscrowError::InsufficientBalance);
-        }
-
-        // Single gas-efficient token transfer for the entire batch
-        token_client.transfer(&buyer, &env.current_contract_address(), &total_amount);
-
-        let now = env.ledger().sequence() as u64;
-        for (session_id, seller, amount) in sessions.iter() {
-            if env
-                .storage()
-                .persistent()
-                .has(&SkillSyncKey::Session(session_id.clone()))
-            {
-                panic!("DuplicateSessionId");
-            }
-            let session = SessionData {
-                buyer: buyer.clone(),
-                seller,
-                amount,
-                status: Status::Locked,
-                created_at: now,
-                completed_at: 0,
-                dispute_resolved_at: 0,
-            };
-            Self::save_session_internal(&env, &session_id, &session);
-            env.events()
-                .publish((Symbol::new(&env, "FundsLocked"), session_id), amount);
-        }
+    /// Total platform fees collected into the treasury across all completed sessions.
+    pub fn total_fees_collected(ctx: Context<ReadAnalytics>) -> Result<i128> {
+        Ok(ctx.accounts.analytics.total_fees_collected as i128)
     }
 
-    /// Batch approve completed sessions for buyer.
-    /// Any single failure causes the entire batch to revert.
-    /// Gas-efficient looping with early break on error.
-    pub fn batch_approve(env: Env, session_ids: Vec<Bytes32>, token_id: Address) {
-        if session_ids.is_empty() {
-            return;
-        }
-        let token_client = token::Client::new(&env, &token_id);
-        for session_id in session_ids.iter() {
-            let mut session = Self::get_session_internal(&env, &session_id);
-            session.buyer.require_auth();
-            assert!(
-                session.status == Status::Completed,
-                "InvalidState: session must be Completed"
-            );
-            token_client.transfer(
-                &env.current_contract_address(),
-                &session.seller,
-                &session.amount,
-            );
-            session.status = Status::Approved;
-            Self::save_session_internal(&env, &session_id, &session);
-            env.events()
-                .publish((Symbol::new(&env, "SessionApproved"), session_id), session.amount);
-        }
+    /// Number of sessions currently in the `Locked` or `Completed` state.
+    pub fn active_sessions_count(ctx: Context<ReadAnalytics>) -> Result<u32> {
+        Ok(ctx.accounts.analytics.active_sessions as u32)
     }
 
-    /// Batch complete sessions for seller.
-    /// Any single failure causes the entire batch to revert.
-    /// Gas-efficient looping with early break on error.
-    pub fn batch_complete(env: Env, session_ids: Vec<Bytes32>) {
-        if session_ids.is_empty() {
-            return;
-        }
-        let now = env.ledger().timestamp();
-        for session_id in session_ids.iter() {
-            let mut session = Self::get_session_internal(&env, &session_id);
-            session.seller.require_auth();
-            if session.status == Status::Completed {
-                panic!("DuplicateSessionId");
-            }
-            assert!(
-                session.status == Status::Locked,
-                "InvalidState: session must be Locked"
-            );
-            session.status = Status::Completed;
-            session.completed_at = now;
-            Self::save_session_internal(&env, &session_id, &session);
-            env.events()
-                .publish((Symbol::new(&env, "SessionCompleted"), session_id), ());
-        }
+    /// Dispute rate as (disputes_opened, total_sessions).
+    pub fn dispute_rate(ctx: Context<ReadAnalytics>) -> Result<(u32, u32)> {
+        let analytics = &ctx.accounts.analytics;
+        Ok((analytics.total_disputes as u32, analytics.total_sessions as u32))
     }
 
-    /// Batch refund locked sessions for buyer.
-    /// Any single failure causes the entire batch to revert.
-    /// Gas-efficient looping with early break on error.
-    pub fn batch_refund(env: Env, session_ids: Vec<Bytes32>, token_id: Address) {
-        if session_ids.is_empty() {
-            return;
-        }
-        let token_client = token::Client::new(&env, &token_id);
-        for session_id in session_ids.iter() {
-            let mut session = Self::get_session_internal(&env, &session_id);
-            session.buyer.require_auth();
-            if session.status == Status::Refunded {
-                panic!("DuplicateSessionId");
-            }
-            assert!(
-                session.status == Status::Locked,
-                "InvalidState: session must be Locked"
-            );
-            token_client.transfer(
-                &env.current_contract_address(),
-                &session.buyer,
-                &session.amount,
-            );
-            session.status = Status::Refunded;
-            Self::save_session_internal(&env, &session_id, &session);
-            env.events()
-                .publish((Symbol::new(&env, "SessionRefunded"), session_id), session.amount);
-        }
-    }
-
-    // ── #521: dispute window ──────────────────────────────────────────────────
-
-    pub fn set_dispute_window(env: Env, window_ledgers: u32) {
-        let admin: Address = env
-            .storage()
-            .persistent()
-            .get(&SkillSyncKey::Admin)
-            .expect("not initialized");
-        admin.require_auth();
-        env.storage()
-            .persistent()
-            .set(&SkillSyncKey::DisputeWindow, &window_ledgers);
-        env.events().publish(
-            (Symbol::new(&env, "DisputeWindowUpdated"),),
-            window_ledgers,
-        );
-    }
-
-    pub fn get_dispute_window(env: Env) -> u32 {
-        env.storage()
-            .persistent()
-            .get(&SkillSyncKey::DisputeWindow)
-            .unwrap_or(DEFAULT_DISPUTE_WINDOW)
-    }
-
-    // ── #522: upgrade ─────────────────────────────────────────────────────────
-
-    pub fn upgrade(env: Env, new_wasm_hash: Bytes32) {
-        let admin: Address = env
-            .storage()
-            .persistent()
-            .get(&SkillSyncKey::Admin)
-            .expect("not initialized");
-        admin.require_auth();
-        env.deployer()
-            .update_current_contract_wasm(new_wasm_hash.clone());
-        env.events()
-            .publish((Symbol::new(&env, "ContractUpgraded"),), new_wasm_hash);
+    /// Average time (in seconds) to resolve a dispute; 0 when no dispute yet.
+    pub fn average_resolution_time(ctx: Context<ReadAnalytics>) -> Result<u64> {
+        Ok(ctx.accounts.analytics.average_resolution_time())
     }
 }
 
-#[cfg(test)]
-mod test;
+#[derive(Accounts)]
+pub struct Initialize<'info> {
+    #[account(
+        init,
+        payer = signer,
+        space = 8 + PlatformState::INIT_SPACE, // 8 bytes for discriminator
+    )]
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(
+        init,
+        payer = signer,
+        seeds = [b"analytics"],
+        bump,
+        space = 8 + EscrowAnalytics::INIT_SPACE,
+    )]
+    pub analytics: Account<'info, EscrowAnalytics>,
+    #[account(mut)]
+    pub signer: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Read-only context for the analytics view functions.
+#[derive(Accounts)]
+pub struct ReadAnalytics<'info> {
+    #[account(seeds = [b"analytics"], bump)]
+    pub analytics: Account<'info, EscrowAnalytics>,
+}
+
+#[derive(Accounts)]
+pub struct SetPlatformFee<'info> {
+    #[account(mut, has_one = admin)] // Ensure only the admin can call this
+    pub platform_state: Account<'info, PlatformState>,
+    pub admin: Signer<'info>,
+    /// CHECK: The signer is checked against the stored admin key
+    #[account(mut)]
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct SetMaxSessionDuration<'info> {
+    #[account(mut, has_one = admin)] // Ensure only the admin can call this
+    pub platform_state: Account<'info, PlatformState>,
+    pub admin: Signer<'info>,
+    /// CHECK: The signer is checked against the stored admin key
+    #[account(mut)]
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct CancelExpiredSession<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    /// Anyone may cancel an expired session; no role check is enforced.
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct CreateSession<'info> {
+    #[account(mut)]
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(
+        init,
+        payer = buyer,
+        space = 8 + Session::INIT_SPACE,
+        seeds = [b"session", platform_state.session_counter.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub session: Account<'info, Session>,
+    #[account(mut)]
+    pub analytics: Account<'info, EscrowAnalytics>,
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateSession<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    #[account(mut)]
+    pub analytics: Account<'info, EscrowAnalytics>,
+    /// The signer must be either the buyer or seller to modify the session
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct LockFunds<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    pub platform_state: Account<'info, PlatformState>,
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct CompleteSession<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    #[account(mut)]
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(mut)]
+    pub analytics: Account<'info, EscrowAnalytics>,
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct ResolveDispute<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(mut)]
+    pub analytics: Account<'info, EscrowAnalytics>,
+    #[account(mut)]
+    pub signer: Signer<'info>,
+}
+
+#[event]
+pub struct PlatformFeeUpdated {
+    pub previous_fee: u32,
+    pub new_fee: u32,
+    pub updated_by: Pubkey,
+}
+
+#[event]
+pub struct TreasuryUpdated {
+    pub old_treasury: Pubkey,
+    pub new_treasury: Pubkey,
+    pub updated_by: Pubkey,
+}
+
+#[event]
+pub struct SessionCreated {
+    pub session_id: Pubkey,
+    pub buyer: Pubkey,
+    pub seller: Pubkey,
+    pub amount: u64,
+    pub created_at: i64,
+}
+
+#[event]
+pub struct FundsLocked {
+    pub session_id: Pubkey,
+    pub buyer: Pubkey,
+    pub seller: Pubkey,
+    pub amount: u64,
+    pub locked_at: i64,
+}
+
+#[event]
+pub struct SessionCompleted {
+    pub session_id: Pubkey,
+    pub completed_at: i64,
+    pub fee_amount: u64,
+    pub net_amount: u64,
+}
+
+#[event]
+pub struct SessionApproved {
+    pub session_id: Pubkey,
+    pub approved_at: i64,
+}
+
+#[event]
+pub struct SessionRefunded {
+    pub session_id: Pubkey,
+    pub refunded_at: i64,
+}
+
+#[event]
+pub struct AutoRefundExecuted {
+    pub session_id: Pubkey,
+    pub buyer: Pubkey,
+    pub amount: u64,
+    pub completed_at: i64,
+    pub refunded_at: i64,
+}
+
+#[event]
+pub struct SessionExpiredAndCancelled {
+    pub session_id: Pubkey,
+    pub buyer: Pubkey,
+    pub amount: u64,
+    pub expires_at: i64,
+    pub cancelled_at: i64,
+}
+
+#[event]
+pub struct DisputeRaised {
+    pub session_id: Pubkey,
+    pub disputed_at: i64,
+}
+
+#[event]
+pub struct DisputeOpened {
+    pub session_id: Pubkey,
+    pub reason: String,
+    pub disputed_at: i64,
+}
+
+#[event]
+pub struct DisputeResolved {
+    pub session_id: Pubkey,
+    pub resolution: u32,
+    pub buyer_share: i128,
+    pub seller_share: i128,
+    pub resolved_at: i64,
+}
+
+#[error_code]
+pub enum ErrorCode {
+    #[msg("Fee must be between 0 and 1000 basis points (0-10%)")]
+    FeeOutOfBounds,
+    #[msg("Session with this ID already exists - cannot reuse session IDs")]
+    DuplicateSessionId,
+    #[msg("Session has already been finalized and cannot be modified")]
+    SessionAlreadyFinalized,
+    #[msg("Session is not in the correct state for this operation")]
+    InvalidSessionState,
+    #[msg("Session has already been refunded")]
+    SessionAlreadyRefunded,
+    #[msg("Invalid amount provided")]
+    InvalidAmount,
+    #[msg("Insufficient balance for operation")]
+    InsufficientBalance,
+    #[msg("Platform fee exceeds allowed maximum")]
+    FeeTooHigh,
+    #[msg("Invalid split amounts for session settlement")]
+    InvalidSplit,
+    #[msg("Arithmetic overflow occurred")]
+    Overflow,
+    #[msg("Unauthorized: caller is not authorized for this action")]
+    Unauthorized,
+    #[msg("Unauthorized: Only admin can perform this action")]
+    NotAdmin,
+    #[msg("Unauthorized: Only the session buyer can perform this action")]
+    NotBuyer,
+    #[msg("Unauthorized: Only the session seller can perform this action")]
+    NotSeller,
+    #[msg("Dispute window has not elapsed yet")]
+    DisputeWindowNotElapsed,
+    #[msg("Buyer and seller shares must sum to the original session amount")]
+    InvalidShareSplit,
+    #[msg("Session has expired and can no longer be completed or approved")]
+    SessionExpired,
+    #[msg("Session has not yet reached its expiry")]
+    SessionNotExpired,
+    #[msg("Max session duration must be greater than zero")]
+    InvalidMaxSessionDuration,
+}

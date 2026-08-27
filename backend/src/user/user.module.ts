@@ -1,52 +1,28 @@
-import {
-  Module,
-  Injectable,
-  Controller,
-  Get,
-  Patch,
-  Delete,
-  Param,
-  Body,
-} from '@nestjs/common';
-
-@Injectable()
-export class UserService {
-  findOne(id: string): Record<string, unknown> {
-    return { id };
-  }
-
-  update(id: string, data: Record<string, unknown>): Record<string, unknown> {
-    return { id, ...data };
-  }
-
-  remove(id: string): Record<string, unknown> {
-    return { deleted: id };
-  }
-}
-
-@Controller('users')
-export class UserController {
-  constructor(private readonly userService: UserService) {}
-
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.userService.findOne(id);
-  }
-
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() body: Record<string, unknown>) {
-    return this.userService.update(id, body);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.userService.remove(id);
-  }
-}
+import { Module, forwardRef } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { JwtModule } from '@nestjs/jwt';
+import { UserController } from './user.controller';
+import { UsersController } from './users.controller';
+import { UserService } from './user.service';
+import { User } from './entities/user.entity';
+import { Role } from '../entities/role.entity';
+import { MentorProfile } from '../entities/mentor-profile.entity';
+import { RolesGuard } from '../guards/roles.guard';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  controllers: [UserController],
-  providers: [UserService],
-  exports: [UserService],
+  imports: [
+    TypeOrmModule.forFeature([User, Role, MentorProfile]),
+    JwtModule.register({
+      secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+      signOptions: { expiresIn: '1d' },
+    }),
+    // Provides RedisService (exported by AuthModule) for user search caching.
+    // forwardRef on both sides resolves the Auth <-> User circular dependency.
+    forwardRef(() => AuthModule),
+  ],
+  controllers: [UserController, UsersController],
+  providers: [UserService, RolesGuard],
+  exports: [UserService, TypeOrmModule],
 })
 export class UserModule {}

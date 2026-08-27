@@ -1,48 +1,57 @@
-import { randomUUID } from 'crypto';
-import { BeforeInsert, Column, Entity, Index, PrimaryColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  Index,
+} from 'typeorm';
 
-export enum AuditEventType {
-  LOGIN_SUCCESS = 'LOGIN_SUCCESS',
-  LOGIN_FAILURE = 'LOGIN_FAILURE',
-  LOGOUT = 'LOGOUT',
-  REFRESH_TOKEN_SUCCESS = 'REFRESH_TOKEN_SUCCESS',
-  REFRESH_TOKEN_FAILURE = 'REFRESH_TOKEN_FAILURE',
-  PASSWORD_EQUIVALENT_CHANGED = 'PASSWORD_EQUIVALENT_CHANGED',
-  ROLE_ASSIGNED = 'ROLE_ASSIGNED',
-  SUSPICIOUS_ACTIVITY = 'SUSPICIOUS_ACTIVITY',
-}
-
-@Entity({ name: 'audit_logs' })
-@Index(['userId'])
-@Index(['eventType'])
-@Index(['timestamp'])
+@Entity('audit_logs')
 export class AuditLog {
-  @PrimaryColumn('uuid')
-  id!: string;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column({ name: 'user_id', type: 'varchar', length: 128, nullable: true })
-  userId!: string | null;
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  userId: string | null;
 
-  @Column({ name: 'event_type', type: 'varchar', length: 64 })
-  eventType!: AuditEventType;
+  @Index()
+  @Column({ type: 'varchar', length: 56, nullable: true })
+  walletAddress: string | null;
 
-  @Column({ name: 'timestamp', type: 'timestamptz', default: () => 'now()' })
-  timestamp!: Date;
+  @Index()
+  @Column({ type: 'varchar', length: 45, nullable: true })
+  ipAddress: string | null;
 
-  @Column({ name: 'ip_address', type: 'varchar', length: 64, nullable: true })
-  ipAddress!: string | null;
+  @Index()
+  @Column({ type: 'varchar', length: 100 })
+  eventType: string; // 'sessions_revoked', 'login_success', 'login_failed', 'suspicious_login', etc.
 
-  @Column({ name: 'user_agent', type: 'text', nullable: true })
-  userAgent!: string | null;
+  @Index()
+  @Column({ type: 'boolean', default: false })
+  isSuspicious: boolean;
 
-  @Column({ type: 'jsonb', default: () => "'{}'::jsonb" })
-  details!: Record<string, unknown>;
+  @Column({ type: 'text', nullable: true })
+  suspiciousReason: string | null;
 
-  @Column({ name: 'is_suspicious', type: 'boolean', default: false })
-  isSuspicious!: boolean;
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  geoCountry: string | null;
 
-  @BeforeInsert()
-  setId(): void {
-    this.id ??= randomUUID();
-  }
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  geoCity: string | null;
+
+  @Column({ type: 'float', nullable: true })
+  geoLat: number | null;
+
+  @Column({ type: 'float', nullable: true })
+  geoLon: number | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  userAgent: string | null;
+
+  @Column({ type: 'jsonb', default: () => "'{}'" })
+  metadata: Record<string, any>;
+
+  @CreateDateColumn()
+  createdAt: Date;
 }

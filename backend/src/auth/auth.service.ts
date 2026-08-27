@@ -1,502 +1,478 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+  NotFoundException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
-import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
-import { AuditLogService, RequestAudit } from './audit-log.service';
+import { Repository } from 'typeorm';
+import * as crypto from 'crypto';
 import { RefreshToken } from './entities/refresh-token.entity';
-import { User } from '../users/entities/user.entity';
-import { Role } from '../users/entities/role.entity';
-import * as StellarSDK from 'stellar-sdk';
-import { verify } from 'stellar-sdk';
-
-type JwtClaims = Record<string, unknown> & {
-  sub: string;
-  jti?: string;
-  typ?: 'access' | 'refresh';
-  iat?: number;
-  exp?: number;
-};
-
-type TokenPair = {
-  accessToken: string;
-  refreshToken: string;
-  tokenType: 'Bearer';
-  expiresIn: number;
-  refreshExpiresIn: number;
-};
-
-const JWT_HEADER = { alg: 'HS256', typ: 'JWT' };
-const JWT_RESERVED_CLAIMS = new Set(['iat', 'exp', 'nbf', 'jti', 'typ']);
+import { AuditLog } from './entities/audit-log.entity';
+import { UserService } from '../user/user.service';
+import { User, ProfileType } from '../user/entities/user.entity';
+import { RedisService } from './services/redis.service';
+import { NotificationService } from './services/notification.service';
+import { SuspiciousDetectionService } from './services/suspicious-detection.service';
+import { WalletStrategy } from './strategies/wallet.strategy';
+import { LoginDto, StellarNetwork } from './dto/login.dto';
+import { AuthResponseDto } from './dto/auth-response.dto';
+import { NonceResponseDto } from './dto/nonce-response.dto';
+import { RevokeAllResponseDto } from './dto/revoke-all-response.dto';
+import { UserResponseDto } from '../user/dto/user-response.dto';
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
+    private readonly jwtService: JwtService,
+    private readonly userService: UserService,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
-    private readonly dataSource: DataSource,
-    private readonly configService: ConfigService,
-    private readonly auditLogService: AuditLogService,
+    @InjectRepository(AuditLog)
+    private readonly auditLogRepository: Repository<AuditLog>,
+    private readonly redisService: RedisService,
+    private readonly notificationService: NotificationService,
+    private readonly suspiciousDetectionService: SuspiciousDetectionService,
+    private readonly walletStrategy: WalletStrategy,
   ) {}
 
-  verifyStellarSignature(walletAddress: string, nonce: string, signature: string): boolean {
-    try {
-      const publicKey = StellarSDK.StrKey.decodeEd25519PublicKey(walletAddress);
-      const messageBuffer = Buffer.from(nonce, 'hex');
-      const signatureBuffer = Buffer.from(signature, 'base64');
-      
-      return StellarSDK.verify(messageBuffer, publicKey, signatureBuffer);
-    } catch (error) {
-      this.logger.error(`Signature verification failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      return false;
-    }
-  }
+  private static readonly NONCE_TTL_SECONDS = 300; // 5 minutes
 
-  async loginWithSignature(
-    walletAddress: string,
-    nonce: string,
-    signature: string,
-    audit: RequestAudit,
-  ): Promise<TokenPair> {
-    const isValid = this.verifyStellarSignature(walletAddress, nonce, signature);
-    
-    if (!isValid) {
-      await this.logLoginFailure(walletAddress, audit, 'Invalid signature');
-      throw new UnauthorizedException('Invalid signature');
+  /**
+   * #1146: Generate one-time cryptographic nonce challenge for Stellar wallet authentication.
+   * The nonce is a 256-bit random value (hex encoded) stored in Redis under
+   * `nonce:{walletAddress}` with a 5 minute TTL. Requesting a new nonce for the
+   * same wallet overwrites (invalidates) any previously issued unused nonce.
+   */
+  async generateNonce(walletAddress: string): Promise<NonceResponseDto> {
+    if (!this.walletStrategy.isValidAddress(walletAddress)) {
+      throw new BadRequestException('Valid Stellar wallet address (56-character G-address) is required');
     }
 
-    return this.login(walletAddress, audit);
-  }
+    const normalizedAddress = walletAddress.trim().toLowerCase();
+    const nonce = crypto.randomBytes(32).toString('hex'); // 256 bits of entropy
+    const expiresAt = new Date(Date.now() + AuthService.NONCE_TTL_SECONDS * 1000);
 
-  async login(walletAddress: string, audit: RequestAudit): Promise<TokenPair> {
-    let user = await this.dataSource.manager.findOne(User, {
-      where: { walletAddress },
-      relations: { roles: true },
-    });
-
-    if (!user) {
-      // Create new user with default mentee role
-      const role = await this.dataSource.manager.findOne(Role, {
-        where: { name: 'mentee' },
-      });
-
-      user = this.dataSource.manager.create(User, {
-        walletAddress,
-        roles: role ? [role] : [],
-        tokenVersion: 0,
-      });
-      user = await this.dataSource.manager.save(user);
-    }
-
-    const claims = {
-      sub: user.id,
-      walletAddress: user.walletAddress,
-      roles: user.roles.map((r) => r.name),
-      tokenVersion: user.tokenVersion,
-    };
-
-    return this.issueTokenPair(claims, audit);
-  }
-
-  async refresh(refreshToken: string, audit: RequestAudit): Promise<TokenPair> {
-    let userId: string | null = null;
-    try {
-      const payload = this.verifyRefreshToken(refreshToken);
-      userId = payload.sub;
-      const tokenHash = this.hashToken(refreshToken);
-      const now = new Date();
-
-      const pair = await this.dataSource.transaction(
-        async (manager: EntityManager) => {
-          const token = await manager.findOne(RefreshToken, {
-            where: { tokenHash },
-            lock: { mode: 'pessimistic_write' },
-          });
-
-          if (!token) {
-            throw new UnauthorizedException('Invalid refresh token');
-          }
-
-          if (token.expiresAt.getTime() <= now.getTime()) {
-            throw new UnauthorizedException('Refresh token has expired');
-          }
-
-          if (token.revokedAt) {
-            await this.handleRefreshTokenReuse(manager, token, audit);
-            throw new UnauthorizedException('Refresh token has been revoked');
-          }
-
-          if (token.userId !== payload.sub) {
-            throw new UnauthorizedException(
-              'Refresh token does not match the authenticated user',
-            );
-          }
-
-          const user = await manager.findOne(User, {
-            where: { id: token.userId },
-            relations: { roles: true },
-          });
-
-          if (!user) {
-            throw new UnauthorizedException('User not found');
-          }
-
-          if (payload.tokenVersion !== user.tokenVersion) {
-            throw new UnauthorizedException('Token version mismatch');
-          }
-
-          const coreClaims = this.getCoreClaims(payload);
-          const userClaims = {
-            ...coreClaims,
-            roles: user.roles.map((r) => r.name),
-            tokenVersion: user.tokenVersion,
-            walletAddress: token.walletAddress,
-          };
-          const nextPair = this.createSignedTokenPair(userClaims);
-          const replacement = this.refreshTokenRepository.create({
-            tokenHash: this.hashToken(nextPair.refreshToken),
-            userId: token.userId,
-            walletAddress: token.walletAddress,
-            familyId: token.familyId,
-            expiresAt: new Date(Date.now() + nextPair.refreshExpiresIn * 1000),
-            revokedAt: null,
-            replacedByTokenId: null,
-            userAgent: this.normalizeHeader(audit.userAgent),
-            ipAddress: audit.ipAddress,
-            deviceFingerprint: audit.deviceFingerprint,
-            lastUsedAt: null,
-            concurrentReuseDetectedAt: null,
-          });
-
-          const savedReplacement = await manager.save(
-            RefreshToken,
-            replacement,
-          );
-          token.revokedAt = now;
-          token.replacedByTokenId = savedReplacement.id;
-          token.lastUsedAt = now;
-          await manager.save(RefreshToken, token);
-
-          return nextPair;
-        },
-      );
-
-      await this.auditLogService.logRefreshTokenUsage({
-        userId,
-        success: true,
-        audit,
-      });
-
-      return pair;
-    } catch (error) {
-      await this.auditLogService.logRefreshTokenUsage({
-        userId,
-        success: false,
-        reason:
-          error instanceof Error ? error.message : 'Unknown refresh failure',
-        audit,
-      });
-      throw error;
-    }
-  }
-
-  async issueTokenPair(
-    claims: JwtClaims,
-    audit: RequestAudit,
-  ): Promise<TokenPair> {
-    const pair = this.createSignedTokenPair(claims);
-    await this.refreshTokenRepository.save(
-      this.refreshTokenRepository.create({
-        tokenHash: this.hashToken(pair.refreshToken),
-        userId: claims.sub,
-        walletAddress:
-          this.getStringClaim(claims, 'walletAddress') ??
-          this.getStringClaim(claims, 'address'),
-        expiresAt: new Date(Date.now() + pair.refreshExpiresIn * 1000),
-        revokedAt: null,
-        replacedByTokenId: null,
-        userAgent: this.normalizeHeader(audit.userAgent),
-        ipAddress: audit.ipAddress,
-        deviceFingerprint: audit.deviceFingerprint,
-        lastUsedAt: null,
-        concurrentReuseDetectedAt: null,
-      }),
-    );
-
-    return pair;
-  }
-
-  async logLoginSuccess(
-    userId: string,
-    walletAddress: string | null,
-    audit: RequestAudit,
-  ): Promise<void> {
-    await this.auditLogService.logLoginSuccess({
-      userId,
-      walletAddress,
-      audit,
-    });
-  }
-
-  async logLoginFailure(
-    attemptedWalletAddress: string,
-    audit: RequestAudit,
-    reason?: string,
-  ): Promise<void> {
-    await this.auditLogService.logLoginFailure({
-      attemptedWalletAddress,
-      reason,
-      audit,
-    });
-  }
-
-  async logLogout(userId: string, audit: RequestAudit): Promise<void> {
-    await this.auditLogService.logLogout({ userId, audit });
-  }
-
-  async logPasswordEquivalentChange(
-    userId: string,
-    audit: RequestAudit,
-    details?: Record<string, unknown>,
-  ): Promise<void> {
-    await this.auditLogService.logPasswordEquivalentChange({
-      userId,
-      audit,
-      details,
-    });
-  }
-
-  async logRoleAssignment(
-    userId: string,
-    assignedRole: string,
-    audit: RequestAudit,
-    assignedByUserId?: string,
-  ): Promise<void> {
-    await this.auditLogService.logRoleAssignment({
-      userId,
-      assignedRole,
-      assignedByUserId,
-      audit,
-    });
-  }
-
-  private async handleRefreshTokenReuse(
-    manager: EntityManager,
-    token: RefreshToken,
-    audit: RequestAudit,
-  ): Promise<void> {
-    const now = new Date();
-    token.concurrentReuseDetectedAt ??= now;
-    await manager.save(RefreshToken, token);
-    await manager.update(
-      RefreshToken,
-      { familyId: token.familyId, revokedAt: IsNull() },
-      { revokedAt: now, concurrentReuseDetectedAt: now },
-    );
-
-    this.logger.warn({
-      message: 'Concurrent refresh token reuse detected',
-      refreshTokenId: token.id,
-      userId: token.userId,
-      familyId: token.familyId,
-      ipAddress: audit.ipAddress,
-      userAgent: this.normalizeHeader(audit.userAgent),
-      deviceFingerprint: audit.deviceFingerprint,
-    });
-  }
-
-  private createSignedTokenPair(coreClaims: JwtClaims): TokenPair {
-    const accessExpiresIn = this.getDurationSeconds(
-      'JWT_ACCESS_TOKEN_TTL',
-      '15m',
-    );
-    const refreshExpiresIn = this.getDurationSeconds(
-      'JWT_REFRESH_TOKEN_TTL',
-      '30d',
+    await this.redisService.set(
+      `nonce:${normalizedAddress}`,
+      JSON.stringify({ nonce, expiresAt: expiresAt.toISOString() }),
+      AuthService.NONCE_TTL_SECONDS,
     );
 
     return {
-      accessToken: this.signJwt(
-        { ...coreClaims, typ: 'access', jti: randomUUID() },
-        accessExpiresIn,
-        this.accessSecret,
-      ),
-      refreshToken: this.signJwt(
-        { ...coreClaims, typ: 'refresh', jti: randomUUID() },
-        refreshExpiresIn,
-        this.refreshSecret,
-      ),
-      tokenType: 'Bearer',
-      expiresIn: accessExpiresIn,
-      refreshExpiresIn,
+      walletAddress: normalizedAddress,
+      nonce,
+      expiresAt,
     };
   }
 
-  private verifyRefreshToken(token: string): JwtClaims {
-    const payload = this.verifyJwt(token, this.refreshSecret);
-    if (payload.typ !== 'refresh') {
-      throw new UnauthorizedException('Invalid refresh token');
+  /**
+   * Login with wallet signature or email credentials
+   */
+  async login(
+    loginDto: LoginDto,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<AuthResponseDto> {
+    let user: User | null = null;
+
+    if (loginDto.walletAddress) {
+      user = await this.loginWithWalletSignature(loginDto, ipAddress, userAgent);
+    } else if (loginDto.email && loginDto.password) {
+      user = await this.userService.findByEmail(loginDto.email);
+      if (!user) {
+        await this.suspiciousDetectionService.recordFailedLogin({
+          email: loginDto.email,
+          ipAddress,
+          userAgent,
+          reason: 'USER_NOT_FOUND',
+        });
+        throw new UnauthorizedException('Invalid email or password');
+      }
+
+      // Basic password validation
+      if (user.passwordHash && user.passwordHash !== loginDto.password) {
+        const check = await this.suspiciousDetectionService.recordFailedLogin({
+          email: loginDto.email,
+          ipAddress,
+          userAgent,
+          reason: 'INVALID_PASSWORD',
+        });
+        if (check.lockAccount) {
+          throw new ForbiddenException(
+            'Account locked due to consecutive failed login attempts. Please try again in 30 minutes.',
+          );
+        }
+        throw new UnauthorizedException('Invalid email or password');
+      }
+    } else {
+      throw new BadRequestException('Provide either walletAddress & signature or email & password');
     }
 
-    if (!payload.sub || typeof payload.sub !== 'string') {
-      throw new UnauthorizedException('Invalid refresh token claims');
+    if (!user) {
+      throw new UnauthorizedException('Authentication failed');
     }
 
-    return payload;
+    // Check account lockout
+    if (user.isLocked) {
+      if (user.lockoutUntil && new Date() > new Date(user.lockoutUntil)) {
+        await this.userService.unlockAccount(user.id);
+        user.isLocked = false;
+        user.lockoutUntil = null;
+      } else {
+        throw new ForbiddenException('Your account is temporarily locked due to suspicious activity. Please try again later.');
+      }
+    }
+
+    // Evaluate suspicious login patterns (geo, new IP, abnormal times)
+    await this.suspiciousDetectionService.evaluateLogin({
+      user,
+      ipAddress,
+      userAgent,
+    });
+
+    // Record login IP and timestamp
+    await this.userService.recordLogin(user.id, ipAddress);
+
+    return this.generateTokens(user, ipAddress, userAgent);
   }
 
-  private signJwt(
-    payload: JwtClaims,
-    expiresInSeconds: number,
-    secret: string,
-  ): string {
-    const now = Math.floor(Date.now() / 1000);
-    const body = {
-      ...payload,
-      iat: now,
-      exp: now + expiresInSeconds,
+  /**
+   * #1147: Verify a Stellar wallet signature over the issued nonce.
+   * - Expiration is checked before verification (expired nonces are rejected).
+   * - The used nonce is deleted from Redis immediately after the verification
+   *   attempt (regardless of outcome) to prevent replay attacks.
+   * - Invalid signatures return 401 Unauthorized with a clear message.
+   * - Successful verification creates/retrieves the user account automatically.
+   * - Every attempt (success/failure) is recorded in the audit log.
+   */
+  private async loginWithWalletSignature(
+    loginDto: LoginDto,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<User> {
+    const normalizedWallet = loginDto.walletAddress!.trim().toLowerCase();
+    const redisKey = `nonce:${normalizedWallet}`;
+    const network = loginDto.network || StellarNetwork.MAINNET;
+
+    const fail = async (message: string, reason: string): Promise<never> => {
+      await this.recordLoginAudit({
+        walletAddress: normalizedWallet,
+        ipAddress,
+        userAgent,
+        eventType: 'login_failed',
+        network,
+        reason,
+      });
+      await this.suspiciousDetectionService.recordFailedLogin({
+        walletAddress: normalizedWallet,
+        ipAddress,
+        userAgent,
+        reason,
+      });
+      throw new UnauthorizedException(message);
     };
-    const encodedHeader = this.base64UrlEncode(JSON.stringify(JWT_HEADER));
-    const encodedPayload = this.base64UrlEncode(JSON.stringify(body));
-    const signature = this.sign(`${encodedHeader}.${encodedPayload}`, secret);
 
-    return `${encodedHeader}.${encodedPayload}.${signature}`;
-  }
-
-  private verifyJwt(token: string, secret: string): JwtClaims {
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      throw new UnauthorizedException('Invalid refresh token');
+    // Nonce expiration is checked before any signature verification
+    const storedRaw = await this.redisService.get(redisKey);
+    if (!storedRaw) {
+      return fail('Nonce expired or not found. Request a new nonce via GET /auth/nonce/:walletAddress', 'NONCE_EXPIRED_OR_MISSING');
     }
 
-    const [encodedHeader, encodedPayload, signature] = parts;
-    let header: typeof JWT_HEADER;
+    let storedNonce: { nonce: string; expiresAt: string };
     try {
-      header = JSON.parse(
-        Buffer.from(encodedHeader, 'base64url').toString('utf8'),
-      ) as typeof JWT_HEADER;
+      storedNonce = JSON.parse(storedRaw);
     } catch {
-      throw new UnauthorizedException('Invalid refresh token');
+      return fail('Nonce expired or not found. Request a new nonce via GET /auth/nonce/:walletAddress', 'NONCE_CORRUPTED');
     }
 
-    if (header.alg !== JWT_HEADER.alg || header.typ !== JWT_HEADER.typ) {
-      throw new UnauthorizedException('Invalid refresh token');
+    // Invalidate the nonce immediately after this verification attempt (replay protection)
+    await this.redisService.del(redisKey);
+
+    if (!storedNonce?.nonce || new Date(storedNonce.expiresAt).getTime() <= Date.now()) {
+      return fail('Nonce has expired. Request a new nonce via GET /auth/nonce/:walletAddress', 'NONCE_EXPIRED');
     }
 
-    const expectedSignature = this.sign(
-      `${encodedHeader}.${encodedPayload}`,
-      secret,
+    if (loginDto.nonce && loginDto.nonce !== storedNonce.nonce) {
+      return fail('Provided nonce does not match the issued challenge', 'NONCE_MISMATCH');
+    }
+
+    if (!loginDto.signature) {
+      return fail('Cryptographic signature is required for wallet login', 'MISSING_WALLET_SIGNATURE');
+    }
+
+    // Recover/verify the signature with the Stellar SDK (StrKey + Keypair.verify)
+    const signatureValid = this.walletStrategy.verifySignature(
+      normalizedWallet,
+      storedNonce.nonce,
+      loginDto.signature,
     );
-    if (!this.safeEquals(signature, expectedSignature)) {
-      throw new UnauthorizedException('Invalid refresh token');
+    if (!signatureValid) {
+      return fail('Invalid wallet signature. Signature verification failed for the provided nonce', 'INVALID_SIGNATURE');
     }
 
-    let payload: JwtClaims;
-    try {
-      payload = JSON.parse(
-        Buffer.from(encodedPayload, 'base64url').toString('utf8'),
-      ) as JwtClaims;
-    } catch {
-      throw new UnauthorizedException('Invalid refresh token');
+    // Retrieve or auto-provision the user account
+    let user = await this.userService.findByWalletAddress(normalizedWallet);
+    if (!user) {
+      const created = await this.userService.create({
+        walletAddress: normalizedWallet,
+        profileType: ProfileType.MENTEE,
+      });
+      user = await this.userService.findById(created.id);
     }
-    if (
-      typeof payload.exp !== 'number' ||
-      payload.exp <= Math.floor(Date.now() / 1000)
-    ) {
+
+    await this.recordLoginAudit({
+      walletAddress: normalizedWallet,
+      userId: user.id,
+      ipAddress,
+      userAgent,
+      eventType: 'login_success',
+      network,
+    });
+
+    return user;
+  }
+
+  /**
+   * #1147: Create an audit log entry for each wallet login attempt.
+   */
+  private async recordLoginAudit(params: {
+    walletAddress: string;
+    userId?: string;
+    ipAddress?: string;
+    userAgent?: string;
+    eventType: 'login_success' | 'login_failed';
+    network: StellarNetwork;
+    reason?: string;
+  }): Promise<void> {
+    const geo = this.suspiciousDetectionService.getGeoLocation(params.ipAddress);
+    await this.auditLogRepository.save(
+      this.auditLogRepository.create({
+        userId: params.userId || null,
+        walletAddress: params.walletAddress,
+        ipAddress: params.ipAddress || null,
+        eventType: params.eventType,
+        isSuspicious: params.eventType === 'login_failed',
+        suspiciousReason: params.reason || null,
+        geoCountry: geo.country,
+        geoCity: geo.city,
+        geoLat: geo.lat,
+        geoLon: geo.lon,
+        userAgent: params.userAgent || null,
+        metadata: { method: 'stellar_wallet', network: params.network, reason: params.reason || null },
+      }),
+    );
+  }
+
+  /**
+   * Issue new access token using a valid refresh token
+   */
+  async refresh(refreshTokenStr: string): Promise<{ accessToken: string; expiresIn: number }> {
+    const tokenRecord = await this.refreshTokenRepository.findOne({
+      where: { token: refreshTokenStr, isRevoked: false },
+      relations: { user: true },
+    });
+
+    if (!tokenRecord) {
+      throw new UnauthorizedException('Invalid or revoked refresh token');
+    }
+
+    if (new Date() > new Date(tokenRecord.expiresAt)) {
+      await this.refreshTokenRepository.remove(tokenRecord);
       throw new UnauthorizedException('Refresh token has expired');
     }
 
-    return payload;
-  }
-
-  private sign(value: string, secret: string): string {
-    return createHmac('sha256', secret).update(value).digest('base64url');
-  }
-
-  private safeEquals(a: string, b: string): boolean {
-    const aBuffer = Buffer.from(a);
-    const bBuffer = Buffer.from(b);
-    return (
-      aBuffer.length === bBuffer.length && timingSafeEqual(aBuffer, bBuffer)
-    );
-  }
-
-  private hashToken(token: string): string {
-    return createHmac('sha256', this.refreshTokenHashSecret)
-      .update(token)
-      .digest('hex');
-  }
-
-  private getCoreClaims(payload: JwtClaims): JwtClaims {
-    return Object.fromEntries(
-      Object.entries(payload).filter(([key]) => !JWT_RESERVED_CLAIMS.has(key)),
-    ) as JwtClaims;
-  }
-
-  private getStringClaim(claims: JwtClaims, key: string): string | null {
-    const value = claims[key];
-    return typeof value === 'string' ? value : null;
-  }
-
-  private normalizeHeader(value: string | string[] | null): string | null {
-    if (Array.isArray(value)) {
-      return value.join(', ');
+    const user = await this.userService.findById(tokenRecord.userId);
+    if (!user || user.isLocked) {
+      throw new ForbiddenException('Account is inactive or locked');
     }
 
-    return value;
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      walletAddress: user.walletAddress,
+      tokenVersion: user.tokenVersion || 0,
+      roles: user.roles ? user.roles.map((r) => r.name) : [],
+    };
+
+    const accessToken = this.jwtService.sign(payload, { expiresIn: '1d' });
+
+    return {
+      accessToken,
+      expiresIn: 86400,
+    };
   }
 
-  private getDurationSeconds(key: string, fallback: string): number {
-    const value = this.configService.get<string>(key) ?? fallback;
-    const match = /^(\d+)([smhd])?$/.exec(value);
-    if (!match) {
-      throw new Error(`${key} must be a duration like 900, 15m, 12h, or 30d`);
+  /**
+   * Revoke a single refresh token on logout
+   */
+  async logout(refreshTokenStr?: string, userId?: string): Promise<{ success: boolean; message: string }> {
+    if (refreshTokenStr) {
+      await this.refreshTokenRepository.delete({ token: refreshTokenStr });
+    } else if (userId) {
+      await this.refreshTokenRepository.delete({ userId });
     }
 
-    const amount = Number(match[1]);
-    const unit = match[2] ?? 's';
-    const multipliers = { s: 1, m: 60, h: 3600, d: 86400 };
-
-    return amount * multipliers[unit as keyof typeof multipliers];
+    return {
+      success: true,
+      message: 'Logged out successfully',
+    };
   }
 
-  private base64UrlEncode(value: string): string {
-    return Buffer.from(value).toString('base64url');
-  }
+  /**
+   * #1158: Revoke all active sessions for authenticated user
+   */
+  async revokeAll(
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<RevokeAllResponseDto> {
+    const user = await this.userService.findById(userId);
 
-  private get accessSecret(): string {
-    return (
-      this.configService.get<string>('JWT_ACCESS_TOKEN_SECRET') ??
-      this.jwtSecret
+    // Count all active refresh tokens for the user
+    const existingTokens = await this.refreshTokenRepository.find({
+      where: { userId },
+    });
+    const revokedSessionsCount = existingTokens.length;
+
+    // Delete all refresh tokens for the user from database
+    await this.refreshTokenRepository.delete({ userId });
+
+    // Increment token version in user record (invalidates all existing JWTs)
+    const newTokenVersion = await this.userService.incrementTokenVersion(userId);
+
+    // Log action in audit log with eventType: 'sessions_revoked'
+    const geo = this.suspiciousDetectionService.getGeoLocation(ipAddress);
+    await this.auditLogRepository.save(
+      this.auditLogRepository.create({
+        userId,
+        walletAddress: user.walletAddress,
+        ipAddress: ipAddress || null,
+        eventType: 'sessions_revoked',
+        isSuspicious: false,
+        suspiciousReason: null,
+        geoCountry: geo.country,
+        geoCity: geo.city,
+        geoLat: geo.lat,
+        geoLon: geo.lon,
+        userAgent: userAgent || null,
+        metadata: {
+          revokedCount: revokedSessionsCount,
+          newTokenVersion,
+          revokedBy: 'user',
+        },
+      }),
     );
+
+    // Send notification placeholder to user
+    await this.notificationService.sendSessionRevocationNotification(user, revokedSessionsCount);
+
+    return {
+      success: true,
+      message: 'All active sessions have been successfully revoked across all devices',
+      revokedSessionsCount,
+      tokenVersion: newTokenVersion,
+    };
   }
 
-  private get refreshSecret(): string {
-    return (
-      this.configService.get<string>('JWT_REFRESH_TOKEN_SECRET') ??
-      this.jwtSecret
+  /**
+   * #1158: Admin endpoint to revoke all sessions for any user
+   */
+  async adminRevokeAll(
+    targetUserId: string,
+    adminUser: User,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<RevokeAllResponseDto> {
+    const targetUser = await this.userService.findById(targetUserId);
+
+    const existingTokens = await this.refreshTokenRepository.find({
+      where: { userId: targetUserId },
+    });
+    const revokedSessionsCount = existingTokens.length;
+
+    // Delete all refresh tokens
+    await this.refreshTokenRepository.delete({ userId: targetUserId });
+
+    // Increment token version
+    const newTokenVersion = await this.userService.incrementTokenVersion(targetUserId);
+
+    // Log admin audit action
+    const geo = this.suspiciousDetectionService.getGeoLocation(ipAddress);
+    await this.auditLogRepository.save(
+      this.auditLogRepository.create({
+        userId: targetUserId,
+        walletAddress: targetUser.walletAddress,
+        ipAddress: ipAddress || null,
+        eventType: 'sessions_revoked',
+        isSuspicious: false,
+        suspiciousReason: null,
+        geoCountry: geo.country,
+        geoCity: geo.city,
+        geoLat: geo.lat,
+        geoLon: geo.lon,
+        userAgent: userAgent || null,
+        metadata: {
+          revokedCount: revokedSessionsCount,
+          newTokenVersion,
+          revokedBy: 'admin',
+          adminId: adminUser.id,
+        },
+      }),
     );
+
+    // Send notification placeholder
+    await this.notificationService.sendSessionRevocationNotification(targetUser, revokedSessionsCount);
+
+    return {
+      success: true,
+      message: `All active sessions revoked for user ${targetUserId}`,
+      revokedSessionsCount,
+      tokenVersion: newTokenVersion,
+    };
   }
 
-  private get refreshTokenHashSecret(): string {
-    return (
-      this.configService.get<string>('REFRESH_TOKEN_HASH_SECRET') ??
-      this.refreshSecret
+  /**
+   * Generate Access & Refresh tokens
+   */
+  private async generateTokens(
+    user: User,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<AuthResponseDto> {
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      walletAddress: user.walletAddress,
+      tokenVersion: user.tokenVersion || 0,
+      roles: user.roles ? user.roles.map((r) => r.name) : [],
+    };
+
+    const accessToken = this.jwtService.sign(payload, { expiresIn: '1d' });
+    const refreshTokenString = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+
+    await this.refreshTokenRepository.save(
+      this.refreshTokenRepository.create({
+        token: refreshTokenString,
+        userId: user.id,
+        ipAddress: ipAddress || null,
+        userAgent: userAgent || null,
+        expiresAt,
+      }),
     );
-  }
 
-  private get jwtSecret(): string {
-    const secret = this.configService.get<string>('JWT_SECRET');
-    if (secret) {
-      return secret;
-    }
-
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('JWT_SECRET must be configured in production');
-    }
-
-    return 'development-only-change-me';
+    return {
+      accessToken,
+      refreshToken: refreshTokenString,
+      tokenType: 'Bearer',
+      expiresIn: 86400,
+      user: UserResponseDto.fromEntity(user),
+    };
   }
 }

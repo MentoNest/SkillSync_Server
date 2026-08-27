@@ -1,35 +1,58 @@
-import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-
+import { JwtModule } from '@nestjs/jwt';
+import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { AuditLogsController } from './audit-logs.controller';
-import { AuditLogService } from './audit-log.service';
-import { AdminAccessGuard } from './admin-access.guard';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { RolesGuard } from './guards/roles.guard';
-import { NonceProvider } from './providers/nonce.provider';
-
-import { AuditLog } from './entities/audit-log.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
-import { User } from '../users/entities/user.entity';
-import { Role } from '../users/entities/role.entity';
+import { AuditLog } from './entities/audit-log.entity';
+import { RedisService } from './services/redis.service';
+import { NotificationService } from './services/notification.service';
+import { SuspiciousDetectionService } from './services/suspicious-detection.service';
+import { RevokeAllRateLimitGuard } from './guards/revoke-all-rate-limit.guard';
+import { NonceRateLimitGuard } from './guards/nonce-rate-limit.guard';
+import { WalletLoginRateLimitGuard } from './guards/wallet-login-rate-limit.guard';
+import { JwtStrategy } from './strategies/jwt.strategy';
+import { WalletStrategy } from './strategies/wallet.strategy';
+import { UserModule } from '../user/user.module';
+import { User } from '../user/entities/user.entity';
+import { Role } from '../entities/role.entity';
+import { RolesGuard } from '../guards/roles.guard';
+import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 
 @Module({
   imports: [
-    ConfigModule,
     TypeOrmModule.forFeature([RefreshToken, AuditLog, User, Role]),
+    JwtModule.register({
+      secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+      signOptions: { expiresIn: '1d' },
+    }),
+    PassportModule.register({ defaultStrategy: 'jwt' }),
+    forwardRef(() => UserModule),
   ],
-  controllers: [AuthController, AuditLogsController],
+  controllers: [AuthController],
   providers: [
     AuthService,
-    AuditLogService,
-    AdminAccessGuard,
+    RedisService,
+    NotificationService,
+    SuspiciousDetectionService,
+    JwtStrategy,
+    WalletStrategy,
     JwtAuthGuard,
     RolesGuard,
-    NonceProvider,
+    RevokeAllRateLimitGuard,
+    NonceRateLimitGuard,
+    WalletLoginRateLimitGuard,
   ],
-  exports: [AuthService, JwtAuthGuard, RolesGuard],
+  exports: [
+    AuthService,
+    RedisService,
+    NotificationService,
+    SuspiciousDetectionService,
+    WalletStrategy,
+    JwtAuthGuard,
+    RolesGuard,
+    TypeOrmModule,
+  ],
 })
 export class AuthModule {}
