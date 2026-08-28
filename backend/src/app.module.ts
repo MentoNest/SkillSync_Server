@@ -1,4 +1,4 @@
-import { Module, OnModuleInit, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -16,7 +16,6 @@ import { AuditLogService } from './services/audit-log.service';
 import { RedisService } from './services/redis.service';
 import { RolesController } from './controllers/roles.controller';
 import { UserController } from './controllers/user.controller';
-import { RedisService } from './services/redis.service';
 import { UserModule } from './user/user.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
@@ -24,8 +23,6 @@ import { SessionModule } from './session/session.module';
 import { ChatModule } from './chat/chat.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { AuditLogsController } from './controllers/audit-logs.controller';
-import { UserModule } from './user/user.module';
-import { AuthModule } from './auth/auth.module';
 import { EncryptionModule } from './common/encryption/encryption.module';
 import { BackupModule } from './common/backup/backup.module';
 import { GracefulShutdownModule } from './common/shutdown/graceful-shutdown.module';
@@ -34,29 +31,41 @@ import { ApiVersioningModule } from './common/versioning/api-versioning.module';
 import { NotificationModule } from './modules/notification.module';
 import { AdminModule } from './modules/admin.module';
 import { HealthController } from './controllers/health.controller';
-import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
+import {
+  getDatabaseConfig,
+  getDatabaseRetryConfig,
+} from './config/database.config';
 
 @Module({
   imports: [
-    TypeOrmModule.forRoot({
-      type: 'postgres',
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT || '5432', 10),
-      username: process.env.DB_USERNAME || 'postgres',
-      password: process.env.DB_PASSWORD || 'password',
-      database: process.env.DB_DATABASE || 'skillsync',
-      entities: [User, Role, RefreshToken, AuditLog, Notification],
-      synchronize: process.env.NODE_ENV !== 'production',
+    // #1141: env-driven config, auto-loaded entities, retry logic, pooling,
+    // SSL and slow-query logging live in ./config/database.config.ts so the
+    // TypeORM CLI (src/data-source.ts) shares the exact same settings.
+    TypeOrmModule.forRootAsync({
+      useFactory: () => ({
+        ...getDatabaseConfig(),
+        // Nest-specific extras layered on top of the shared DataSourceOptions.
+        autoLoadEntities: true,
+        ...getDatabaseRetryConfig(),
+      }),
     }),
-    TypeOrmModule.forFeature([User, Role, RefreshToken, AuditLog, Notification]),
+    TypeOrmModule.forFeature([
+      User,
+      Role,
+      RefreshToken,
+      AuditLog,
+      Notification,
+    ]),
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
       signOptions: { expiresIn: '1d' },
     }),
-    ThrottlerModule.forRoot([{
-      ttl: 60000,
-      limit: 100,
-    }]),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000,
+        limit: 100,
+      },
+    ]),
     UserModule,
     AuthModule,
     EncryptionModule,
@@ -79,19 +88,13 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
     RolesGuard,
     AuditLogService,
     RedisService,
-    RequestIdMiddleware,
   ],
   exports: [RedisService],
 })
-export class AppModule implements OnModuleInit, NestModule {
+export class AppModule implements OnModuleInit {
   constructor(private readonly rolesService: RolesService) {}
 
   async onModuleInit() {
     await this.rolesService.initializeDefaultRoles();
-  }
-
-  configure(consumer: MiddlewareConsumer) {
-    // Apply request ID middleware to all routes
-    consumer.apply(RequestIdMiddleware).forRoutes('*');
   }
 }

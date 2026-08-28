@@ -481,7 +481,7 @@ ${methods}
     const methods: string[] = [];
 
     for (const [endpoint, pathObj] of Object.entries(this.spec.paths) as [string, any][]) {
-      for (const [method, operation] of Object.entries(pathObj) as [string, any]()) {
+      for (const [method, operation] of Object.entries(pathObj) as [string, any][]) {
         if (['get', 'post', 'put', 'patch', 'delete'].includes(method)) {
           const operationId = operation.operationId || `${method}_${endpoint}`;
           const responseSchema = operation.responses?.['200']?.content?.['application/json']?.schema;
@@ -526,8 +526,5 @@ ${params.map((p: string) => `    path = path.replace('${p}', ${p.slice(1, -1)});
       return `${this.getSchemaName(schema.items)}[]`;
     }
     return 'any';
-  }
-}
-`;
   }
 }

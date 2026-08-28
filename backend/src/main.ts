@@ -1,13 +1,14 @@
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { VersioningType } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { DataSource } from 'typeorm';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { GracefulShutdownService } from './common/shutdown/graceful-shutdown.service';
 import { EncryptionService } from './common/encryption/encryption.service';
 import { BackupService } from './common/backup/backup.service';
-import * as crypto from 'crypto';
 
 const logger = new Logger('Bootstrap');
 
@@ -15,18 +16,28 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const logger = new Logger('Bootstrap');
 
+  // #1141: verify the database connection before accepting any traffic.
+  // TypeOrmModule.forRootAsync (see app.module.ts) already retries the
+  // initial connection (DB_MAX_RETRIES, default 5) during module init, which
+  // runs as part of NestFactory.create() above — this check fails startup
+  // fast and loudly if that connection never came up.
+  const dataSource = app.get(DataSource);
+  if (!dataSource.isInitialized) {
+    logger.error(
+      'Database connection could not be established. Aborting startup.',
+    );
+    await app.close();
+    process.exit(1);
+  }
+  logger.log('Database connection verified.');
+
   // Trust proxy settings (for Nginx/CloudFlare reverse proxies)
-  if (process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV === 'production') {
+  if (
+    process.env.TRUST_PROXY === 'true' ||
+    process.env.NODE_ENV === 'production'
+  ) {
     app.getHttpAdapter().getInstance().set('trust proxy', 1);
   }
-
-  // Request ID middleware
-  app.use((req: any, _res: any, next: () => void) => {
-    const requestId = req.headers['x-request-id'] || crypto.randomUUID();
-    req.requestId = requestId;
-    _res.setHeader('X-Request-Id', requestId);
-    next();
-  });
 
   // API Versioning - URI path strategy
   app.enableVersioning({
@@ -77,7 +88,10 @@ async function bootstrap() {
     : ['http://localhost:3000', 'http://localhost:5173'];
 
   app.enableCors({
-    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
       // Allow requests with no origin (mobile apps, curl, etc.)
       if (!origin) return callback(null, true);
       if (corsOrigins.includes(origin) || corsOrigins.includes('*')) {
@@ -96,26 +110,30 @@ async function bootstrap() {
   });
 
   // Security headers with Helmet
-  app.use(helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", 'data:', 'https:'],
-        connectSrc: ["'self'"],
-        fontSrc: ["'self'"],
-        objectSrc: ["'none'"],
-        frameAncestors: ["'none'"],
-        formAction: ["'self'"],
-        upgradeInsecureRequests: isProduction ? [] as any : null,
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:', 'https:'],
+          connectSrc: ["'self'"],
+          fontSrc: ["'self'"],
+          objectSrc: ["'none'"],
+          frameAncestors: ["'none'"],
+          formAction: ["'self'"],
+          upgradeInsecureRequests: isProduction ? ([] as any) : null,
+        },
       },
-    },
-    crossOriginEmbedderPolicy: false,
-    crossOriginResourcePolicy: { policy: 'cross-origin' },
-    hsts: isProduction ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
-    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
-  }));
+      crossOriginEmbedderPolicy: false,
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      hsts: isProduction
+        ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+        : false,
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    }),
+  );
 
   // Swagger OpenAPI Documentation
   if (enableSwagger) {
@@ -136,12 +154,30 @@ async function bootstrap() {
         },
         'Bearer Auth',
       )
-      .addTag('Authentication', 'Core user authentication, token issuance, and refresh flows')
-      .addTag('Wallet', 'Web3 Ethereum wallet cryptographic nonce challenge and signature verification')
-      .addTag('Session Management', 'Device session revocation and logout operations')
-      .addTag('User', 'User accounts, profile management (mentor/mentee), and settings')
-      .addTag('Security & Audit', 'Suspicious activity detection and security dashboard')
-      .addTag('Roles', 'Role-based access control and administrative permissions')
+      .addTag(
+        'Authentication',
+        'Core user authentication, token issuance, and refresh flows',
+      )
+      .addTag(
+        'Wallet',
+        'Web3 Ethereum wallet cryptographic nonce challenge and signature verification',
+      )
+      .addTag(
+        'Session Management',
+        'Device session revocation and logout operations',
+      )
+      .addTag(
+        'User',
+        'User accounts, profile management (mentor/mentee), and settings',
+      )
+      .addTag(
+        'Security & Audit',
+        'Suspicious activity detection and security dashboard',
+      )
+      .addTag(
+        'Roles',
+        'Role-based access control and administrative permissions',
+      )
       .addTag('Admin', 'Admin dashboard and platform management')
       .addTag('Notifications', 'User notification system')
       .addTag('Health', 'System health and backup status')
@@ -164,7 +200,9 @@ async function bootstrap() {
   logger.log(`Application running on port ${port}`);
   logger.log(`API versioning enabled: /api/v1/...`);
   if (enableSwagger) {
-    logger.log(`Swagger documentation available at http://localhost:${port}/api/docs`);
+    logger.log(
+      `Swagger documentation available at http://localhost:${port}/api/docs`,
+    );
   }
 }
 bootstrap();
