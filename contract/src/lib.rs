@@ -115,6 +115,11 @@ impl Session {
         self.expires_at > 0 && now >= self.expires_at
     }
 
+    /// Whether a session can be refunded from the given status.
+    pub fn can_refund(status: SessionStatus) -> bool {
+        matches!(status, SessionStatus::Locked | SessionStatus::Disputed)
+    }
+
     /// Update session status
     pub fn update_status(session_account: &mut Account<Session>, new_status: SessionStatus) -> Result<()> {
         let current_timestamp = Clock::get()?.unix_timestamp;
@@ -721,123 +726,214 @@ pub mod skill_sync {
         Ok(ctx.accounts.analytics.average_resolution_time())
     }
 
-    // ── Insurance Pool instructions (#1136) ─────────────────────────────────
+    // ── DAO-governed Dispute Resolution instructions (#1138) ─────────────
 
-    /// Initialize the insurance pool (admin only).
-    pub fn initialize_insurance_pool(
-        ctx: Context<InitializeInsurancePool>,
-        premium_bps: u32,
-        coverage_pct: u32,
-        min_coverage_threshold: u32,
+    /// Configure or update DAO-based dispute resolution settings.
+    /// Admin only — sets voting period, fallback timeout, and DAO program.
+    pub fn set_dispute_dao(
+        ctx: Context<SetDisputeDao>,
+        dao_program: Pubkey,
+        dao_treasury: Pubkey,
+        voting_period_slots: u64,
+        fallback_timeout_slots: u64,
     ) -> Result<()> {
-        if ctx.accounts.platform_state.admin != ctx.accounts.admin.key() {
+        let platform_state = &ctx.accounts.platform_state;
+        if ctx.accounts.admin.key() != platform_state.admin {
             return Err(ErrorCode::NotAdmin.into());
         }
 
-        let pool = &mut ctx.accounts.insurance_pool;
-        pool.total_pool = 0;
-        pool.premium_bps = premium_bps;
-        pool.coverage_pct = coverage_pct;
-        pool.min_coverage_threshold = min_coverage_threshold;
-        pool.admin = ctx.accounts.admin.key();
+        let dao_config = &mut ctx.accounts.dao_config;
+        dao_config.dao_program = dao_program;
+        dao_config.dao_treasury = dao_treasury;
+        dao_config.voting_period_slots = voting_period_slots;
+        dao_config.fallback_timeout_slots = fallback_timeout_slots;
+        dao_config.is_active = true;
+        dao_config.admin = ctx.accounts.admin.key();
 
-        emit!(InsuranceParamsUpdated {
-            premium_bps,
-            coverage_pct,
-            min_coverage_threshold,
-            updated_by: ctx.accounts.admin.key(),
+        emit!(DaoConfigured {
+            dao_program,
+            voting_period_slots,
+            fallback_timeout_slots,
+            configured_by: ctx.accounts.admin.key(),
         });
 
         Ok(())
     }
 
-    /// Check if the external condition has been met by reading the
-    /// condition account. If the account has data (non-empty), the
-    /// condition is considered met.
-    pub fn check_condition(ctx: Context<CheckCondition>) -> Result<bool> {
-        let conditional = &mut ctx.accounts.conditional_session;
+    /// Submit a disputed session to the DAO for resolution. Anyone who is the
+    /// buyer or seller on the disputed session may propose a split.
+    pub fn resolve_dispute_via_dao(
+        ctx: Context<ResolveDisputeViaDao>,
+        buyer_share: u64,
+        seller_share: u64,
+    ) -> Result<()> {
+        let session = &ctx.accounts.session;
+        let dao_config = &ctx.accounts.dao_config;
 
-        if conditional.condition_met {
-            return Err(ErrorCode::ConditionAlreadyMet.into());
+        if !dao_config.is_active {
+            return Err(ErrorCode::DaoNotActive.into());
         }
 
-        // Check if the condition account has data — a simple heuristic.
-        // Production code would use CPI to call the condition program.
-        let account_data = ctx.accounts.condition_account.try_borrow_data()?;
-        let met = !account_data.is_empty() && account_data[0] != 0;
-
-        if met {
-            conditional.condition_met = true;
+        if session.status != SessionStatus::Disputed {
+            return Err(ErrorCode::DisputeNotOpen.into());
         }
 
-        let now = Clock::get()?.unix_timestamp;
-        emit!(ConditionChecked {
-            session_id: conditional.session,
-            condition_met: met,
-            checked_at: now,
-        });
-
-        Ok(met)
-    }
-
-    /// Release funds if the condition has been met. Callable by anyone.
-    pub fn release_if_condition_met(ctx: Context<ReleaseConditional>) -> Result<()> {
-        let conditional = &ctx.accounts.conditional_session;
-        let session = &mut ctx.accounts.session;
-
-        if !conditional.condition_met {
-            return Err(ErrorCode::ConditionNotMet.into());
+        // Shares must sum to the session amount
+        if buyer_share.saturating_add(seller_share) != session.amount {
+            return Err(ErrorCode::InvalidShareSplit.into());
         }
 
-        if session.status != SessionStatus::Locked {
-            return Err(ErrorCode::InvalidSessionState.into());
+        let proposer = ctx.accounts.proposer.key();
+        if proposer != session.buyer && proposer != session.seller {
+            return Err(ErrorCode::Unauthorized.into());
         }
 
-        Session::update_status(session, SessionStatus::Approved)?;
-        ctx.accounts.analytics.record_session_deactivated();
+        let current_slot = Clock::get()?.slot;
+        let proposal = &mut ctx.accounts.proposal;
+        proposal.session = session.key();
+        proposal.proposal_id = current_slot; // Use slot as unique ID
+        proposal.buyer_share = buyer_share;
+        proposal.seller_share = seller_share;
+        proposal.votes_for = 0;
+        proposal.votes_against = 0;
+        proposal.created_slot = current_slot;
+        proposal.resolved = false;
 
-        let now = Clock::get()?.unix_timestamp;
-        emit!(ConditionMet {
+        emit!(DisputeSentToDAO {
             session_id: session.key(),
-            released_at: now,
+            proposal_id: current_slot,
+            buyer_share,
+            seller_share,
         });
 
         Ok(())
     }
 
-    /// Refund the buyer if the condition timed out.
-    pub fn refund_conditional_failed(ctx: Context<RefundConditionalFailed>) -> Result<()> {
-        let conditional = &ctx.accounts.conditional_session;
+    /// Cast a vote on an active DAO dispute proposal.
+    pub fn vote_on_dispute(ctx: Context<VoteOnDispute>, vote_for: bool) -> Result<()> {
+        let proposal = &mut ctx.accounts.proposal;
+        let dao_config_slot = proposal.created_slot; // store before borrow
+
+        // Check the proposal is not already resolved
+        if proposal.resolved {
+            return Err(ErrorCode::DaoResolutionPending.into());
+        }
+
+        // Record the vote
+        let vote_record = &mut ctx.accounts.vote_record;
+        vote_record.proposal = proposal.key();
+        vote_record.voter = ctx.accounts.voter.key();
+        vote_record.vote_for = vote_for;
+
+        if vote_for {
+            proposal.votes_for = proposal.votes_for.saturating_add(1);
+        } else {
+            proposal.votes_against = proposal.votes_against.saturating_add(1);
+        }
+
+        emit!(DaoVoteCast {
+            proposal_id: proposal.key(),
+            voter: ctx.accounts.voter.key(),
+            vote_for,
+        });
+
+        Ok(())
+    }
+
+    /// Execute the DAO resolution after the voting period has ended.
+    /// If votes_for > votes_against the proposed split is applied; otherwise
+    /// the session stays disputed for admin fallback.
+    pub fn execute_dao_resolution(ctx: Context<ExecuteDaoResolution>) -> Result<()> {
+        let proposal = &mut ctx.accounts.proposal;
+        let dao_config = &ctx.accounts.dao_config;
         let session = &mut ctx.accounts.session;
-        let slot = Clock::get()?.slot;
+        let analytics = &mut ctx.accounts.analytics;
 
-        if ctx.accounts.buyer.key() != session.buyer {
-            return Err(ErrorCode::NotBuyer.into());
+        if proposal.resolved {
+            return Err(ErrorCode::DaoResolutionPending.into());
         }
 
-        if conditional.condition_met {
-            return Err(ErrorCode::ConditionAlreadyMet.into());
+        // Ensure voting period has elapsed
+        let current_slot = Clock::get()?.slot;
+        if current_slot < proposal.created_slot.saturating_add(dao_config.voting_period_slots) {
+            return Err(ErrorCode::VotingPeriodNotEnded.into());
         }
 
-        if session.status != SessionStatus::Locked {
-            return Err(ErrorCode::InvalidSessionState.into());
+        // Proposal passes if votes_for > votes_against
+        if proposal.votes_for > proposal.votes_against {
+            proposal.resolved = true;
+
+            // Capture opened_at before status transition
+            let opened_at = session.dispute_opened_at.ok_or(ErrorCode::InvalidSessionState)?;
+            Session::update_status(session, SessionStatus::Resolved)?;
+
+            let resolved_at = session.dispute_resolved_at.unwrap();
+            let resolution_time = resolved_at.saturating_sub(opened_at) as u64;
+            analytics.record_resolution(resolution_time);
+
+            emit!(DisputeResolvedByDAO {
+                session_id: session.key(),
+                buyer_share: proposal.buyer_share,
+                seller_share: proposal.seller_share,
+                votes_for: proposal.votes_for,
+                votes_against: proposal.votes_against,
+            });
+        }
+        // If proposal did not pass, it remains unresolved for admin fallback
+
+        Ok(())
+    }
+
+    /// Fallback admin resolution when the DAO vote did not pass or the
+    /// fallback timeout has been reached without execution.
+    pub fn fallback_admin_resolution(
+        ctx: Context<FallbackAdminResolution>,
+        buyer_share: u64,
+        seller_share: u64,
+    ) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        let proposal = &ctx.accounts.proposal;
+        let dao_config = &ctx.accounts.dao_config;
+        let platform_state = &ctx.accounts.platform_state;
+        let analytics = &mut ctx.accounts.analytics;
+
+        // Only admin
+        if ctx.accounts.admin.key() != platform_state.admin {
+            return Err(ErrorCode::NotAdmin.into());
         }
 
-        // Check if timeout has passed
-        let deadline = conditional.created_slot.saturating_add(conditional.condition_timeout_slots);
-        if slot < deadline {
-            return Err(ErrorCode::ConditionNotTimedOut.into());
+        if session.status != SessionStatus::Disputed {
+            return Err(ErrorCode::DisputeNotOpen.into());
         }
 
-        Session::update_status(session, SessionStatus::Refunded)?;
-        ctx.accounts.analytics.record_session_deactivated();
+        // Fallback allowed only after voting_period + fallback_timeout
+        let current_slot = Clock::get()?.slot;
+        let fallback_slot = proposal
+            .created_slot
+            .saturating_add(dao_config.voting_period_slots)
+            .saturating_add(dao_config.fallback_timeout_slots);
 
-        let now = Clock::get()?.unix_timestamp;
-        emit!(ConditionFailedRefund {
+        if current_slot < fallback_slot {
+            return Err(ErrorCode::DaoFallbackNotReached.into());
+        }
+
+        // Shares must sum to session amount
+        if buyer_share.saturating_add(seller_share) != session.amount {
+            return Err(ErrorCode::InvalidShareSplit.into());
+        }
+
+        let opened_at = session.dispute_opened_at.ok_or(ErrorCode::InvalidSessionState)?;
+        Session::update_status(session, SessionStatus::Resolved)?;
+
+        let resolved_at = session.dispute_resolved_at.unwrap();
+        let resolution_time = resolved_at.saturating_sub(opened_at) as u64;
+        analytics.record_resolution(resolution_time);
+
+        emit!(DaoFallbackToAdmin {
             session_id: session.key(),
-            buyer: session.buyer,
-            amount: session.amount,
-            refunded_at: now,
+            admin: ctx.accounts.admin.key(),
+            buyer_share,
+            seller_share,
         });
 
         Ok(())
@@ -1159,132 +1255,194 @@ pub enum ErrorCode {
     #[msg("Max session duration must be greater than zero")]
     InvalidMaxSessionDuration,
 
-    // ── Conditional Escrow errors (#1137) ────────────────────────────────────
-    #[msg("Condition has not been met")]
-    ConditionNotMet = 700,
-    #[msg("Condition has timed out")]
-    ConditionTimedOut = 701,
-    #[msg("Condition has already been met")]
-    ConditionAlreadyMet = 702,
-    #[msg("Invalid condition program")]
-    InvalidConditionProgram = 703,
-    #[msg("Condition timeout has not been reached yet")]
-    ConditionNotTimedOut = 704,
+    // ── DAO Dispute Resolution errors (#1138) ────────────────────────────────
+    #[msg("DAO is not configured")]
+    DaoNotConfigured = 800,
+    #[msg("DAO is not active")]
+    DaoNotActive = 801,
+    #[msg("Voting period has not ended yet")]
+    VotingPeriodNotEnded = 802,
+    #[msg("Voting period has expired")]
+    VotingPeriodExpired = 803,
+    #[msg("Already voted on this proposal")]
+    AlreadyVoted = 804,
+    #[msg("DAO resolution is still pending")]
+    DaoResolutionPending = 805,
+    #[msg("DAO fallback timeout has not been reached")]
+    DaoFallbackNotReached = 806,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Conditional Escrow (#1137)
+// DAO-governed Dispute Resolution (#1138)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Tracks a conditional escrow session whose release depends on the state
-/// of an external program account.
+/// Configuration for DAO-based dispute resolution.
 #[account]
 #[derive(InitSpace)]
-pub struct ConditionalSession {
-    /// The session this condition applies to.
-    pub session: Pubkey,
-    /// External program whose account state is checked.
-    pub condition_program: Pubkey,
-    /// Account to read from the external program.
-    pub condition_account: Pubkey,
-    /// Whether the condition has been met.
-    pub condition_met: bool,
-    /// Timeout in slots — if condition is not met within this many slots
-    /// after creation, the buyer can reclaim funds.
-    pub condition_timeout_slots: u64,
-    /// Slot at which the conditional session was created.
-    pub created_slot: u64,
+pub struct DaoConfig {
+    /// DAO program address (for future CPI integration).
+    pub dao_program: Pubkey,
+    /// DAO treasury for governance token staking.
+    pub dao_treasury: Pubkey,
+    /// Voting period in slots.
+    pub voting_period_slots: u64,
+    /// Fallback to admin resolution after this many slots.
+    pub fallback_timeout_slots: u64,
+    /// Whether the DAO resolution system is active.
+    pub is_active: bool,
+    /// Admin who configured the DAO.
+    pub admin: Pubkey,
 }
 
-// ── Conditional escrow contexts ─────────────────────────────────────────────
+/// A dispute proposal submitted to DAO for voting.
+#[account]
+#[derive(InitSpace)]
+pub struct DaoDisputeProposal {
+    /// The disputed session.
+    pub session: Pubkey,
+    /// Unique proposal identifier.
+    pub proposal_id: u64,
+    /// Proposed buyer share.
+    pub buyer_share: u64,
+    /// Proposed seller share.
+    pub seller_share: u64,
+    /// Votes in favour of the proposal.
+    pub votes_for: u64,
+    /// Votes against the proposal.
+    pub votes_against: u64,
+    /// Slot at which the proposal was created.
+    pub created_slot: u64,
+    /// Whether the proposal has been resolved.
+    pub resolved: bool,
+}
+
+/// Tracks individual votes to prevent double-voting.
+#[account]
+#[derive(InitSpace)]
+pub struct VoteRecord {
+    pub proposal: Pubkey,
+    pub voter: Pubkey,
+    pub vote_for: bool,
+}
+
+// ── DAO contexts ────────────────────────────────────────────────────────────
 
 #[derive(Accounts)]
-pub struct LockFundsConditional<'info> {
-    #[account(mut)]
+pub struct SetDisputeDao<'info> {
+    #[account(
+        init_if_needed,
+        payer = admin,
+        seeds = [b"dao_config"],
+        bump,
+        space = 8 + DaoConfig::INIT_SPACE,
+    )]
+    pub dao_config: Account<'info, DaoConfig>,
     pub platform_state: Account<'info, PlatformState>,
-    #[account(
-        init,
-        payer = buyer,
-        space = 8 + Session::INIT_SPACE,
-        seeds = [b"session", platform_state.session_counter.to_le_bytes().as_ref()],
-        bump,
-    )]
-    pub session: Account<'info, Session>,
-    #[account(
-        init,
-        payer = buyer,
-        space = 8 + ConditionalSession::INIT_SPACE,
-        seeds = [b"conditional", platform_state.session_counter.to_le_bytes().as_ref()],
-        bump,
-    )]
-    pub conditional_session: Account<'info, ConditionalSession>,
     #[account(mut)]
-    pub analytics: Account<'info, EscrowAnalytics>,
-    #[account(mut)]
-    pub buyer: Signer<'info>,
+    pub admin: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
-pub struct CheckCondition<'info> {
-    pub session: Account<'info, Session>,
+pub struct ResolveDisputeViaDao<'info> {
     #[account(mut)]
-    pub conditional_session: Account<'info, ConditionalSession>,
-    /// CHECK: The external account whose state determines the condition.
-    pub condition_account: AccountInfo<'info>,
-    pub signer: Signer<'info>,
+    pub session: Account<'info, Session>,
+    #[account(seeds = [b"dao_config"], bump)]
+    pub dao_config: Account<'info, DaoConfig>,
+    #[account(
+        init,
+        payer = proposer,
+        space = 8 + DaoDisputeProposal::INIT_SPACE,
+        seeds = [b"dao_proposal", session.key().as_ref()],
+        bump,
+    )]
+    pub proposal: Account<'info, DaoDisputeProposal>,
+    #[account(mut)]
+    pub proposer: Signer<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
-pub struct ReleaseConditional<'info> {
+pub struct VoteOnDispute<'info> {
+    #[account(mut)]
+    pub proposal: Account<'info, DaoDisputeProposal>,
+    #[account(
+        init,
+        payer = voter,
+        space = 8 + VoteRecord::INIT_SPACE,
+        seeds = [b"vote", proposal.key().as_ref(), voter.key().as_ref()],
+        bump,
+    )]
+    pub vote_record: Account<'info, VoteRecord>,
+    #[account(mut)]
+    pub voter: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ExecuteDaoResolution<'info> {
     #[account(mut)]
     pub session: Account<'info, Session>,
-    pub conditional_session: Account<'info, ConditionalSession>,
+    #[account(mut)]
+    pub proposal: Account<'info, DaoDisputeProposal>,
+    #[account(seeds = [b"dao_config"], bump)]
+    pub dao_config: Account<'info, DaoConfig>,
     #[account(mut)]
     pub analytics: Account<'info, EscrowAnalytics>,
     pub signer: Signer<'info>,
 }
 
 #[derive(Accounts)]
-pub struct RefundConditionalFailed<'info> {
+pub struct FallbackAdminResolution<'info> {
     #[account(mut)]
     pub session: Account<'info, Session>,
-    pub conditional_session: Account<'info, ConditionalSession>,
+    pub proposal: Account<'info, DaoDisputeProposal>,
+    #[account(seeds = [b"dao_config"], bump)]
+    pub dao_config: Account<'info, DaoConfig>,
+    pub platform_state: Account<'info, PlatformState>,
     #[account(mut)]
     pub analytics: Account<'info, EscrowAnalytics>,
-    pub buyer: Signer<'info>,
+    pub admin: Signer<'info>,
 }
 
-// ── Conditional escrow events ───────────────────────────────────────────────
+// ── DAO events ──────────────────────────────────────────────────────────────
 
 #[event]
-pub struct ConditionalEscrowCreated {
-    pub session_id: Pubkey,
-    pub buyer: Pubkey,
-    pub seller: Pubkey,
-    pub amount: u64,
-    pub condition_program: Pubkey,
-    pub condition_account: Pubkey,
-    pub condition_timeout_slots: u64,
+pub struct DaoConfigured {
+    pub dao_program: Pubkey,
+    pub voting_period_slots: u64,
+    pub fallback_timeout_slots: u64,
+    pub configured_by: Pubkey,
 }
 
 #[event]
-pub struct ConditionChecked {
+pub struct DisputeSentToDAO {
     pub session_id: Pubkey,
-    pub condition_met: bool,
-    pub checked_at: i64,
+    pub proposal_id: u64,
+    pub buyer_share: u64,
+    pub seller_share: u64,
 }
 
 #[event]
-pub struct ConditionMet {
-    pub session_id: Pubkey,
-    pub released_at: i64,
+pub struct DaoVoteCast {
+    pub proposal_id: Pubkey,
+    pub voter: Pubkey,
+    pub vote_for: bool,
 }
 
 #[event]
-pub struct ConditionFailedRefund {
+pub struct DisputeResolvedByDAO {
     pub session_id: Pubkey,
-    pub buyer: Pubkey,
-    pub amount: u64,
-    pub refunded_at: i64,
+    pub buyer_share: u64,
+    pub seller_share: u64,
+    pub votes_for: u64,
+    pub votes_against: u64,
+}
+
+#[event]
+pub struct DaoFallbackToAdmin {
+    pub session_id: Pubkey,
+    pub admin: Pubkey,
+    pub buyer_share: u64,
+    pub seller_share: u64,
 }
