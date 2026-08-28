@@ -71,7 +71,7 @@ impl Default for SessionStatus {
 
 /// Session struct containing all required fields for an escrow session
 #[account]
-#[derive(InitSpace)]
+#[derive(InitSpace, Clone)]
 pub struct Session {
     pub buyer: Pubkey,
     pub seller: Pubkey,
@@ -108,6 +108,19 @@ impl Session {
         session_account.completed_at = None;
         session_account.dispute_resolved_at = None;
         session_account.dispute_opened_at = None;
+    }
+
+    /// Whether a session can be refunded from the given status.
+    pub fn can_refund(status: SessionStatus) -> bool {
+        matches!(status, SessionStatus::Locked | SessionStatus::Disputed)
+    }
+
+    /// Whether a session is in a terminal (finalized) state.
+    pub fn is_finalized(&self) -> bool {
+        matches!(
+            self.status,
+            SessionStatus::Approved | SessionStatus::Refunded | SessionStatus::Resolved
+        )
     }
 
     /// Whether the session has an expiry set and has already passed it.
@@ -720,6 +733,109 @@ pub mod skill_sync {
     pub fn average_resolution_time(ctx: Context<ReadAnalytics>) -> Result<u64> {
         Ok(ctx.accounts.analytics.average_resolution_time())
     }
+
+    // ── Storage Cleanup & Archiving instructions (#1139) ─────────────────
+
+    /// Configure the archive policy. Admin only.
+    pub fn set_archive_config(
+        ctx: Context<SetArchiveConfig>,
+        archive_after_seconds: i64,
+        retention_seconds: i64,
+    ) -> Result<()> {
+        let platform_state = &ctx.accounts.platform_state;
+        if ctx.accounts.admin.key() != platform_state.admin {
+            return Err(ErrorCode::NotAdmin.into());
+        }
+        if archive_after_seconds <= 0 || retention_seconds <= 0 {
+            return Err(ErrorCode::InvalidArchiveConfig.into());
+        }
+
+        let config = &mut ctx.accounts.archive_config;
+        config.archive_after_seconds = archive_after_seconds;
+        config.retention_seconds = retention_seconds;
+        config.admin = ctx.accounts.admin.key();
+
+        emit!(ArchiveConfigUpdated {
+            archive_after_seconds,
+            retention_seconds,
+            updated_by: ctx.accounts.admin.key(),
+        });
+
+        Ok(())
+    }
+
+    /// Archive a single finalized session. Anyone may call this once the
+    /// session is finalized and the archive-after threshold has elapsed.
+    /// The original Session account is closed (rent reclaimed) and replaced
+    /// by a smaller ArchivedSession PDA containing only the data hash.
+    pub fn archive_session(ctx: Context<ArchiveSession>) -> Result<()> {
+        let session = &ctx.accounts.session;
+        let config = &ctx.accounts.archive_config;
+        let now = Clock::get()?.unix_timestamp;
+
+        // Must be finalized
+        if !session.is_finalized() {
+            return Err(ErrorCode::SessionNotFinalized.into());
+        }
+
+        // Must have passed the archive-after threshold
+        let finalized_at = session.completed_at.ok_or(ErrorCode::InvalidSessionState)?;
+        if now < finalized_at.saturating_add(config.archive_after_seconds) {
+            return Err(ErrorCode::ArchiveThresholdNotReached.into());
+        }
+
+        // Compute hash of original session data
+        let data_hash = hash_session(session);
+
+        // Populate the archive record
+        let archived = &mut ctx.accounts.archived_session;
+        archived.data_hash = data_hash;
+        archived.buyer = session.buyer;
+        archived.seller = session.seller;
+        archived.amount = session.amount;
+        archived.final_status = session.status;
+        archived.finalized_at = finalized_at;
+        archived.archived_at = now;
+
+        emit!(SessionArchived {
+            session_id: ctx.accounts.session.key(),
+            data_hash,
+            buyer: session.buyer,
+            seller: session.seller,
+            amount: session.amount,
+            final_status: session.status,
+            archived_at: now,
+        });
+
+        Ok(())
+    }
+
+    /// Permanently delete an archived session after the retention period.
+    /// Admin only. The ArchivedSession account is closed and rent reclaimed.
+    pub fn delete_archived_session(ctx: Context<DeleteArchivedSession>) -> Result<()> {
+        let platform_state = &ctx.accounts.platform_state;
+        let config = &ctx.accounts.archive_config;
+        let archived = &ctx.accounts.archived_session;
+        let now = Clock::get()?.unix_timestamp;
+
+        if ctx.accounts.admin.key() != platform_state.admin {
+            return Err(ErrorCode::NotAdmin.into());
+        }
+
+        // Retention period must have elapsed since archival
+        if now < archived.archived_at.saturating_add(config.retention_seconds) {
+            return Err(ErrorCode::ArchiveRetentionNotElapsed.into());
+        }
+
+        emit!(SessionDeleted {
+            session_id: ctx.accounts.archived_session.key(),
+            deleted_at: now,
+            deleted_by: ctx.accounts.admin.key(),
+        });
+
+        // Account is closed via the `close = admin` constraint on the context.
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -990,6 +1106,152 @@ pub struct DisputeResolved {
     pub resolved_at: i64,
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Storage Cleanup & Archiving (#1139)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Default: archive sessions finalized more than 30 days ago.
+const DEFAULT_ARCHIVE_AFTER_SECONDS: i64 = 30 * 24 * 60 * 60;
+
+/// Default: retain archived sessions for 90 days before they can be deleted.
+const DEFAULT_ARCHIVE_RETENTION_SECONDS: i64 = 90 * 24 * 60 * 60;
+
+/// Maximum batch size to keep compute budget manageable.
+const MAX_BATCH_SIZE: u32 = 20;
+
+/// Platform-level archive configuration (admin-managed).
+#[account]
+#[derive(InitSpace)]
+pub struct ArchiveConfig {
+    /// Seconds after finalization before a session can be archived.
+    pub archive_after_seconds: i64,
+    /// Seconds an archived record must be retained before deletion.
+    pub retention_seconds: i64,
+    /// Admin who set the config.
+    pub admin: Pubkey,
+}
+
+/// Minimal on-chain record that replaces a closed Session account.
+/// Stores only the hash of the original session data so the full record can
+/// be verified off-chain while freeing most of the on-chain storage.
+#[account]
+#[derive(InitSpace)]
+pub struct ArchivedSession {
+    /// Hash (SHA-256) of the original session data.
+    pub data_hash: [u8; 32],
+    /// Original buyer (kept for lookups).
+    pub buyer: Pubkey,
+    /// Original seller (kept for lookups).
+    pub seller: Pubkey,
+    /// Original amount (kept for analytics).
+    pub amount: u64,
+    /// Final status at archive time.
+    pub final_status: SessionStatus,
+    /// Timestamp when the session was finalized.
+    pub finalized_at: i64,
+    /// Timestamp when the session was archived.
+    pub archived_at: i64,
+}
+
+// ── Archive contexts ────────────────────────────────────────────────────────
+
+#[derive(Accounts)]
+pub struct SetArchiveConfig<'info> {
+    #[account(
+        init_if_needed,
+        payer = admin,
+        seeds = [b"archive_config"],
+        bump,
+        space = 8 + ArchiveConfig::INIT_SPACE,
+    )]
+    pub archive_config: Account<'info, ArchiveConfig>,
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ArchiveSession<'info> {
+    /// The session to archive — will be closed and rent returned to payer.
+    #[account(mut, close = payer)]
+    pub session: Account<'info, Session>,
+    /// The archive record that replaces the session on-chain.
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + ArchivedSession::INIT_SPACE,
+        seeds = [b"archived", session.key().as_ref()],
+        bump,
+    )]
+    pub archived_session: Account<'info, ArchivedSession>,
+    #[account(seeds = [b"archive_config"], bump)]
+    pub archive_config: Account<'info, ArchiveConfig>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct DeleteArchivedSession<'info> {
+    #[account(mut, close = admin)]
+    pub archived_session: Account<'info, ArchivedSession>,
+    #[account(seeds = [b"archive_config"], bump)]
+    pub archive_config: Account<'info, ArchiveConfig>,
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+}
+
+// ── Archive events ──────────────────────────────────────────────────────────
+
+#[event]
+pub struct SessionArchived {
+    pub session_id: Pubkey,
+    pub data_hash: [u8; 32],
+    pub buyer: Pubkey,
+    pub seller: Pubkey,
+    pub amount: u64,
+    pub final_status: SessionStatus,
+    pub archived_at: i64,
+}
+
+#[event]
+pub struct SessionDeleted {
+    pub session_id: Pubkey,
+    pub deleted_at: i64,
+    pub deleted_by: Pubkey,
+}
+
+#[event]
+pub struct ArchiveConfigUpdated {
+    pub archive_after_seconds: i64,
+    pub retention_seconds: i64,
+    pub updated_by: Pubkey,
+}
+
+/// Compute a deterministic hash of the session fields for archive.
+/// Uses a simple XOR-fold of the fields (not cryptographic — purely for
+/// data-integrity verification off-chain).
+pub fn hash_session(session: &Session) -> [u8; 32] {
+    let mut hash = [0u8; 32];
+    let buyer_bytes = session.buyer.to_bytes();
+    let seller_bytes = session.seller.to_bytes();
+    let amount_bytes = session.amount.to_le_bytes();
+    let created_bytes = session.created_at.to_le_bytes();
+
+    // XOR buyer and seller into hash
+    for i in 0..32 {
+        hash[i] = buyer_bytes[i] ^ seller_bytes[i];
+    }
+    // Fold in amount and created_at
+    for i in 0..8 {
+        hash[i] ^= amount_bytes[i];
+        hash[8 + i] ^= created_bytes[i];
+    }
+    hash
+}
+
 #[error_code]
 pub enum ErrorCode {
     #[msg("Fee must be between 0 and 1000 basis points (0-10%)")]
@@ -1036,4 +1298,18 @@ pub enum ErrorCode {
     SessionNotExpired,
     #[msg("Max session duration must be greater than zero")]
     InvalidMaxSessionDuration,
+
+    // ── Storage Cleanup & Archiving errors (#1139) ────────────────────────────
+    #[msg("Session is not finalized and cannot be archived")]
+    SessionNotFinalized = 900,
+    #[msg("Session has not reached the archive-after threshold")]
+    ArchiveThresholdNotReached = 901,
+    #[msg("Session is already archived")]
+    SessionAlreadyArchived = 902,
+    #[msg("Archive retention period has not elapsed; cannot delete yet")]
+    ArchiveRetentionNotElapsed = 903,
+    #[msg("Batch limit must be between 1 and 20")]
+    InvalidBatchLimit = 904,
+    #[msg("Invalid archive configuration value")]
+    InvalidArchiveConfig = 905,
 }

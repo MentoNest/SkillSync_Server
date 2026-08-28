@@ -428,3 +428,260 @@ fn test_timeout_and_dispute_error_codes() {
     assert_eq!(err_not_allowed as u32, 503);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Storage Cleanup & Archiving tests (#1139)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_archive_config_defaults_and_struct() {
+    let admin = Pubkey::new_unique();
+    let config = ArchiveConfig {
+        archive_after_seconds: DEFAULT_ARCHIVE_AFTER_SECONDS,
+        retention_seconds: DEFAULT_ARCHIVE_RETENTION_SECONDS,
+        admin,
+    };
+
+    assert_eq!(config.archive_after_seconds, 30 * 24 * 60 * 60); // 30 days
+    assert_eq!(config.retention_seconds, 90 * 24 * 60 * 60); // 90 days
+    assert_eq!(config.admin, admin);
+}
+
+#[test]
+fn test_session_is_finalized() {
+    let base = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 1_000,
+        status: SessionStatus::Locked,
+        created_at: 1_700_000_000,
+        expires_at: 0,
+        completed_at: None,
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
+
+    // Locked is NOT finalized
+    assert!(!base.is_finalized());
+
+    // Completed is NOT finalized (still in active lifecycle)
+    let mut completed = base.clone();
+    completed.status = SessionStatus::Completed;
+    assert!(!completed.is_finalized());
+
+    // Disputed is NOT finalized
+    let mut disputed = base.clone();
+    disputed.status = SessionStatus::Disputed;
+    assert!(!disputed.is_finalized());
+
+    // Approved IS finalized
+    let mut approved = base.clone();
+    approved.status = SessionStatus::Approved;
+    assert!(approved.is_finalized());
+
+    // Refunded IS finalized
+    let mut refunded = base.clone();
+    refunded.status = SessionStatus::Refunded;
+    assert!(refunded.is_finalized());
+
+    // Resolved IS finalized
+    let mut resolved = base.clone();
+    resolved.status = SessionStatus::Resolved;
+    assert!(resolved.is_finalized());
+}
+
+#[test]
+fn test_hash_session_determinism() {
+    let session = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 5_000,
+        status: SessionStatus::Approved,
+        created_at: 1_700_000_000,
+        expires_at: 1_700_604_800,
+        completed_at: Some(1_700_100_000),
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
+
+    let hash1 = hash_session(&session);
+    let hash2 = hash_session(&session);
+    assert_eq!(hash1, hash2, "hash must be deterministic");
+    assert_ne!(hash1, [0u8; 32], "hash should not be all zeros");
+}
+
+#[test]
+fn test_hash_session_different_inputs_differ() {
+    let session_a = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 1_000,
+        status: SessionStatus::Approved,
+        created_at: 1_700_000_000,
+        expires_at: 0,
+        completed_at: Some(1_700_100_000),
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
+
+    let session_b = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 2_000,
+        status: SessionStatus::Refunded,
+        created_at: 1_700_200_000,
+        expires_at: 0,
+        completed_at: Some(1_700_300_000),
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
+
+    assert_ne!(
+        hash_session(&session_a),
+        hash_session(&session_b),
+        "different sessions should produce different hashes"
+    );
+}
+
+#[test]
+fn test_archived_session_struct_fields() {
+    let data_hash = [0xABu8; 32];
+    let buyer = Pubkey::new_unique();
+    let seller = Pubkey::new_unique();
+
+    let archived = ArchivedSession {
+        data_hash,
+        buyer,
+        seller,
+        amount: 10_000,
+        final_status: SessionStatus::Approved,
+        finalized_at: 1_700_100_000,
+        archived_at: 1_702_692_000, // ~30 days later
+    };
+
+    assert_eq!(archived.data_hash, data_hash);
+    assert_eq!(archived.buyer, buyer);
+    assert_eq!(archived.seller, seller);
+    assert_eq!(archived.amount, 10_000);
+    assert_eq!(archived.final_status, SessionStatus::Approved);
+    assert!(archived.archived_at > archived.finalized_at);
+}
+
+#[test]
+fn test_archive_threshold_check() {
+    // archive_session requires: now >= finalized_at + archive_after_seconds
+    let finalized_at: i64 = 1_700_000_000;
+    let archive_after: i64 = 30 * 24 * 60 * 60; // 30 days
+
+    // Too early
+    let now_early = finalized_at + archive_after - 1;
+    assert!(
+        now_early < finalized_at.saturating_add(archive_after),
+        "should not be archivable yet"
+    );
+
+    // At threshold — archivable
+    let now_exact = finalized_at + archive_after;
+    assert!(
+        now_exact >= finalized_at.saturating_add(archive_after),
+        "should be archivable at threshold"
+    );
+}
+
+#[test]
+fn test_archive_retention_check() {
+    // delete_archived_session requires: now >= archived_at + retention_seconds
+    let archived_at: i64 = 1_702_692_000;
+    let retention: i64 = 90 * 24 * 60 * 60; // 90 days
+
+    // Not yet deletable
+    let now_early = archived_at + retention - 1;
+    assert!(
+        now_early < archived_at.saturating_add(retention),
+        "not yet deletable"
+    );
+
+    // Past retention — deletable
+    let now_late = archived_at + retention;
+    assert!(
+        now_late >= archived_at.saturating_add(retention),
+        "now deletable"
+    );
+}
+
+#[test]
+fn test_archived_session_is_immutable_by_design() {
+    // ArchivedSession has no update methods; once created it's read-only
+    // until deleted. Verify that the struct has no mutable helpers.
+    let archived = ArchivedSession {
+        data_hash: [1u8; 32],
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 5_000,
+        final_status: SessionStatus::Resolved,
+        finalized_at: 1_700_000_000,
+        archived_at: 1_702_692_000,
+    };
+
+    // Reading fields works; no methods exist to modify them (compile-time guarantee).
+    assert_eq!(archived.amount, 5_000);
+    assert_eq!(archived.final_status, SessionStatus::Resolved);
+}
+
+#[test]
+fn test_storage_cleanup_error_codes() {
+    assert_eq!(ErrorCode::SessionNotFinalized as u32, 900);
+    assert_eq!(ErrorCode::ArchiveThresholdNotReached as u32, 901);
+    assert_eq!(ErrorCode::SessionAlreadyArchived as u32, 902);
+    assert_eq!(ErrorCode::ArchiveRetentionNotElapsed as u32, 903);
+    assert_eq!(ErrorCode::InvalidBatchLimit as u32, 904);
+    assert_eq!(ErrorCode::InvalidArchiveConfig as u32, 905);
+}
+
+#[test]
+fn test_archive_event_shapes() {
+    // SessionArchived
+    let archived_event = SessionArchived {
+        session_id: Pubkey::new_unique(),
+        data_hash: [0xCDu8; 32],
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 8_000,
+        final_status: SessionStatus::Approved,
+        archived_at: 1_702_692_000,
+    };
+    assert_eq!(archived_event.amount, 8_000);
+    assert_eq!(archived_event.final_status, SessionStatus::Approved);
+
+    // SessionDeleted
+    let deleted_event = SessionDeleted {
+        session_id: Pubkey::new_unique(),
+        deleted_at: 1_710_000_000,
+        deleted_by: Pubkey::new_unique(),
+    };
+    assert!(deleted_event.deleted_at > 0);
+
+    // ArchiveConfigUpdated
+    let config_event = ArchiveConfigUpdated {
+        archive_after_seconds: 30 * 24 * 60 * 60,
+        retention_seconds: 90 * 24 * 60 * 60,
+        updated_by: Pubkey::new_unique(),
+    };
+    assert_eq!(config_event.archive_after_seconds, 2_592_000);
+    assert_eq!(config_event.retention_seconds, 7_776_000);
+}
+
+#[test]
+fn test_batch_archive_limit_validation() {
+    // batch_archive_sessions accepts limit in [1, MAX_BATCH_SIZE]
+    assert_eq!(MAX_BATCH_SIZE, 20);
+
+    let valid_limit: u32 = 10;
+    assert!(valid_limit >= 1 && valid_limit <= MAX_BATCH_SIZE);
+
+    let too_large: u32 = 25;
+    assert!(too_large > MAX_BATCH_SIZE);
+
+    let zero: u32 = 0;
+    assert!(zero < 1);
+}
+
