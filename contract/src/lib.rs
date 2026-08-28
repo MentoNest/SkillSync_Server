@@ -720,6 +720,141 @@ pub mod skill_sync {
     pub fn average_resolution_time(ctx: Context<ReadAnalytics>) -> Result<u64> {
         Ok(ctx.accounts.analytics.average_resolution_time())
     }
+
+    // ── Conditional Escrow instructions (#1137) ─────────────────────────────
+
+    /// Lock funds with a condition tied to an external contract's state.
+    pub fn lock_funds_conditional(
+        ctx: Context<LockFundsConditional>,
+        seller: Pubkey,
+        amount: u64,
+        condition_program: Pubkey,
+        condition_account: Pubkey,
+        condition_timeout_slots: u64,
+    ) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        let platform_state = &mut ctx.accounts.platform_state;
+        let analytics = &mut ctx.accounts.analytics;
+        let buyer = ctx.accounts.buyer.key();
+        let now = Clock::get()?.unix_timestamp;
+        let slot = Clock::get()?.slot;
+
+        Session::save_session(session, buyer, seller, amount, now);
+        analytics.record_session_created(amount);
+        platform_state.session_counter += 1;
+
+        let conditional = &mut ctx.accounts.conditional_session;
+        conditional.session = session.key();
+        conditional.condition_program = condition_program;
+        conditional.condition_account = condition_account;
+        conditional.condition_met = false;
+        conditional.condition_timeout_slots = condition_timeout_slots;
+        conditional.created_slot = slot;
+
+        emit!(ConditionalEscrowCreated {
+            session_id: session.key(),
+            buyer,
+            seller,
+            amount,
+            condition_program,
+            condition_account,
+            condition_timeout_slots,
+        });
+
+        Ok(())
+    }
+
+    /// Check if the external condition has been met by reading the
+    /// condition account. If the account has data (non-empty), the
+    /// condition is considered met.
+    pub fn check_condition(ctx: Context<CheckCondition>) -> Result<bool> {
+        let conditional = &mut ctx.accounts.conditional_session;
+
+        if conditional.condition_met {
+            return Err(ErrorCode::ConditionAlreadyMet.into());
+        }
+
+        // Check if the condition account has data — a simple heuristic.
+        // Production code would use CPI to call the condition program.
+        let account_data = ctx.accounts.condition_account.try_borrow_data()?;
+        let met = !account_data.is_empty() && account_data[0] != 0;
+
+        if met {
+            conditional.condition_met = true;
+        }
+
+        let now = Clock::get()?.unix_timestamp;
+        emit!(ConditionChecked {
+            session_id: conditional.session,
+            condition_met: met,
+            checked_at: now,
+        });
+
+        Ok(met)
+    }
+
+    /// Release funds if the condition has been met. Callable by anyone.
+    pub fn release_if_condition_met(ctx: Context<ReleaseConditional>) -> Result<()> {
+        let conditional = &ctx.accounts.conditional_session;
+        let session = &mut ctx.accounts.session;
+
+        if !conditional.condition_met {
+            return Err(ErrorCode::ConditionNotMet.into());
+        }
+
+        if session.status != SessionStatus::Locked {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        Session::update_status(session, SessionStatus::Approved)?;
+        ctx.accounts.analytics.record_session_deactivated();
+
+        let now = Clock::get()?.unix_timestamp;
+        emit!(ConditionMet {
+            session_id: session.key(),
+            released_at: now,
+        });
+
+        Ok(())
+    }
+
+    /// Refund the buyer if the condition timed out.
+    pub fn refund_conditional_failed(ctx: Context<RefundConditionalFailed>) -> Result<()> {
+        let conditional = &ctx.accounts.conditional_session;
+        let session = &mut ctx.accounts.session;
+        let slot = Clock::get()?.slot;
+
+        if ctx.accounts.buyer.key() != session.buyer {
+            return Err(ErrorCode::NotBuyer.into());
+        }
+
+        if conditional.condition_met {
+            return Err(ErrorCode::ConditionAlreadyMet.into());
+        }
+
+        if session.status != SessionStatus::Locked {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        // Check if timeout has passed
+        let deadline = conditional.created_slot.saturating_add(conditional.condition_timeout_slots);
+        if slot < deadline {
+            return Err(ErrorCode::ConditionNotTimedOut.into());
+        }
+
+        Session::update_status(session, SessionStatus::Refunded)?;
+        ctx.accounts.analytics.record_session_deactivated();
+
+        let now = Clock::get()?.unix_timestamp;
+        emit!(ConditionFailedRefund {
+            session_id: session.key(),
+            buyer: session.buyer,
+            amount: session.amount,
+            refunded_at: now,
+        });
+
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -1036,4 +1171,133 @@ pub enum ErrorCode {
     SessionNotExpired,
     #[msg("Max session duration must be greater than zero")]
     InvalidMaxSessionDuration,
+
+    // ── Conditional Escrow errors (#1137) ────────────────────────────────────
+    #[msg("Condition has not been met")]
+    ConditionNotMet = 700,
+    #[msg("Condition has timed out")]
+    ConditionTimedOut = 701,
+    #[msg("Condition has already been met")]
+    ConditionAlreadyMet = 702,
+    #[msg("Invalid condition program")]
+    InvalidConditionProgram = 703,
+    #[msg("Condition timeout has not been reached yet")]
+    ConditionNotTimedOut = 704,
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Conditional Escrow (#1137)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Tracks a conditional escrow session whose release depends on the state
+/// of an external program account.
+#[account]
+#[derive(InitSpace)]
+pub struct ConditionalSession {
+    /// The session this condition applies to.
+    pub session: Pubkey,
+    /// External program whose account state is checked.
+    pub condition_program: Pubkey,
+    /// Account to read from the external program.
+    pub condition_account: Pubkey,
+    /// Whether the condition has been met.
+    pub condition_met: bool,
+    /// Timeout in slots — if condition is not met within this many slots
+    /// after creation, the buyer can reclaim funds.
+    pub condition_timeout_slots: u64,
+    /// Slot at which the conditional session was created.
+    pub created_slot: u64,
+}
+
+// ── Conditional escrow contexts ─────────────────────────────────────────────
+
+#[derive(Accounts)]
+pub struct LockFundsConditional<'info> {
+    #[account(mut)]
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(
+        init,
+        payer = buyer,
+        space = 8 + Session::INIT_SPACE,
+        seeds = [b"session", platform_state.session_counter.to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub session: Account<'info, Session>,
+    #[account(
+        init,
+        payer = buyer,
+        space = 8 + ConditionalSession::INIT_SPACE,
+        seeds = [b"conditional", platform_state.session_counter.to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub conditional_session: Account<'info, ConditionalSession>,
+    #[account(mut)]
+    pub analytics: Account<'info, EscrowAnalytics>,
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CheckCondition<'info> {
+    pub session: Account<'info, Session>,
+    #[account(mut)]
+    pub conditional_session: Account<'info, ConditionalSession>,
+    /// CHECK: The external account whose state determines the condition.
+    pub condition_account: AccountInfo<'info>,
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct ReleaseConditional<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    pub conditional_session: Account<'info, ConditionalSession>,
+    #[account(mut)]
+    pub analytics: Account<'info, EscrowAnalytics>,
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct RefundConditionalFailed<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    pub conditional_session: Account<'info, ConditionalSession>,
+    #[account(mut)]
+    pub analytics: Account<'info, EscrowAnalytics>,
+    pub buyer: Signer<'info>,
+}
+
+// ── Conditional escrow events ───────────────────────────────────────────────
+
+#[event]
+pub struct ConditionalEscrowCreated {
+    pub session_id: Pubkey,
+    pub buyer: Pubkey,
+    pub seller: Pubkey,
+    pub amount: u64,
+    pub condition_program: Pubkey,
+    pub condition_account: Pubkey,
+    pub condition_timeout_slots: u64,
+}
+
+#[event]
+pub struct ConditionChecked {
+    pub session_id: Pubkey,
+    pub condition_met: bool,
+    pub checked_at: i64,
+}
+
+#[event]
+pub struct ConditionMet {
+    pub session_id: Pubkey,
+    pub released_at: i64,
+}
+
+#[event]
+pub struct ConditionFailedRefund {
+    pub session_id: Pubkey,
+    pub buyer: Pubkey,
+    pub amount: u64,
+    pub refunded_at: i64,
 }

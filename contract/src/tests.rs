@@ -428,3 +428,58 @@ fn test_timeout_and_dispute_error_codes() {
     assert_eq!(err_not_allowed as u32, 503);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Conditional Escrow tests (#1137)
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_conditional_session_fields() {
+    let session_key = Pubkey::new_unique();
+    let condition_program = Pubkey::new_unique();
+    let condition_account = Pubkey::new_unique();
+
+    let conditional = ConditionalSession {
+        session: session_key,
+        condition_program,
+        condition_account,
+        condition_met: false,
+        condition_timeout_slots: 10_000,
+        created_slot: 500,
+    };
+
+    assert_eq!(conditional.session, session_key);
+    assert_eq!(conditional.condition_program, condition_program);
+    assert!(!conditional.condition_met);
+    assert_eq!(conditional.condition_timeout_slots, 10_000);
+    assert_eq!(conditional.created_slot, 500);
+}
+
+#[test]
+fn test_conditional_timeout_check() {
+    let conditional = ConditionalSession {
+        session: Pubkey::new_unique(),
+        condition_program: Pubkey::new_unique(),
+        condition_account: Pubkey::new_unique(),
+        condition_met: false,
+        condition_timeout_slots: 5_000,
+        created_slot: 1_000,
+    };
+
+    let deadline = conditional.created_slot.saturating_add(conditional.condition_timeout_slots);
+    assert_eq!(deadline, 6_000);
+
+    // Before deadline
+    assert!(5_999 < deadline, "not timed out yet");
+    // At deadline
+    assert!(6_000 >= deadline, "timed out at deadline");
+}
+
+#[test]
+fn test_conditional_escrow_error_codes() {
+    assert_eq!(ErrorCode::ConditionNotMet as u32, 700);
+    assert_eq!(ErrorCode::ConditionTimedOut as u32, 701);
+    assert_eq!(ErrorCode::ConditionAlreadyMet as u32, 702);
+    assert_eq!(ErrorCode::InvalidConditionProgram as u32, 703);
+    assert_eq!(ErrorCode::ConditionNotTimedOut as u32, 704);
+}
+
