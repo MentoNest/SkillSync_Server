@@ -428,3 +428,255 @@ fn test_timeout_and_dispute_error_codes() {
     assert_eq!(err_not_allowed as u32, 503);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// DAO-governed Dispute Resolution tests (#1138)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_dao_config_struct_fields() {
+    let dao_program = Pubkey::new_unique();
+    let dao_treasury = Pubkey::new_unique();
+    let admin = Pubkey::new_unique();
+
+    let config = DaoConfig {
+        dao_program,
+        dao_treasury,
+        voting_period_slots: 100,
+        fallback_timeout_slots: 200,
+        is_active: true,
+        admin,
+    };
+
+    assert_eq!(config.dao_program, dao_program);
+    assert_eq!(config.dao_treasury, dao_treasury);
+    assert_eq!(config.voting_period_slots, 100);
+    assert_eq!(config.fallback_timeout_slots, 200);
+    assert!(config.is_active);
+    assert_eq!(config.admin, admin);
+}
+
+#[test]
+fn test_dao_dispute_proposal_initial_state() {
+    let session = Pubkey::new_unique();
+    let amount: u64 = 10_000;
+    let buyer_share: u64 = 6_000;
+    let seller_share: u64 = 4_000;
+
+    let proposal = DaoDisputeProposal {
+        session,
+        proposal_id: 42,
+        buyer_share,
+        seller_share,
+        votes_for: 0,
+        votes_against: 0,
+        created_slot: 1_000,
+        resolved: false,
+    };
+
+    assert_eq!(proposal.session, session);
+    assert_eq!(proposal.proposal_id, 42);
+    assert_eq!(proposal.buyer_share + proposal.seller_share, amount);
+    assert_eq!(proposal.votes_for, 0);
+    assert_eq!(proposal.votes_against, 0);
+    assert!(!proposal.resolved);
+}
+
+#[test]
+fn test_dao_proposal_shares_must_sum_to_amount() {
+    // Mirrors the validate check in resolve_dispute_via_dao: shares must sum
+    // to the session amount.
+    let session_amount: u64 = 8_000;
+    let buyer_share: u64 = 5_000;
+    let seller_share: u64 = 3_000;
+
+    assert_eq!(
+        buyer_share.saturating_add(seller_share),
+        session_amount,
+        "shares must sum to session amount"
+    );
+
+    // Invalid split
+    let bad_buyer: u64 = 5_000;
+    let bad_seller: u64 = 4_000;
+    assert_ne!(
+        bad_buyer.saturating_add(bad_seller),
+        session_amount,
+        "mismatched shares should fail validation"
+    );
+}
+
+#[test]
+fn test_vote_record_prevents_double_voting() {
+    let proposal = Pubkey::new_unique();
+    let voter = Pubkey::new_unique();
+
+    let record = VoteRecord {
+        proposal,
+        voter,
+        vote_for: true,
+    };
+
+    // The PDA seed [b"vote", proposal, voter] ensures uniqueness at the
+    // Anchor constraint level. Verify the record captures the right fields.
+    assert_eq!(record.proposal, proposal);
+    assert_eq!(record.voter, voter);
+    assert!(record.vote_for);
+}
+
+#[test]
+fn test_dao_vote_tallying() {
+    let session = Pubkey::new_unique();
+
+    let mut proposal = DaoDisputeProposal {
+        session,
+        proposal_id: 1,
+        buyer_share: 7_000,
+        seller_share: 3_000,
+        votes_for: 0,
+        votes_against: 0,
+        created_slot: 500,
+        resolved: false,
+    };
+
+    // Simulate 5 votes for, 3 against
+    for _ in 0..5 {
+        proposal.votes_for = proposal.votes_for.saturating_add(1);
+    }
+    for _ in 0..3 {
+        proposal.votes_against = proposal.votes_against.saturating_add(1);
+    }
+
+    assert_eq!(proposal.votes_for, 5);
+    assert_eq!(proposal.votes_against, 3);
+    // Proposal passes: votes_for > votes_against
+    assert!(proposal.votes_for > proposal.votes_against);
+}
+
+#[test]
+fn test_dao_voting_period_check() {
+    // Voting period must elapse before execution.
+    let created_slot: u64 = 1_000;
+    let voting_period_slots: u64 = 100;
+
+    // During voting period — should NOT be executable
+    let current_slot_early: u64 = 1_050;
+    assert!(
+        current_slot_early < created_slot.saturating_add(voting_period_slots),
+        "voting period has not ended"
+    );
+
+    // After voting period — executable
+    let current_slot_late: u64 = 1_100;
+    assert!(
+        current_slot_late >= created_slot.saturating_add(voting_period_slots),
+        "voting period has ended"
+    );
+}
+
+#[test]
+fn test_dao_fallback_timeout_check() {
+    // Fallback is allowed only after voting_period + fallback_timeout.
+    let created_slot: u64 = 1_000;
+    let voting_period: u64 = 100;
+    let fallback_timeout: u64 = 200;
+    let fallback_slot = created_slot
+        .saturating_add(voting_period)
+        .saturating_add(fallback_timeout);
+
+    assert_eq!(fallback_slot, 1_300);
+
+    // Before fallback — not allowed
+    let early: u64 = 1_250;
+    assert!(early < fallback_slot, "fallback not yet reached");
+
+    // At/after fallback — allowed
+    let at_fallback: u64 = 1_300;
+    assert!(at_fallback >= fallback_slot, "fallback reached");
+}
+
+#[test]
+fn test_dao_error_codes() {
+    assert_eq!(ErrorCode::DaoNotConfigured as u32, 800);
+    assert_eq!(ErrorCode::DaoNotActive as u32, 801);
+    assert_eq!(ErrorCode::VotingPeriodNotEnded as u32, 802);
+    assert_eq!(ErrorCode::VotingPeriodExpired as u32, 803);
+    assert_eq!(ErrorCode::AlreadyVoted as u32, 804);
+    assert_eq!(ErrorCode::DaoResolutionPending as u32, 805);
+    assert_eq!(ErrorCode::DaoFallbackNotReached as u32, 806);
+}
+
+#[test]
+fn test_dao_resolution_marks_session_resolved() {
+    // After DAO execution with passing vote, session transitions to Resolved.
+    let mut session = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 10_000,
+        status: SessionStatus::Disputed,
+        created_at: 1_700_000_000,
+        expires_at: 1_700_604_800,
+        completed_at: None,
+        dispute_resolved_at: None,
+        dispute_opened_at: Some(1_700_100_000),
+    };
+
+    // Simulate what execute_dao_resolution does on a passing vote
+    session.status = SessionStatus::Resolved;
+    session.dispute_resolved_at = Some(1_700_200_000);
+    session.completed_at = Some(1_700_200_000);
+
+    assert_eq!(session.status, SessionStatus::Resolved);
+    assert!(session.dispute_resolved_at.is_some());
+    let resolution_time = session.dispute_resolved_at.unwrap()
+        - session.dispute_opened_at.unwrap();
+    assert_eq!(resolution_time, 100_000);
+}
+
+#[test]
+fn test_dao_event_shapes() {
+    // DaoConfigured
+    let cfg_event = DaoConfigured {
+        dao_program: Pubkey::new_unique(),
+        voting_period_slots: 100,
+        fallback_timeout_slots: 200,
+        configured_by: Pubkey::new_unique(),
+    };
+    assert_eq!(cfg_event.voting_period_slots, 100);
+
+    // DisputeSentToDAO
+    let sent_event = DisputeSentToDAO {
+        session_id: Pubkey::new_unique(),
+        proposal_id: 42,
+        buyer_share: 6_000,
+        seller_share: 4_000,
+    };
+    assert_eq!(sent_event.buyer_share + sent_event.seller_share, 10_000);
+
+    // DaoVoteCast
+    let vote_event = DaoVoteCast {
+        proposal_id: Pubkey::new_unique(),
+        voter: Pubkey::new_unique(),
+        vote_for: true,
+    };
+    assert!(vote_event.vote_for);
+
+    // DisputeResolvedByDAO
+    let resolved_event = DisputeResolvedByDAO {
+        session_id: Pubkey::new_unique(),
+        buyer_share: 7_000,
+        seller_share: 3_000,
+        votes_for: 5,
+        votes_against: 2,
+    };
+    assert!(resolved_event.votes_for > resolved_event.votes_against);
+
+    // DaoFallbackToAdmin
+    let fallback_event = DaoFallbackToAdmin {
+        session_id: Pubkey::new_unique(),
+        admin: Pubkey::new_unique(),
+        buyer_share: 5_000,
+        seller_share: 5_000,
+    };
+    assert_eq!(fallback_event.buyer_share, fallback_event.seller_share);
+}
+

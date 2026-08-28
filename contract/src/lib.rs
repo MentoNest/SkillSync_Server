@@ -115,6 +115,11 @@ impl Session {
         self.expires_at > 0 && now >= self.expires_at
     }
 
+    /// Whether a session can be refunded from the given status.
+    pub fn can_refund(status: SessionStatus) -> bool {
+        matches!(status, SessionStatus::Locked | SessionStatus::Disputed)
+    }
+
     /// Update session status
     pub fn update_status(session_account: &mut Account<Session>, new_status: SessionStatus) -> Result<()> {
         let current_timestamp = Clock::get()?.unix_timestamp;
@@ -720,6 +725,219 @@ pub mod skill_sync {
     pub fn average_resolution_time(ctx: Context<ReadAnalytics>) -> Result<u64> {
         Ok(ctx.accounts.analytics.average_resolution_time())
     }
+
+    // ── DAO-governed Dispute Resolution instructions (#1138) ─────────────
+
+    /// Configure or update DAO-based dispute resolution settings.
+    /// Admin only — sets voting period, fallback timeout, and DAO program.
+    pub fn set_dispute_dao(
+        ctx: Context<SetDisputeDao>,
+        dao_program: Pubkey,
+        dao_treasury: Pubkey,
+        voting_period_slots: u64,
+        fallback_timeout_slots: u64,
+    ) -> Result<()> {
+        let platform_state = &ctx.accounts.platform_state;
+        if ctx.accounts.admin.key() != platform_state.admin {
+            return Err(ErrorCode::NotAdmin.into());
+        }
+
+        let dao_config = &mut ctx.accounts.dao_config;
+        dao_config.dao_program = dao_program;
+        dao_config.dao_treasury = dao_treasury;
+        dao_config.voting_period_slots = voting_period_slots;
+        dao_config.fallback_timeout_slots = fallback_timeout_slots;
+        dao_config.is_active = true;
+        dao_config.admin = ctx.accounts.admin.key();
+
+        emit!(DaoConfigured {
+            dao_program,
+            voting_period_slots,
+            fallback_timeout_slots,
+            configured_by: ctx.accounts.admin.key(),
+        });
+
+        Ok(())
+    }
+
+    /// Submit a disputed session to the DAO for resolution. Anyone who is the
+    /// buyer or seller on the disputed session may propose a split.
+    pub fn resolve_dispute_via_dao(
+        ctx: Context<ResolveDisputeViaDao>,
+        buyer_share: u64,
+        seller_share: u64,
+    ) -> Result<()> {
+        let session = &ctx.accounts.session;
+        let dao_config = &ctx.accounts.dao_config;
+
+        if !dao_config.is_active {
+            return Err(ErrorCode::DaoNotActive.into());
+        }
+
+        if session.status != SessionStatus::Disputed {
+            return Err(ErrorCode::DisputeNotOpen.into());
+        }
+
+        // Shares must sum to the session amount
+        if buyer_share.saturating_add(seller_share) != session.amount {
+            return Err(ErrorCode::InvalidShareSplit.into());
+        }
+
+        let proposer = ctx.accounts.proposer.key();
+        if proposer != session.buyer && proposer != session.seller {
+            return Err(ErrorCode::Unauthorized.into());
+        }
+
+        let current_slot = Clock::get()?.slot;
+        let proposal = &mut ctx.accounts.proposal;
+        proposal.session = session.key();
+        proposal.proposal_id = current_slot; // Use slot as unique ID
+        proposal.buyer_share = buyer_share;
+        proposal.seller_share = seller_share;
+        proposal.votes_for = 0;
+        proposal.votes_against = 0;
+        proposal.created_slot = current_slot;
+        proposal.resolved = false;
+
+        emit!(DisputeSentToDAO {
+            session_id: session.key(),
+            proposal_id: current_slot,
+            buyer_share,
+            seller_share,
+        });
+
+        Ok(())
+    }
+
+    /// Cast a vote on an active DAO dispute proposal.
+    pub fn vote_on_dispute(ctx: Context<VoteOnDispute>, vote_for: bool) -> Result<()> {
+        let proposal = &mut ctx.accounts.proposal;
+        let dao_config_slot = proposal.created_slot; // store before borrow
+
+        // Check the proposal is not already resolved
+        if proposal.resolved {
+            return Err(ErrorCode::DaoResolutionPending.into());
+        }
+
+        // Record the vote
+        let vote_record = &mut ctx.accounts.vote_record;
+        vote_record.proposal = proposal.key();
+        vote_record.voter = ctx.accounts.voter.key();
+        vote_record.vote_for = vote_for;
+
+        if vote_for {
+            proposal.votes_for = proposal.votes_for.saturating_add(1);
+        } else {
+            proposal.votes_against = proposal.votes_against.saturating_add(1);
+        }
+
+        emit!(DaoVoteCast {
+            proposal_id: proposal.key(),
+            voter: ctx.accounts.voter.key(),
+            vote_for,
+        });
+
+        Ok(())
+    }
+
+    /// Execute the DAO resolution after the voting period has ended.
+    /// If votes_for > votes_against the proposed split is applied; otherwise
+    /// the session stays disputed for admin fallback.
+    pub fn execute_dao_resolution(ctx: Context<ExecuteDaoResolution>) -> Result<()> {
+        let proposal = &mut ctx.accounts.proposal;
+        let dao_config = &ctx.accounts.dao_config;
+        let session = &mut ctx.accounts.session;
+        let analytics = &mut ctx.accounts.analytics;
+
+        if proposal.resolved {
+            return Err(ErrorCode::DaoResolutionPending.into());
+        }
+
+        // Ensure voting period has elapsed
+        let current_slot = Clock::get()?.slot;
+        if current_slot < proposal.created_slot.saturating_add(dao_config.voting_period_slots) {
+            return Err(ErrorCode::VotingPeriodNotEnded.into());
+        }
+
+        // Proposal passes if votes_for > votes_against
+        if proposal.votes_for > proposal.votes_against {
+            proposal.resolved = true;
+
+            // Capture opened_at before status transition
+            let opened_at = session.dispute_opened_at.ok_or(ErrorCode::InvalidSessionState)?;
+            Session::update_status(session, SessionStatus::Resolved)?;
+
+            let resolved_at = session.dispute_resolved_at.unwrap();
+            let resolution_time = resolved_at.saturating_sub(opened_at) as u64;
+            analytics.record_resolution(resolution_time);
+
+            emit!(DisputeResolvedByDAO {
+                session_id: session.key(),
+                buyer_share: proposal.buyer_share,
+                seller_share: proposal.seller_share,
+                votes_for: proposal.votes_for,
+                votes_against: proposal.votes_against,
+            });
+        }
+        // If proposal did not pass, it remains unresolved for admin fallback
+
+        Ok(())
+    }
+
+    /// Fallback admin resolution when the DAO vote did not pass or the
+    /// fallback timeout has been reached without execution.
+    pub fn fallback_admin_resolution(
+        ctx: Context<FallbackAdminResolution>,
+        buyer_share: u64,
+        seller_share: u64,
+    ) -> Result<()> {
+        let session = &mut ctx.accounts.session;
+        let proposal = &ctx.accounts.proposal;
+        let dao_config = &ctx.accounts.dao_config;
+        let platform_state = &ctx.accounts.platform_state;
+        let analytics = &mut ctx.accounts.analytics;
+
+        // Only admin
+        if ctx.accounts.admin.key() != platform_state.admin {
+            return Err(ErrorCode::NotAdmin.into());
+        }
+
+        if session.status != SessionStatus::Disputed {
+            return Err(ErrorCode::DisputeNotOpen.into());
+        }
+
+        // Fallback allowed only after voting_period + fallback_timeout
+        let current_slot = Clock::get()?.slot;
+        let fallback_slot = proposal
+            .created_slot
+            .saturating_add(dao_config.voting_period_slots)
+            .saturating_add(dao_config.fallback_timeout_slots);
+
+        if current_slot < fallback_slot {
+            return Err(ErrorCode::DaoFallbackNotReached.into());
+        }
+
+        // Shares must sum to session amount
+        if buyer_share.saturating_add(seller_share) != session.amount {
+            return Err(ErrorCode::InvalidShareSplit.into());
+        }
+
+        let opened_at = session.dispute_opened_at.ok_or(ErrorCode::InvalidSessionState)?;
+        Session::update_status(session, SessionStatus::Resolved)?;
+
+        let resolved_at = session.dispute_resolved_at.unwrap();
+        let resolution_time = resolved_at.saturating_sub(opened_at) as u64;
+        analytics.record_resolution(resolution_time);
+
+        emit!(DaoFallbackToAdmin {
+            session_id: session.key(),
+            admin: ctx.accounts.admin.key(),
+            buyer_share,
+            seller_share,
+        });
+
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -1036,4 +1254,195 @@ pub enum ErrorCode {
     SessionNotExpired,
     #[msg("Max session duration must be greater than zero")]
     InvalidMaxSessionDuration,
+
+    // ── DAO Dispute Resolution errors (#1138) ────────────────────────────────
+    #[msg("DAO is not configured")]
+    DaoNotConfigured = 800,
+    #[msg("DAO is not active")]
+    DaoNotActive = 801,
+    #[msg("Voting period has not ended yet")]
+    VotingPeriodNotEnded = 802,
+    #[msg("Voting period has expired")]
+    VotingPeriodExpired = 803,
+    #[msg("Already voted on this proposal")]
+    AlreadyVoted = 804,
+    #[msg("DAO resolution is still pending")]
+    DaoResolutionPending = 805,
+    #[msg("DAO fallback timeout has not been reached")]
+    DaoFallbackNotReached = 806,
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DAO-governed Dispute Resolution (#1138)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Configuration for DAO-based dispute resolution.
+#[account]
+#[derive(InitSpace)]
+pub struct DaoConfig {
+    /// DAO program address (for future CPI integration).
+    pub dao_program: Pubkey,
+    /// DAO treasury for governance token staking.
+    pub dao_treasury: Pubkey,
+    /// Voting period in slots.
+    pub voting_period_slots: u64,
+    /// Fallback to admin resolution after this many slots.
+    pub fallback_timeout_slots: u64,
+    /// Whether the DAO resolution system is active.
+    pub is_active: bool,
+    /// Admin who configured the DAO.
+    pub admin: Pubkey,
+}
+
+/// A dispute proposal submitted to DAO for voting.
+#[account]
+#[derive(InitSpace)]
+pub struct DaoDisputeProposal {
+    /// The disputed session.
+    pub session: Pubkey,
+    /// Unique proposal identifier.
+    pub proposal_id: u64,
+    /// Proposed buyer share.
+    pub buyer_share: u64,
+    /// Proposed seller share.
+    pub seller_share: u64,
+    /// Votes in favour of the proposal.
+    pub votes_for: u64,
+    /// Votes against the proposal.
+    pub votes_against: u64,
+    /// Slot at which the proposal was created.
+    pub created_slot: u64,
+    /// Whether the proposal has been resolved.
+    pub resolved: bool,
+}
+
+/// Tracks individual votes to prevent double-voting.
+#[account]
+#[derive(InitSpace)]
+pub struct VoteRecord {
+    pub proposal: Pubkey,
+    pub voter: Pubkey,
+    pub vote_for: bool,
+}
+
+// ── DAO contexts ────────────────────────────────────────────────────────────
+
+#[derive(Accounts)]
+pub struct SetDisputeDao<'info> {
+    #[account(
+        init_if_needed,
+        payer = admin,
+        seeds = [b"dao_config"],
+        bump,
+        space = 8 + DaoConfig::INIT_SPACE,
+    )]
+    pub dao_config: Account<'info, DaoConfig>,
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ResolveDisputeViaDao<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    #[account(seeds = [b"dao_config"], bump)]
+    pub dao_config: Account<'info, DaoConfig>,
+    #[account(
+        init,
+        payer = proposer,
+        space = 8 + DaoDisputeProposal::INIT_SPACE,
+        seeds = [b"dao_proposal", session.key().as_ref()],
+        bump,
+    )]
+    pub proposal: Account<'info, DaoDisputeProposal>,
+    #[account(mut)]
+    pub proposer: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct VoteOnDispute<'info> {
+    #[account(mut)]
+    pub proposal: Account<'info, DaoDisputeProposal>,
+    #[account(
+        init,
+        payer = voter,
+        space = 8 + VoteRecord::INIT_SPACE,
+        seeds = [b"vote", proposal.key().as_ref(), voter.key().as_ref()],
+        bump,
+    )]
+    pub vote_record: Account<'info, VoteRecord>,
+    #[account(mut)]
+    pub voter: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ExecuteDaoResolution<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    #[account(mut)]
+    pub proposal: Account<'info, DaoDisputeProposal>,
+    #[account(seeds = [b"dao_config"], bump)]
+    pub dao_config: Account<'info, DaoConfig>,
+    #[account(mut)]
+    pub analytics: Account<'info, EscrowAnalytics>,
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct FallbackAdminResolution<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    pub proposal: Account<'info, DaoDisputeProposal>,
+    #[account(seeds = [b"dao_config"], bump)]
+    pub dao_config: Account<'info, DaoConfig>,
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(mut)]
+    pub analytics: Account<'info, EscrowAnalytics>,
+    pub admin: Signer<'info>,
+}
+
+// ── DAO events ──────────────────────────────────────────────────────────────
+
+#[event]
+pub struct DaoConfigured {
+    pub dao_program: Pubkey,
+    pub voting_period_slots: u64,
+    pub fallback_timeout_slots: u64,
+    pub configured_by: Pubkey,
+}
+
+#[event]
+pub struct DisputeSentToDAO {
+    pub session_id: Pubkey,
+    pub proposal_id: u64,
+    pub buyer_share: u64,
+    pub seller_share: u64,
+}
+
+#[event]
+pub struct DaoVoteCast {
+    pub proposal_id: Pubkey,
+    pub voter: Pubkey,
+    pub vote_for: bool,
+}
+
+#[event]
+pub struct DisputeResolvedByDAO {
+    pub session_id: Pubkey,
+    pub buyer_share: u64,
+    pub seller_share: u64,
+    pub votes_for: u64,
+    pub votes_against: u64,
+}
+
+#[event]
+pub struct DaoFallbackToAdmin {
+    pub session_id: Pubkey,
+    pub admin: Pubkey,
+    pub buyer_share: u64,
+    pub seller_share: u64,
 }
