@@ -721,44 +721,31 @@ pub mod skill_sync {
         Ok(ctx.accounts.analytics.average_resolution_time())
     }
 
-    // ── Conditional Escrow instructions (#1137) ─────────────────────────────
+    // ── Insurance Pool instructions (#1136) ─────────────────────────────────
 
-    /// Lock funds with a condition tied to an external contract's state.
-    pub fn lock_funds_conditional(
-        ctx: Context<LockFundsConditional>,
-        seller: Pubkey,
-        amount: u64,
-        condition_program: Pubkey,
-        condition_account: Pubkey,
-        condition_timeout_slots: u64,
+    /// Initialize the insurance pool (admin only).
+    pub fn initialize_insurance_pool(
+        ctx: Context<InitializeInsurancePool>,
+        premium_bps: u32,
+        coverage_pct: u32,
+        min_coverage_threshold: u32,
     ) -> Result<()> {
-        let session = &mut ctx.accounts.session;
-        let platform_state = &mut ctx.accounts.platform_state;
-        let analytics = &mut ctx.accounts.analytics;
-        let buyer = ctx.accounts.buyer.key();
-        let now = Clock::get()?.unix_timestamp;
-        let slot = Clock::get()?.slot;
+        if ctx.accounts.platform_state.admin != ctx.accounts.admin.key() {
+            return Err(ErrorCode::NotAdmin.into());
+        }
 
-        Session::save_session(session, buyer, seller, amount, now);
-        analytics.record_session_created(amount);
-        platform_state.session_counter += 1;
+        let pool = &mut ctx.accounts.insurance_pool;
+        pool.total_pool = 0;
+        pool.premium_bps = premium_bps;
+        pool.coverage_pct = coverage_pct;
+        pool.min_coverage_threshold = min_coverage_threshold;
+        pool.admin = ctx.accounts.admin.key();
 
-        let conditional = &mut ctx.accounts.conditional_session;
-        conditional.session = session.key();
-        conditional.condition_program = condition_program;
-        conditional.condition_account = condition_account;
-        conditional.condition_met = false;
-        conditional.condition_timeout_slots = condition_timeout_slots;
-        conditional.created_slot = slot;
-
-        emit!(ConditionalEscrowCreated {
-            session_id: session.key(),
-            buyer,
-            seller,
-            amount,
-            condition_program,
-            condition_account,
-            condition_timeout_slots,
+        emit!(InsuranceParamsUpdated {
+            premium_bps,
+            coverage_pct,
+            min_coverage_threshold,
+            updated_by: ctx.accounts.admin.key(),
         });
 
         Ok(())
