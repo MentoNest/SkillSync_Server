@@ -720,6 +720,168 @@ pub mod skill_sync {
     pub fn average_resolution_time(ctx: Context<ReadAnalytics>) -> Result<u64> {
         Ok(ctx.accounts.analytics.average_resolution_time())
     }
+
+    // ── Insurance Pool instructions (#1136) ─────────────────────────────────
+
+    /// Initialize the insurance pool (admin only).
+    pub fn initialize_insurance_pool(
+        ctx: Context<InitializeInsurancePool>,
+        premium_bps: u32,
+        coverage_pct: u32,
+        min_coverage_threshold: u32,
+    ) -> Result<()> {
+        if ctx.accounts.platform_state.admin != ctx.accounts.admin.key() {
+            return Err(ErrorCode::NotAdmin.into());
+        }
+
+        let pool = &mut ctx.accounts.insurance_pool;
+        pool.total_pool = 0;
+        pool.premium_bps = premium_bps;
+        pool.coverage_pct = coverage_pct;
+        pool.min_coverage_threshold = min_coverage_threshold;
+        pool.admin = ctx.accounts.admin.key();
+
+        emit!(InsuranceParamsUpdated {
+            premium_bps,
+            coverage_pct,
+            min_coverage_threshold,
+            updated_by: ctx.accounts.admin.key(),
+        });
+
+        Ok(())
+    }
+
+    /// Update insurance pool parameters (admin only).
+    pub fn set_insurance_params(
+        ctx: Context<SetInsuranceParams>,
+        premium_bps: u32,
+        coverage_pct: u32,
+        min_coverage_threshold: u32,
+    ) -> Result<()> {
+        if ctx.accounts.platform_state.admin != ctx.accounts.admin.key() {
+            return Err(ErrorCode::NotAdmin.into());
+        }
+
+        let pool = &mut ctx.accounts.insurance_pool;
+        pool.premium_bps = premium_bps;
+        pool.coverage_pct = coverage_pct;
+        pool.min_coverage_threshold = min_coverage_threshold;
+
+        emit!(InsuranceParamsUpdated {
+            premium_bps,
+            coverage_pct,
+            min_coverage_threshold,
+            updated_by: ctx.accounts.admin.key(),
+        });
+
+        Ok(())
+    }
+
+    /// Lock funds with insurance — buyer pays an extra premium that goes
+    /// to the insurance pool.
+    pub fn lock_funds_with_insurance(
+        ctx: Context<LockFundsWithInsurance>,
+        seller: Pubkey,
+        amount: u64,
+    ) -> Result<()> {
+        let pool = &mut ctx.accounts.insurance_pool;
+        let session = &mut ctx.accounts.session;
+        let platform_state = &mut ctx.accounts.platform_state;
+        let analytics = &mut ctx.accounts.analytics;
+        let buyer = ctx.accounts.buyer.key();
+        let now = Clock::get()?.unix_timestamp;
+
+        // Calculate premium
+        let premium = (amount as u128)
+            .saturating_mul(pool.premium_bps as u128)
+            .checked_div(10_000)
+            .unwrap_or(0) as u64;
+
+        // Calculate coverage
+        let coverage_amount = (amount as u128)
+            .saturating_mul(pool.coverage_pct as u128)
+            .checked_div(100)
+            .unwrap_or(0) as u64;
+
+        // Create the session
+        Session::save_session(session, buyer, seller, amount, now);
+        analytics.record_session_created(amount);
+        platform_state.session_counter += 1;
+
+        // Record premium in pool
+        pool.total_pool = pool.total_pool.saturating_add(premium);
+
+        // Record insured session
+        let insured = &mut ctx.accounts.insured_session;
+        insured.session = session.key();
+        insured.premium_paid = premium;
+        insured.coverage_amount = coverage_amount;
+        insured.claimed = false;
+
+        emit!(InsurancePurchased {
+            session_id: session.key(),
+            buyer,
+            premium_paid: premium,
+            coverage_amount,
+        });
+
+        Ok(())
+    }
+
+    /// Claim insurance after a dispute resolution gave the buyer less than
+    /// the configured threshold percentage of the session amount.
+    pub fn claim_insurance(
+        ctx: Context<ClaimInsurance>,
+        buyer_share: u64,
+    ) -> Result<()> {
+        let session = &ctx.accounts.session;
+        let insured = &mut ctx.accounts.insured_session;
+        let pool = &mut ctx.accounts.insurance_pool;
+
+        // Must be the buyer
+        if ctx.accounts.buyer.key() != session.buyer {
+            return Err(ErrorCode::NotBuyer.into());
+        }
+
+        // Session must be resolved
+        if session.status != SessionStatus::Resolved {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
+
+        // Cannot claim twice
+        if insured.claimed {
+            return Err(ErrorCode::InsuranceAlreadyClaimed.into());
+        }
+
+        // Check eligibility: buyer_share < threshold% of amount
+        let threshold_amount = (session.amount as u128)
+            .saturating_mul(pool.min_coverage_threshold as u128)
+            .checked_div(100)
+            .unwrap_or(0) as u64;
+
+        if buyer_share >= threshold_amount {
+            return Err(ErrorCode::InsuranceClaimNotEligible.into());
+        }
+
+        // Calculate claim: cover shortfall up to coverage_amount
+        let shortfall = threshold_amount.saturating_sub(buyer_share);
+        let claim_amount = shortfall.min(insured.coverage_amount);
+
+        if pool.total_pool < claim_amount {
+            return Err(ErrorCode::InsurancePoolInsufficientFunds.into());
+        }
+
+        pool.total_pool = pool.total_pool.saturating_sub(claim_amount);
+        insured.claimed = true;
+
+        emit!(InsuranceClaimPaid {
+            session_id: session.key(),
+            buyer: ctx.accounts.buyer.key(),
+            claim_amount,
+        });
+
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -1036,4 +1198,144 @@ pub enum ErrorCode {
     SessionNotExpired,
     #[msg("Max session duration must be greater than zero")]
     InvalidMaxSessionDuration,
+
+    // ── Insurance Pool errors (#1136) ────────────────────────────────────────
+    #[msg("Insurance pool is not initialized")]
+    InsuranceNotAvailable = 600,
+    #[msg("Insurance has already been claimed for this session")]
+    InsuranceAlreadyClaimed = 601,
+    #[msg("Insurance claim is not eligible — buyer received above threshold")]
+    InsuranceClaimNotEligible = 602,
+    #[msg("Insurance pool has insufficient funds to cover claim")]
+    InsurancePoolInsufficientFunds = 603,
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Insurance Pool (#1136)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Configuration for the optional insurance pool where users pay a small
+/// premium to get protection against dispute losses.
+#[account]
+#[derive(InitSpace)]
+pub struct InsurancePool {
+    /// Total funds in the insurance pool (in lamports / token base units).
+    pub total_pool: u64,
+    /// Premium rate in basis points (e.g. 100 = 1%).
+    pub premium_bps: u32,
+    /// Coverage percentage (e.g. 100 = 100% of shortfall covered).
+    pub coverage_pct: u32,
+    /// Minimum buyer share percentage to trigger insurance.
+    /// If the buyer receives less than this % of the session amount in a
+    /// dispute resolution, they can claim insurance for the shortfall.
+    pub min_coverage_threshold: u32,
+    /// Admin who initialized the pool.
+    pub admin: Pubkey,
+}
+
+/// Tracks an insured session — created when a buyer opts into insurance.
+#[account]
+#[derive(InitSpace)]
+pub struct InsuredSession {
+    /// The session this insurance covers.
+    pub session: Pubkey,
+    /// Premium amount paid by the buyer.
+    pub premium_paid: u64,
+    /// Maximum coverage amount.
+    pub coverage_amount: u64,
+    /// Whether insurance has been claimed.
+    pub claimed: bool,
+}
+
+// ── Insurance instructions ──────────────────────────────────────────────────
+
+#[derive(Accounts)]
+pub struct InitializeInsurancePool<'info> {
+    #[account(
+        init,
+        payer = admin,
+        seeds = [b"insurance_pool"],
+        bump,
+        space = 8 + InsurancePool::INIT_SPACE,
+    )]
+    pub insurance_pool: Account<'info, InsurancePool>,
+    #[account(mut)]
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SetInsuranceParams<'info> {
+    #[account(mut, seeds = [b"insurance_pool"], bump)]
+    pub insurance_pool: Account<'info, InsurancePool>,
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct LockFundsWithInsurance<'info> {
+    #[account(mut)]
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(
+        init,
+        payer = buyer,
+        space = 8 + Session::INIT_SPACE,
+        seeds = [b"session", platform_state.session_counter.to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub session: Account<'info, Session>,
+    #[account(
+        init,
+        payer = buyer,
+        space = 8 + InsuredSession::INIT_SPACE,
+        seeds = [b"insured", platform_state.session_counter.to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub insured_session: Account<'info, InsuredSession>,
+    #[account(mut, seeds = [b"insurance_pool"], bump)]
+    pub insurance_pool: Account<'info, InsurancePool>,
+    #[account(mut)]
+    pub analytics: Account<'info, EscrowAnalytics>,
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ClaimInsurance<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    #[account(mut)]
+    pub insured_session: Account<'info, InsuredSession>,
+    #[account(mut, seeds = [b"insurance_pool"], bump)]
+    pub insurance_pool: Account<'info, InsurancePool>,
+    pub buyer: Signer<'info>,
+}
+
+// ── Insurance events ────────────────────────────────────────────────────────
+
+#[event]
+pub struct InsurancePurchased {
+    pub session_id: Pubkey,
+    pub buyer: Pubkey,
+    pub premium_paid: u64,
+    pub coverage_amount: u64,
+}
+
+#[event]
+pub struct InsuranceClaimPaid {
+    pub session_id: Pubkey,
+    pub buyer: Pubkey,
+    pub claim_amount: u64,
+}
+
+#[event]
+pub struct InsuranceParamsUpdated {
+    pub premium_bps: u32,
+    pub coverage_pct: u32,
+    pub min_coverage_threshold: u32,
+    pub updated_by: Pubkey,
 }
