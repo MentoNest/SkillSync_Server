@@ -9,6 +9,7 @@ import { AppModule } from './app.module';
 import { GracefulShutdownService } from './common/shutdown/graceful-shutdown.service';
 import { EncryptionService } from './common/encryption/encryption.service';
 import { BackupService } from './common/backup/backup.service';
+import { requestLoggingMiddleware } from './common/middleware/logging.middleware';
 
 const logger = new Logger('Bootstrap');
 
@@ -38,6 +39,12 @@ async function bootstrap() {
   ) {
     app.getHttpAdapter().getInstance().set('trust proxy', 1);
   }
+
+  // #1143: global request logging middleware — generates/propagates the
+  // request ID and logs method/path/status/duration/IP/user agent for every
+  // request. Applied globally via app.use() so it wraps the entire pipeline,
+  // including requests that never reach a controller.
+  app.use(requestLoggingMiddleware);
 
   // API Versioning - URI path strategy
   app.enableVersioning({
