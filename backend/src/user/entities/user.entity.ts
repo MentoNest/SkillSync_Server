@@ -48,6 +48,17 @@ export class User {
   @Column({ type: 'varchar', length: 100, nullable: true })
   displayName: string | null;
 
+  // #1177: unique handle, nullable initially so existing users are
+  // unaffected until they pick one via PATCH /user/username.
+  @Index('IDX_users_username', { unique: true, where: '"username" IS NOT NULL' })
+  @Column({ type: 'varchar', length: 30, nullable: true, unique: true })
+  username: string | null;
+
+  // #1177: last time `username` changed, used to enforce the 30-day
+  // cooldown between changes.
+  @Column({ type: 'timestamp', nullable: true })
+  usernameChangedAt: Date | null;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   passwordHash: string | null;
 

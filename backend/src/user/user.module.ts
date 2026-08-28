@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { UserController } from './user.controller';
 import { UsersController } from './users.controller';
+import { ProfileLookupController } from './profile-lookup.controller';
 import { UserService } from './user.service';
 import { User } from './entities/user.entity';
 import { UserSuspension } from './entities/user-suspension.entity';
@@ -29,7 +30,8 @@ import { AuthModule } from '../auth/auth.module';
     // forwardRef on both sides resolves the Auth <-> User circular dependency.
     forwardRef(() => AuthModule),
   ],
-  controllers: [UserController, UsersController],
+  // #1177: ProfileLookupController serves GET /profiles/:idOrUsername
+  controllers: [UserController, UsersController, ProfileLookupController],
   providers: [UserService, RolesGuard],
   exports: [UserService, TypeOrmModule],
 })

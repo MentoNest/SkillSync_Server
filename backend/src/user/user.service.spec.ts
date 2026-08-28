@@ -8,7 +8,7 @@ import { RedisService } from '../auth/services/redis.service';
 import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { AuditLog } from '../auth/entities/audit-log.entity';
 import { UserSuspension } from './entities/user-suspension.entity';
-import { NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 
 describe('UserService', () => {
   let service: UserService;
@@ -562,6 +562,104 @@ describe('UserService', () => {
       expect(mockUserRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ status: UserStatus.ACTIVE }),
       );
+    });
+  });
+
+  describe('create (#1177 default displayName)', () => {
+    it('derives a default displayName from the wallet address when none is given', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+
+      await service.create({ walletAddress: 'GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ' } as any);
+
+      expect(mockUserRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ displayName: expect.stringMatching(/^User_/) }),
+      );
+    });
+
+    it('keeps an explicitly supplied displayName', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+
+      await service.create({
+        walletAddress: 'GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ',
+        displayName: 'Alex Rivers',
+      } as any);
+
+      expect(mockUserRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ displayName: 'Alex Rivers' }),
+      );
+    });
+  });
+
+  describe('changeUsername (#1177)', () => {
+    it('rejects an invalid format', async () => {
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', username: null, usernameChangedAt: null });
+      await expect(service.changeUsername('uuid-123', 'ab')).rejects.toThrow(BadRequestException); // too short
+      await expect(service.changeUsername('uuid-123', 'a__b')).rejects.toThrow(BadRequestException); // consecutive specials
+      await expect(service.changeUsername('uuid-123', '-abcde')).rejects.toThrow(BadRequestException); // leading special
+    });
+
+    it('sets a valid username and stamps usernameChangedAt', async () => {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({ id: 'uuid-123', username: null, usernameChangedAt: null }) // findById
+        .mockResolvedValueOnce(null); // uniqueness check
+
+      const result = await service.changeUsername('uuid-123', 'Alex_Rivers-99');
+
+      expect(mockUserRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ username: 'alex_rivers-99' }),
+      );
+      expect(mockAuditLogRepository.save).toHaveBeenCalled();
+      expect(result).toBeDefined();
+    });
+
+    it('rejects a username already taken by another user', async () => {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({ id: 'uuid-123', username: null, usernameChangedAt: null })
+        .mockResolvedValueOnce({ id: 'other-user', username: 'taken' });
+
+      await expect(service.changeUsername('uuid-123', 'taken')).rejects.toThrow(ConflictException);
+    });
+
+    it('rejects re-setting the same username', async () => {
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', username: 'alex', usernameChangedAt: null });
+      await expect(service.changeUsername('uuid-123', 'alex')).rejects.toThrow(BadRequestException);
+    });
+
+    it('enforces the 30-day cooldown between changes', async () => {
+      const changedAt = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000); // 5 days ago
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', username: 'alex', usernameChangedAt: changedAt });
+
+      await expect(service.changeUsername('uuid-123', 'newname')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('allows a change once the cooldown has elapsed', async () => {
+      const changedAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000); // 31 days ago
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({ id: 'uuid-123', username: 'alex', usernameChangedAt: changedAt })
+        .mockResolvedValueOnce(null);
+
+      const result = await service.changeUsername('uuid-123', 'newname');
+      expect(result).toBeDefined();
+    });
+  });
+
+  describe('isUsernameAvailable (#1177)', () => {
+    it('returns false for an invalid format without querying the DB', async () => {
+      const available = await service.isUsernameAvailable('a');
+      expect(available).toBe(false);
+      expect(mockUserRepository.findOne).not.toHaveBeenCalled();
+    });
+
+    it('returns true when the username is free', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+      const available = await service.isUsernameAvailable('freehandle');
+      expect(available).toBe(true);
+    });
+
+    it('returns false when the username is taken', async () => {
+      mockUserRepository.findOne.mockResolvedValue({ id: 'someone-else' });
+      const available = await service.isUsernameAvailable('taken');
+      expect(available).toBe(false);
     });
   });
 });

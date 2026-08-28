@@ -20,6 +20,7 @@ import { UserQueryDto } from './dto/user-query.dto';
 import { UserSearchQueryDto } from './dto/user-search-query.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { PublicUserResponseDto } from './dto/public-user-response.dto';
+import { USERNAME_PATTERN } from './dto/update-username.dto';
 
 @Injectable()
 export class UserService {
@@ -55,6 +56,9 @@ export class UserService {
     private readonly suspensionRepository: Repository<UserSuspension>,
     private readonly redisService: RedisService,
   ) {}
+
+  // #1177: 30-day cooldown between username changes.
+  private static readonly USERNAME_COOLDOWN_DAYS = 30;
 
   private get deleteGraceDays(): number {
     const configured = parseInt(process.env.DELETE_GRACE_DAYS || '', 10);
@@ -93,10 +97,19 @@ export class UserService {
       where: { name: defaultRoleName },
     });
 
+    // #1177: displayName defaults to a wallet-address-derived handle when
+    // not supplied and no email-derived alternative is available either.
+    const defaultDisplayName = createUserDto.walletAddress
+      ? `User_${createUserDto.walletAddress.slice(-6)}`
+      : createUserDto.email
+        ? createUserDto.email.split('@')[0]
+        : undefined;
+
     const user = this.userRepository.create({
       ...createUserDto,
       walletAddress: createUserDto.walletAddress?.toLowerCase(),
       email: createUserDto.email?.toLowerCase(),
+      displayName: createUserDto.displayName || defaultDisplayName,
       roles: defaultRole ? [defaultRole] : [],
       settings: createUserDto.settings || {
         notifications: true,
@@ -655,6 +668,89 @@ export class UserService {
     }
 
     return { purgedCount: purgedUserIds.length, purgedUserIds };
+  }
+
+  /**
+   * #1177: PATCH /user/username - changes the caller's username, enforcing
+   * the 30-day cooldown and DB-level uniqueness (case-insensitive).
+   */
+  async changeUsername(userId: string, newUsername: string): Promise<UserResponseDto> {
+    const user = await this.findById(userId);
+    const normalized = newUsername.toLowerCase();
+
+    if (!USERNAME_PATTERN.test(newUsername)) {
+      throw new BadRequestException(
+        'username must be 3-30 characters, alphanumeric with underscores/dashes only, and cannot start/end with or repeat a special character',
+      );
+    }
+
+    if (user.username === normalized) {
+      throw new BadRequestException('This is already your username');
+    }
+
+    if (user.usernameChangedAt) {
+      const cooldownEnds = new Date(
+        user.usernameChangedAt.getTime() + UserService.USERNAME_COOLDOWN_DAYS * 24 * 60 * 60 * 1000,
+      );
+      if (new Date() < cooldownEnds) {
+        throw new ForbiddenException(
+          `Username can only be changed once every ${UserService.USERNAME_COOLDOWN_DAYS} days. Try again after ${cooldownEnds.toISOString()}.`,
+        );
+      }
+    }
+
+    const existing = await this.userRepository.findOne({ where: { username: normalized } });
+    if (existing && existing.id !== userId) {
+      throw new ConflictException('This username is already taken');
+    }
+
+    const previousUsername = user.username;
+    user.username = normalized;
+    user.usernameChangedAt = new Date();
+    const saved = await this.userRepository.save(user);
+
+    // #1177: username changes logged in the audit log
+    await this.auditLogRepository.save(
+      this.auditLogRepository.create({
+        userId,
+        eventType: 'username_changed',
+        metadata: { previousUsername, newUsername: normalized },
+      }),
+    );
+
+    return UserResponseDto.fromEntity(saved);
+  }
+
+  /**
+   * #1177: GET /user/username/available - checks format validity and
+   * DB-level availability (case-insensitive).
+   */
+  async isUsernameAvailable(username: string): Promise<boolean> {
+    if (!USERNAME_PATTERN.test(username)) {
+      return false;
+    }
+    const existing = await this.userRepository.findOne({ where: { username: username.toLowerCase() } });
+    return !existing;
+  }
+
+  /**
+   * #1177: username-based lookup for public profile pages.
+   */
+  async findByUsername(username: string): Promise<User | null> {
+    return this.userRepository.findOne({
+      where: { username: username.toLowerCase() },
+      relations: { roles: true },
+    });
+  }
+
+  /**
+   * #1174/#1177: id-based lookup for public profile pages - returns null
+   * (instead of throwing) for a missing or non-active user, so callers can
+   * respond 404 without leaking deleted/suspended account existence.
+   */
+  async findByIdIfActive(id: string): Promise<User | null> {
+    const user = await this.userRepository.findOne({ where: { id }, relations: { roles: true } });
+    return user && user.status === UserStatus.ACTIVE ? user : null;
   }
 
   async incrementTokenVersion(userId: string): Promise<number> {
