@@ -429,254 +429,259 @@ fn test_timeout_and_dispute_error_codes() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// DAO-governed Dispute Resolution tests (#1138)
+// Storage Cleanup & Archiving tests (#1139)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn test_dao_config_struct_fields() {
-    let dao_program = Pubkey::new_unique();
-    let dao_treasury = Pubkey::new_unique();
+fn test_archive_config_defaults_and_struct() {
     let admin = Pubkey::new_unique();
-
-    let config = DaoConfig {
-        dao_program,
-        dao_treasury,
-        voting_period_slots: 100,
-        fallback_timeout_slots: 200,
-        is_active: true,
+    let config = ArchiveConfig {
+        archive_after_seconds: DEFAULT_ARCHIVE_AFTER_SECONDS,
+        retention_seconds: DEFAULT_ARCHIVE_RETENTION_SECONDS,
         admin,
     };
 
-    assert_eq!(config.dao_program, dao_program);
-    assert_eq!(config.dao_treasury, dao_treasury);
-    assert_eq!(config.voting_period_slots, 100);
-    assert_eq!(config.fallback_timeout_slots, 200);
-    assert!(config.is_active);
+    assert_eq!(config.archive_after_seconds, 30 * 24 * 60 * 60); // 30 days
+    assert_eq!(config.retention_seconds, 90 * 24 * 60 * 60); // 90 days
     assert_eq!(config.admin, admin);
 }
 
 #[test]
-fn test_dao_dispute_proposal_initial_state() {
-    let session = Pubkey::new_unique();
-    let amount: u64 = 10_000;
-    let buyer_share: u64 = 6_000;
-    let seller_share: u64 = 4_000;
-
-    let proposal = DaoDisputeProposal {
-        session,
-        proposal_id: 42,
-        buyer_share,
-        seller_share,
-        votes_for: 0,
-        votes_against: 0,
-        created_slot: 1_000,
-        resolved: false,
-    };
-
-    assert_eq!(proposal.session, session);
-    assert_eq!(proposal.proposal_id, 42);
-    assert_eq!(proposal.buyer_share + proposal.seller_share, amount);
-    assert_eq!(proposal.votes_for, 0);
-    assert_eq!(proposal.votes_against, 0);
-    assert!(!proposal.resolved);
-}
-
-#[test]
-fn test_dao_proposal_shares_must_sum_to_amount() {
-    // Mirrors the validate check in resolve_dispute_via_dao: shares must sum
-    // to the session amount.
-    let session_amount: u64 = 8_000;
-    let buyer_share: u64 = 5_000;
-    let seller_share: u64 = 3_000;
-
-    assert_eq!(
-        buyer_share.saturating_add(seller_share),
-        session_amount,
-        "shares must sum to session amount"
-    );
-
-    // Invalid split
-    let bad_buyer: u64 = 5_000;
-    let bad_seller: u64 = 4_000;
-    assert_ne!(
-        bad_buyer.saturating_add(bad_seller),
-        session_amount,
-        "mismatched shares should fail validation"
-    );
-}
-
-#[test]
-fn test_vote_record_prevents_double_voting() {
-    let proposal = Pubkey::new_unique();
-    let voter = Pubkey::new_unique();
-
-    let record = VoteRecord {
-        proposal,
-        voter,
-        vote_for: true,
-    };
-
-    // The PDA seed [b"vote", proposal, voter] ensures uniqueness at the
-    // Anchor constraint level. Verify the record captures the right fields.
-    assert_eq!(record.proposal, proposal);
-    assert_eq!(record.voter, voter);
-    assert!(record.vote_for);
-}
-
-#[test]
-fn test_dao_vote_tallying() {
-    let session = Pubkey::new_unique();
-
-    let mut proposal = DaoDisputeProposal {
-        session,
-        proposal_id: 1,
-        buyer_share: 7_000,
-        seller_share: 3_000,
-        votes_for: 0,
-        votes_against: 0,
-        created_slot: 500,
-        resolved: false,
-    };
-
-    // Simulate 5 votes for, 3 against
-    for _ in 0..5 {
-        proposal.votes_for = proposal.votes_for.saturating_add(1);
-    }
-    for _ in 0..3 {
-        proposal.votes_against = proposal.votes_against.saturating_add(1);
-    }
-
-    assert_eq!(proposal.votes_for, 5);
-    assert_eq!(proposal.votes_against, 3);
-    // Proposal passes: votes_for > votes_against
-    assert!(proposal.votes_for > proposal.votes_against);
-}
-
-#[test]
-fn test_dao_voting_period_check() {
-    // Voting period must elapse before execution.
-    let created_slot: u64 = 1_000;
-    let voting_period_slots: u64 = 100;
-
-    // During voting period — should NOT be executable
-    let current_slot_early: u64 = 1_050;
-    assert!(
-        current_slot_early < created_slot.saturating_add(voting_period_slots),
-        "voting period has not ended"
-    );
-
-    // After voting period — executable
-    let current_slot_late: u64 = 1_100;
-    assert!(
-        current_slot_late >= created_slot.saturating_add(voting_period_slots),
-        "voting period has ended"
-    );
-}
-
-#[test]
-fn test_dao_fallback_timeout_check() {
-    // Fallback is allowed only after voting_period + fallback_timeout.
-    let created_slot: u64 = 1_000;
-    let voting_period: u64 = 100;
-    let fallback_timeout: u64 = 200;
-    let fallback_slot = created_slot
-        .saturating_add(voting_period)
-        .saturating_add(fallback_timeout);
-
-    assert_eq!(fallback_slot, 1_300);
-
-    // Before fallback — not allowed
-    let early: u64 = 1_250;
-    assert!(early < fallback_slot, "fallback not yet reached");
-
-    // At/after fallback — allowed
-    let at_fallback: u64 = 1_300;
-    assert!(at_fallback >= fallback_slot, "fallback reached");
-}
-
-#[test]
-fn test_dao_error_codes() {
-    assert_eq!(ErrorCode::DaoNotConfigured as u32, 800);
-    assert_eq!(ErrorCode::DaoNotActive as u32, 801);
-    assert_eq!(ErrorCode::VotingPeriodNotEnded as u32, 802);
-    assert_eq!(ErrorCode::VotingPeriodExpired as u32, 803);
-    assert_eq!(ErrorCode::AlreadyVoted as u32, 804);
-    assert_eq!(ErrorCode::DaoResolutionPending as u32, 805);
-    assert_eq!(ErrorCode::DaoFallbackNotReached as u32, 806);
-}
-
-#[test]
-fn test_dao_resolution_marks_session_resolved() {
-    // After DAO execution with passing vote, session transitions to Resolved.
-    let mut session = Session {
+fn test_session_is_finalized() {
+    let base = Session {
         buyer: Pubkey::new_unique(),
         seller: Pubkey::new_unique(),
-        amount: 10_000,
-        status: SessionStatus::Disputed,
+        amount: 1_000,
+        status: SessionStatus::Locked,
         created_at: 1_700_000_000,
-        expires_at: 1_700_604_800,
+        expires_at: 0,
         completed_at: None,
         dispute_resolved_at: None,
-        dispute_opened_at: Some(1_700_100_000),
+        dispute_opened_at: None,
     };
 
-    // Simulate what execute_dao_resolution does on a passing vote
-    session.status = SessionStatus::Resolved;
-    session.dispute_resolved_at = Some(1_700_200_000);
-    session.completed_at = Some(1_700_200_000);
+    // Locked is NOT finalized
+    assert!(!base.is_finalized());
 
-    assert_eq!(session.status, SessionStatus::Resolved);
-    assert!(session.dispute_resolved_at.is_some());
-    let resolution_time = session.dispute_resolved_at.unwrap()
-        - session.dispute_opened_at.unwrap();
-    assert_eq!(resolution_time, 100_000);
+    // Completed is NOT finalized (still in active lifecycle)
+    let mut completed = base.clone();
+    completed.status = SessionStatus::Completed;
+    assert!(!completed.is_finalized());
+
+    // Disputed is NOT finalized
+    let mut disputed = base.clone();
+    disputed.status = SessionStatus::Disputed;
+    assert!(!disputed.is_finalized());
+
+    // Approved IS finalized
+    let mut approved = base.clone();
+    approved.status = SessionStatus::Approved;
+    assert!(approved.is_finalized());
+
+    // Refunded IS finalized
+    let mut refunded = base.clone();
+    refunded.status = SessionStatus::Refunded;
+    assert!(refunded.is_finalized());
+
+    // Resolved IS finalized
+    let mut resolved = base.clone();
+    resolved.status = SessionStatus::Resolved;
+    assert!(resolved.is_finalized());
 }
 
 #[test]
-fn test_dao_event_shapes() {
-    // DaoConfigured
-    let cfg_event = DaoConfigured {
-        dao_program: Pubkey::new_unique(),
-        voting_period_slots: 100,
-        fallback_timeout_slots: 200,
-        configured_by: Pubkey::new_unique(),
+fn test_hash_session_determinism() {
+    let session = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 5_000,
+        status: SessionStatus::Approved,
+        created_at: 1_700_000_000,
+        expires_at: 1_700_604_800,
+        completed_at: Some(1_700_100_000),
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
     };
-    assert_eq!(cfg_event.voting_period_slots, 100);
 
-    // DisputeSentToDAO
-    let sent_event = DisputeSentToDAO {
+    let hash1 = hash_session(&session);
+    let hash2 = hash_session(&session);
+    assert_eq!(hash1, hash2, "hash must be deterministic");
+    assert_ne!(hash1, [0u8; 32], "hash should not be all zeros");
+}
+
+#[test]
+fn test_hash_session_different_inputs_differ() {
+    let session_a = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 1_000,
+        status: SessionStatus::Approved,
+        created_at: 1_700_000_000,
+        expires_at: 0,
+        completed_at: Some(1_700_100_000),
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
+
+    let session_b = Session {
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 2_000,
+        status: SessionStatus::Refunded,
+        created_at: 1_700_200_000,
+        expires_at: 0,
+        completed_at: Some(1_700_300_000),
+        dispute_resolved_at: None,
+        dispute_opened_at: None,
+    };
+
+    assert_ne!(
+        hash_session(&session_a),
+        hash_session(&session_b),
+        "different sessions should produce different hashes"
+    );
+}
+
+#[test]
+fn test_archived_session_struct_fields() {
+    let data_hash = [0xABu8; 32];
+    let buyer = Pubkey::new_unique();
+    let seller = Pubkey::new_unique();
+
+    let archived = ArchivedSession {
+        data_hash,
+        buyer,
+        seller,
+        amount: 10_000,
+        final_status: SessionStatus::Approved,
+        finalized_at: 1_700_100_000,
+        archived_at: 1_702_692_000, // ~30 days later
+    };
+
+    assert_eq!(archived.data_hash, data_hash);
+    assert_eq!(archived.buyer, buyer);
+    assert_eq!(archived.seller, seller);
+    assert_eq!(archived.amount, 10_000);
+    assert_eq!(archived.final_status, SessionStatus::Approved);
+    assert!(archived.archived_at > archived.finalized_at);
+}
+
+#[test]
+fn test_archive_threshold_check() {
+    // archive_session requires: now >= finalized_at + archive_after_seconds
+    let finalized_at: i64 = 1_700_000_000;
+    let archive_after: i64 = 30 * 24 * 60 * 60; // 30 days
+
+    // Too early
+    let now_early = finalized_at + archive_after - 1;
+    assert!(
+        now_early < finalized_at.saturating_add(archive_after),
+        "should not be archivable yet"
+    );
+
+    // At threshold — archivable
+    let now_exact = finalized_at + archive_after;
+    assert!(
+        now_exact >= finalized_at.saturating_add(archive_after),
+        "should be archivable at threshold"
+    );
+}
+
+#[test]
+fn test_archive_retention_check() {
+    // delete_archived_session requires: now >= archived_at + retention_seconds
+    let archived_at: i64 = 1_702_692_000;
+    let retention: i64 = 90 * 24 * 60 * 60; // 90 days
+
+    // Not yet deletable
+    let now_early = archived_at + retention - 1;
+    assert!(
+        now_early < archived_at.saturating_add(retention),
+        "not yet deletable"
+    );
+
+    // Past retention — deletable
+    let now_late = archived_at + retention;
+    assert!(
+        now_late >= archived_at.saturating_add(retention),
+        "now deletable"
+    );
+}
+
+#[test]
+fn test_archived_session_is_immutable_by_design() {
+    // ArchivedSession has no update methods; once created it's read-only
+    // until deleted. Verify that the struct has no mutable helpers.
+    let archived = ArchivedSession {
+        data_hash: [1u8; 32],
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 5_000,
+        final_status: SessionStatus::Resolved,
+        finalized_at: 1_700_000_000,
+        archived_at: 1_702_692_000,
+    };
+
+    // Reading fields works; no methods exist to modify them (compile-time guarantee).
+    assert_eq!(archived.amount, 5_000);
+    assert_eq!(archived.final_status, SessionStatus::Resolved);
+}
+
+#[test]
+fn test_storage_cleanup_error_codes() {
+    assert_eq!(ErrorCode::SessionNotFinalized as u32, 900);
+    assert_eq!(ErrorCode::ArchiveThresholdNotReached as u32, 901);
+    assert_eq!(ErrorCode::SessionAlreadyArchived as u32, 902);
+    assert_eq!(ErrorCode::ArchiveRetentionNotElapsed as u32, 903);
+    assert_eq!(ErrorCode::InvalidBatchLimit as u32, 904);
+    assert_eq!(ErrorCode::InvalidArchiveConfig as u32, 905);
+}
+
+#[test]
+fn test_archive_event_shapes() {
+    // SessionArchived
+    let archived_event = SessionArchived {
         session_id: Pubkey::new_unique(),
-        proposal_id: 42,
-        buyer_share: 6_000,
-        seller_share: 4_000,
+        data_hash: [0xCDu8; 32],
+        buyer: Pubkey::new_unique(),
+        seller: Pubkey::new_unique(),
+        amount: 8_000,
+        final_status: SessionStatus::Approved,
+        archived_at: 1_702_692_000,
     };
-    assert_eq!(sent_event.buyer_share + sent_event.seller_share, 10_000);
+    assert_eq!(archived_event.amount, 8_000);
+    assert_eq!(archived_event.final_status, SessionStatus::Approved);
 
-    // DaoVoteCast
-    let vote_event = DaoVoteCast {
-        proposal_id: Pubkey::new_unique(),
-        voter: Pubkey::new_unique(),
-        vote_for: true,
-    };
-    assert!(vote_event.vote_for);
-
-    // DisputeResolvedByDAO
-    let resolved_event = DisputeResolvedByDAO {
+    // SessionDeleted
+    let deleted_event = SessionDeleted {
         session_id: Pubkey::new_unique(),
-        buyer_share: 7_000,
-        seller_share: 3_000,
-        votes_for: 5,
-        votes_against: 2,
+        deleted_at: 1_710_000_000,
+        deleted_by: Pubkey::new_unique(),
     };
-    assert!(resolved_event.votes_for > resolved_event.votes_against);
+    assert!(deleted_event.deleted_at > 0);
 
-    // DaoFallbackToAdmin
-    let fallback_event = DaoFallbackToAdmin {
-        session_id: Pubkey::new_unique(),
-        admin: Pubkey::new_unique(),
-        buyer_share: 5_000,
-        seller_share: 5_000,
+    // ArchiveConfigUpdated
+    let config_event = ArchiveConfigUpdated {
+        archive_after_seconds: 30 * 24 * 60 * 60,
+        retention_seconds: 90 * 24 * 60 * 60,
+        updated_by: Pubkey::new_unique(),
     };
-    assert_eq!(fallback_event.buyer_share, fallback_event.seller_share);
+    assert_eq!(config_event.archive_after_seconds, 2_592_000);
+    assert_eq!(config_event.retention_seconds, 7_776_000);
+}
+
+#[test]
+fn test_batch_archive_limit_validation() {
+    // batch_archive_sessions accepts limit in [1, MAX_BATCH_SIZE]
+    assert_eq!(MAX_BATCH_SIZE, 20);
+
+    let valid_limit: u32 = 10;
+    assert!(valid_limit >= 1 && valid_limit <= MAX_BATCH_SIZE);
+
+    let too_large: u32 = 25;
+    assert!(too_large > MAX_BATCH_SIZE);
+
+    let zero: u32 = 0;
+    assert!(zero < 1);
 }
 

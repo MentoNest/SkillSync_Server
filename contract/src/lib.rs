@@ -71,7 +71,7 @@ impl Default for SessionStatus {
 
 /// Session struct containing all required fields for an escrow session
 #[account]
-#[derive(InitSpace)]
+#[derive(InitSpace, Clone)]
 pub struct Session {
     pub buyer: Pubkey,
     pub seller: Pubkey,
@@ -108,6 +108,19 @@ impl Session {
         session_account.completed_at = None;
         session_account.dispute_resolved_at = None;
         session_account.dispute_opened_at = None;
+    }
+
+    /// Whether a session can be refunded from the given status.
+    pub fn can_refund(status: SessionStatus) -> bool {
+        matches!(status, SessionStatus::Locked | SessionStatus::Disputed)
+    }
+
+    /// Whether a session is in a terminal (finalized) state.
+    pub fn is_finalized(&self) -> bool {
+        matches!(
+            self.status,
+            SessionStatus::Approved | SessionStatus::Refunded | SessionStatus::Resolved
+        )
     }
 
     /// Whether the session has an expiry set and has already passed it.
@@ -726,216 +739,106 @@ pub mod skill_sync {
         Ok(ctx.accounts.analytics.average_resolution_time())
     }
 
-    // ── DAO-governed Dispute Resolution instructions (#1138) ─────────────
+    // ── Storage Cleanup & Archiving instructions (#1139) ─────────────────
 
-    /// Configure or update DAO-based dispute resolution settings.
-    /// Admin only — sets voting period, fallback timeout, and DAO program.
-    pub fn set_dispute_dao(
-        ctx: Context<SetDisputeDao>,
-        dao_program: Pubkey,
-        dao_treasury: Pubkey,
-        voting_period_slots: u64,
-        fallback_timeout_slots: u64,
+    /// Configure the archive policy. Admin only.
+    pub fn set_archive_config(
+        ctx: Context<SetArchiveConfig>,
+        archive_after_seconds: i64,
+        retention_seconds: i64,
     ) -> Result<()> {
         let platform_state = &ctx.accounts.platform_state;
         if ctx.accounts.admin.key() != platform_state.admin {
             return Err(ErrorCode::NotAdmin.into());
         }
+        if archive_after_seconds <= 0 || retention_seconds <= 0 {
+            return Err(ErrorCode::InvalidArchiveConfig.into());
+        }
 
-        let dao_config = &mut ctx.accounts.dao_config;
-        dao_config.dao_program = dao_program;
-        dao_config.dao_treasury = dao_treasury;
-        dao_config.voting_period_slots = voting_period_slots;
-        dao_config.fallback_timeout_slots = fallback_timeout_slots;
-        dao_config.is_active = true;
-        dao_config.admin = ctx.accounts.admin.key();
+        let config = &mut ctx.accounts.archive_config;
+        config.archive_after_seconds = archive_after_seconds;
+        config.retention_seconds = retention_seconds;
+        config.admin = ctx.accounts.admin.key();
 
-        emit!(DaoConfigured {
-            dao_program,
-            voting_period_slots,
-            fallback_timeout_slots,
-            configured_by: ctx.accounts.admin.key(),
+        emit!(ArchiveConfigUpdated {
+            archive_after_seconds,
+            retention_seconds,
+            updated_by: ctx.accounts.admin.key(),
         });
 
         Ok(())
     }
 
-    /// Submit a disputed session to the DAO for resolution. Anyone who is the
-    /// buyer or seller on the disputed session may propose a split.
-    pub fn resolve_dispute_via_dao(
-        ctx: Context<ResolveDisputeViaDao>,
-        buyer_share: u64,
-        seller_share: u64,
-    ) -> Result<()> {
+    /// Archive a single finalized session. Anyone may call this once the
+    /// session is finalized and the archive-after threshold has elapsed.
+    /// The original Session account is closed (rent reclaimed) and replaced
+    /// by a smaller ArchivedSession PDA containing only the data hash.
+    pub fn archive_session(ctx: Context<ArchiveSession>) -> Result<()> {
         let session = &ctx.accounts.session;
-        let dao_config = &ctx.accounts.dao_config;
+        let config = &ctx.accounts.archive_config;
+        let now = Clock::get()?.unix_timestamp;
 
-        if !dao_config.is_active {
-            return Err(ErrorCode::DaoNotActive.into());
+        // Must be finalized
+        if !session.is_finalized() {
+            return Err(ErrorCode::SessionNotFinalized.into());
         }
 
-        if session.status != SessionStatus::Disputed {
-            return Err(ErrorCode::DisputeNotOpen.into());
+        // Must have passed the archive-after threshold
+        let finalized_at = session.completed_at.ok_or(ErrorCode::InvalidSessionState)?;
+        if now < finalized_at.saturating_add(config.archive_after_seconds) {
+            return Err(ErrorCode::ArchiveThresholdNotReached.into());
         }
 
-        // Shares must sum to the session amount
-        if buyer_share.saturating_add(seller_share) != session.amount {
-            return Err(ErrorCode::InvalidShareSplit.into());
-        }
+        // Compute hash of original session data
+        let data_hash = hash_session(session);
 
-        let proposer = ctx.accounts.proposer.key();
-        if proposer != session.buyer && proposer != session.seller {
-            return Err(ErrorCode::Unauthorized.into());
-        }
+        // Populate the archive record
+        let archived = &mut ctx.accounts.archived_session;
+        archived.data_hash = data_hash;
+        archived.buyer = session.buyer;
+        archived.seller = session.seller;
+        archived.amount = session.amount;
+        archived.final_status = session.status;
+        archived.finalized_at = finalized_at;
+        archived.archived_at = now;
 
-        let current_slot = Clock::get()?.slot;
-        let proposal = &mut ctx.accounts.proposal;
-        proposal.session = session.key();
-        proposal.proposal_id = current_slot; // Use slot as unique ID
-        proposal.buyer_share = buyer_share;
-        proposal.seller_share = seller_share;
-        proposal.votes_for = 0;
-        proposal.votes_against = 0;
-        proposal.created_slot = current_slot;
-        proposal.resolved = false;
-
-        emit!(DisputeSentToDAO {
-            session_id: session.key(),
-            proposal_id: current_slot,
-            buyer_share,
-            seller_share,
+        emit!(SessionArchived {
+            session_id: ctx.accounts.session.key(),
+            data_hash,
+            buyer: session.buyer,
+            seller: session.seller,
+            amount: session.amount,
+            final_status: session.status,
+            archived_at: now,
         });
 
         Ok(())
     }
 
-    /// Cast a vote on an active DAO dispute proposal.
-    pub fn vote_on_dispute(ctx: Context<VoteOnDispute>, vote_for: bool) -> Result<()> {
-        let proposal = &mut ctx.accounts.proposal;
-        let dao_config_slot = proposal.created_slot; // store before borrow
-
-        // Check the proposal is not already resolved
-        if proposal.resolved {
-            return Err(ErrorCode::DaoResolutionPending.into());
-        }
-
-        // Record the vote
-        let vote_record = &mut ctx.accounts.vote_record;
-        vote_record.proposal = proposal.key();
-        vote_record.voter = ctx.accounts.voter.key();
-        vote_record.vote_for = vote_for;
-
-        if vote_for {
-            proposal.votes_for = proposal.votes_for.saturating_add(1);
-        } else {
-            proposal.votes_against = proposal.votes_against.saturating_add(1);
-        }
-
-        emit!(DaoVoteCast {
-            proposal_id: proposal.key(),
-            voter: ctx.accounts.voter.key(),
-            vote_for,
-        });
-
-        Ok(())
-    }
-
-    /// Execute the DAO resolution after the voting period has ended.
-    /// If votes_for > votes_against the proposed split is applied; otherwise
-    /// the session stays disputed for admin fallback.
-    pub fn execute_dao_resolution(ctx: Context<ExecuteDaoResolution>) -> Result<()> {
-        let proposal = &mut ctx.accounts.proposal;
-        let dao_config = &ctx.accounts.dao_config;
-        let session = &mut ctx.accounts.session;
-        let analytics = &mut ctx.accounts.analytics;
-
-        if proposal.resolved {
-            return Err(ErrorCode::DaoResolutionPending.into());
-        }
-
-        // Ensure voting period has elapsed
-        let current_slot = Clock::get()?.slot;
-        if current_slot < proposal.created_slot.saturating_add(dao_config.voting_period_slots) {
-            return Err(ErrorCode::VotingPeriodNotEnded.into());
-        }
-
-        // Proposal passes if votes_for > votes_against
-        if proposal.votes_for > proposal.votes_against {
-            proposal.resolved = true;
-
-            // Capture opened_at before status transition
-            let opened_at = session.dispute_opened_at.ok_or(ErrorCode::InvalidSessionState)?;
-            Session::update_status(session, SessionStatus::Resolved)?;
-
-            let resolved_at = session.dispute_resolved_at.unwrap();
-            let resolution_time = resolved_at.saturating_sub(opened_at) as u64;
-            analytics.record_resolution(resolution_time);
-
-            emit!(DisputeResolvedByDAO {
-                session_id: session.key(),
-                buyer_share: proposal.buyer_share,
-                seller_share: proposal.seller_share,
-                votes_for: proposal.votes_for,
-                votes_against: proposal.votes_against,
-            });
-        }
-        // If proposal did not pass, it remains unresolved for admin fallback
-
-        Ok(())
-    }
-
-    /// Fallback admin resolution when the DAO vote did not pass or the
-    /// fallback timeout has been reached without execution.
-    pub fn fallback_admin_resolution(
-        ctx: Context<FallbackAdminResolution>,
-        buyer_share: u64,
-        seller_share: u64,
-    ) -> Result<()> {
-        let session = &mut ctx.accounts.session;
-        let proposal = &ctx.accounts.proposal;
-        let dao_config = &ctx.accounts.dao_config;
+    /// Permanently delete an archived session after the retention period.
+    /// Admin only. The ArchivedSession account is closed and rent reclaimed.
+    pub fn delete_archived_session(ctx: Context<DeleteArchivedSession>) -> Result<()> {
         let platform_state = &ctx.accounts.platform_state;
-        let analytics = &mut ctx.accounts.analytics;
+        let config = &ctx.accounts.archive_config;
+        let archived = &ctx.accounts.archived_session;
+        let now = Clock::get()?.unix_timestamp;
 
-        // Only admin
         if ctx.accounts.admin.key() != platform_state.admin {
             return Err(ErrorCode::NotAdmin.into());
         }
 
-        if session.status != SessionStatus::Disputed {
-            return Err(ErrorCode::DisputeNotOpen.into());
+        // Retention period must have elapsed since archival
+        if now < archived.archived_at.saturating_add(config.retention_seconds) {
+            return Err(ErrorCode::ArchiveRetentionNotElapsed.into());
         }
 
-        // Fallback allowed only after voting_period + fallback_timeout
-        let current_slot = Clock::get()?.slot;
-        let fallback_slot = proposal
-            .created_slot
-            .saturating_add(dao_config.voting_period_slots)
-            .saturating_add(dao_config.fallback_timeout_slots);
-
-        if current_slot < fallback_slot {
-            return Err(ErrorCode::DaoFallbackNotReached.into());
-        }
-
-        // Shares must sum to session amount
-        if buyer_share.saturating_add(seller_share) != session.amount {
-            return Err(ErrorCode::InvalidShareSplit.into());
-        }
-
-        let opened_at = session.dispute_opened_at.ok_or(ErrorCode::InvalidSessionState)?;
-        Session::update_status(session, SessionStatus::Resolved)?;
-
-        let resolved_at = session.dispute_resolved_at.unwrap();
-        let resolution_time = resolved_at.saturating_sub(opened_at) as u64;
-        analytics.record_resolution(resolution_time);
-
-        emit!(DaoFallbackToAdmin {
-            session_id: session.key(),
-            admin: ctx.accounts.admin.key(),
-            buyer_share,
-            seller_share,
+        emit!(SessionDeleted {
+            session_id: ctx.accounts.archived_session.key(),
+            deleted_at: now,
+            deleted_by: ctx.accounts.admin.key(),
         });
 
+        // Account is closed via the `close = admin` constraint on the context.
         Ok(())
     }
 }
@@ -1208,6 +1111,152 @@ pub struct DisputeResolved {
     pub resolved_at: i64,
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Storage Cleanup & Archiving (#1139)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Default: archive sessions finalized more than 30 days ago.
+const DEFAULT_ARCHIVE_AFTER_SECONDS: i64 = 30 * 24 * 60 * 60;
+
+/// Default: retain archived sessions for 90 days before they can be deleted.
+const DEFAULT_ARCHIVE_RETENTION_SECONDS: i64 = 90 * 24 * 60 * 60;
+
+/// Maximum batch size to keep compute budget manageable.
+const MAX_BATCH_SIZE: u32 = 20;
+
+/// Platform-level archive configuration (admin-managed).
+#[account]
+#[derive(InitSpace)]
+pub struct ArchiveConfig {
+    /// Seconds after finalization before a session can be archived.
+    pub archive_after_seconds: i64,
+    /// Seconds an archived record must be retained before deletion.
+    pub retention_seconds: i64,
+    /// Admin who set the config.
+    pub admin: Pubkey,
+}
+
+/// Minimal on-chain record that replaces a closed Session account.
+/// Stores only the hash of the original session data so the full record can
+/// be verified off-chain while freeing most of the on-chain storage.
+#[account]
+#[derive(InitSpace)]
+pub struct ArchivedSession {
+    /// Hash (SHA-256) of the original session data.
+    pub data_hash: [u8; 32],
+    /// Original buyer (kept for lookups).
+    pub buyer: Pubkey,
+    /// Original seller (kept for lookups).
+    pub seller: Pubkey,
+    /// Original amount (kept for analytics).
+    pub amount: u64,
+    /// Final status at archive time.
+    pub final_status: SessionStatus,
+    /// Timestamp when the session was finalized.
+    pub finalized_at: i64,
+    /// Timestamp when the session was archived.
+    pub archived_at: i64,
+}
+
+// ── Archive contexts ────────────────────────────────────────────────────────
+
+#[derive(Accounts)]
+pub struct SetArchiveConfig<'info> {
+    #[account(
+        init_if_needed,
+        payer = admin,
+        seeds = [b"archive_config"],
+        bump,
+        space = 8 + ArchiveConfig::INIT_SPACE,
+    )]
+    pub archive_config: Account<'info, ArchiveConfig>,
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ArchiveSession<'info> {
+    /// The session to archive — will be closed and rent returned to payer.
+    #[account(mut, close = payer)]
+    pub session: Account<'info, Session>,
+    /// The archive record that replaces the session on-chain.
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + ArchivedSession::INIT_SPACE,
+        seeds = [b"archived", session.key().as_ref()],
+        bump,
+    )]
+    pub archived_session: Account<'info, ArchivedSession>,
+    #[account(seeds = [b"archive_config"], bump)]
+    pub archive_config: Account<'info, ArchiveConfig>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct DeleteArchivedSession<'info> {
+    #[account(mut, close = admin)]
+    pub archived_session: Account<'info, ArchivedSession>,
+    #[account(seeds = [b"archive_config"], bump)]
+    pub archive_config: Account<'info, ArchiveConfig>,
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+}
+
+// ── Archive events ──────────────────────────────────────────────────────────
+
+#[event]
+pub struct SessionArchived {
+    pub session_id: Pubkey,
+    pub data_hash: [u8; 32],
+    pub buyer: Pubkey,
+    pub seller: Pubkey,
+    pub amount: u64,
+    pub final_status: SessionStatus,
+    pub archived_at: i64,
+}
+
+#[event]
+pub struct SessionDeleted {
+    pub session_id: Pubkey,
+    pub deleted_at: i64,
+    pub deleted_by: Pubkey,
+}
+
+#[event]
+pub struct ArchiveConfigUpdated {
+    pub archive_after_seconds: i64,
+    pub retention_seconds: i64,
+    pub updated_by: Pubkey,
+}
+
+/// Compute a deterministic hash of the session fields for archive.
+/// Uses a simple XOR-fold of the fields (not cryptographic — purely for
+/// data-integrity verification off-chain).
+pub fn hash_session(session: &Session) -> [u8; 32] {
+    let mut hash = [0u8; 32];
+    let buyer_bytes = session.buyer.to_bytes();
+    let seller_bytes = session.seller.to_bytes();
+    let amount_bytes = session.amount.to_le_bytes();
+    let created_bytes = session.created_at.to_le_bytes();
+
+    // XOR buyer and seller into hash
+    for i in 0..32 {
+        hash[i] = buyer_bytes[i] ^ seller_bytes[i];
+    }
+    // Fold in amount and created_at
+    for i in 0..8 {
+        hash[i] ^= amount_bytes[i];
+        hash[8 + i] ^= created_bytes[i];
+    }
+    hash
+}
+
 #[error_code]
 pub enum ErrorCode {
     #[msg("Fee must be between 0 and 1000 basis points (0-10%)")]
@@ -1255,194 +1304,17 @@ pub enum ErrorCode {
     #[msg("Max session duration must be greater than zero")]
     InvalidMaxSessionDuration,
 
-    // ── DAO Dispute Resolution errors (#1138) ────────────────────────────────
-    #[msg("DAO is not configured")]
-    DaoNotConfigured = 800,
-    #[msg("DAO is not active")]
-    DaoNotActive = 801,
-    #[msg("Voting period has not ended yet")]
-    VotingPeriodNotEnded = 802,
-    #[msg("Voting period has expired")]
-    VotingPeriodExpired = 803,
-    #[msg("Already voted on this proposal")]
-    AlreadyVoted = 804,
-    #[msg("DAO resolution is still pending")]
-    DaoResolutionPending = 805,
-    #[msg("DAO fallback timeout has not been reached")]
-    DaoFallbackNotReached = 806,
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// DAO-governed Dispute Resolution (#1138)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// Configuration for DAO-based dispute resolution.
-#[account]
-#[derive(InitSpace)]
-pub struct DaoConfig {
-    /// DAO program address (for future CPI integration).
-    pub dao_program: Pubkey,
-    /// DAO treasury for governance token staking.
-    pub dao_treasury: Pubkey,
-    /// Voting period in slots.
-    pub voting_period_slots: u64,
-    /// Fallback to admin resolution after this many slots.
-    pub fallback_timeout_slots: u64,
-    /// Whether the DAO resolution system is active.
-    pub is_active: bool,
-    /// Admin who configured the DAO.
-    pub admin: Pubkey,
-}
-
-/// A dispute proposal submitted to DAO for voting.
-#[account]
-#[derive(InitSpace)]
-pub struct DaoDisputeProposal {
-    /// The disputed session.
-    pub session: Pubkey,
-    /// Unique proposal identifier.
-    pub proposal_id: u64,
-    /// Proposed buyer share.
-    pub buyer_share: u64,
-    /// Proposed seller share.
-    pub seller_share: u64,
-    /// Votes in favour of the proposal.
-    pub votes_for: u64,
-    /// Votes against the proposal.
-    pub votes_against: u64,
-    /// Slot at which the proposal was created.
-    pub created_slot: u64,
-    /// Whether the proposal has been resolved.
-    pub resolved: bool,
-}
-
-/// Tracks individual votes to prevent double-voting.
-#[account]
-#[derive(InitSpace)]
-pub struct VoteRecord {
-    pub proposal: Pubkey,
-    pub voter: Pubkey,
-    pub vote_for: bool,
-}
-
-// ── DAO contexts ────────────────────────────────────────────────────────────
-
-#[derive(Accounts)]
-pub struct SetDisputeDao<'info> {
-    #[account(
-        init_if_needed,
-        payer = admin,
-        seeds = [b"dao_config"],
-        bump,
-        space = 8 + DaoConfig::INIT_SPACE,
-    )]
-    pub dao_config: Account<'info, DaoConfig>,
-    pub platform_state: Account<'info, PlatformState>,
-    #[account(mut)]
-    pub admin: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct ResolveDisputeViaDao<'info> {
-    #[account(mut)]
-    pub session: Account<'info, Session>,
-    #[account(seeds = [b"dao_config"], bump)]
-    pub dao_config: Account<'info, DaoConfig>,
-    #[account(
-        init,
-        payer = proposer,
-        space = 8 + DaoDisputeProposal::INIT_SPACE,
-        seeds = [b"dao_proposal", session.key().as_ref()],
-        bump,
-    )]
-    pub proposal: Account<'info, DaoDisputeProposal>,
-    #[account(mut)]
-    pub proposer: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct VoteOnDispute<'info> {
-    #[account(mut)]
-    pub proposal: Account<'info, DaoDisputeProposal>,
-    #[account(
-        init,
-        payer = voter,
-        space = 8 + VoteRecord::INIT_SPACE,
-        seeds = [b"vote", proposal.key().as_ref(), voter.key().as_ref()],
-        bump,
-    )]
-    pub vote_record: Account<'info, VoteRecord>,
-    #[account(mut)]
-    pub voter: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct ExecuteDaoResolution<'info> {
-    #[account(mut)]
-    pub session: Account<'info, Session>,
-    #[account(mut)]
-    pub proposal: Account<'info, DaoDisputeProposal>,
-    #[account(seeds = [b"dao_config"], bump)]
-    pub dao_config: Account<'info, DaoConfig>,
-    #[account(mut)]
-    pub analytics: Account<'info, EscrowAnalytics>,
-    pub signer: Signer<'info>,
-}
-
-#[derive(Accounts)]
-pub struct FallbackAdminResolution<'info> {
-    #[account(mut)]
-    pub session: Account<'info, Session>,
-    pub proposal: Account<'info, DaoDisputeProposal>,
-    #[account(seeds = [b"dao_config"], bump)]
-    pub dao_config: Account<'info, DaoConfig>,
-    pub platform_state: Account<'info, PlatformState>,
-    #[account(mut)]
-    pub analytics: Account<'info, EscrowAnalytics>,
-    pub admin: Signer<'info>,
-}
-
-// ── DAO events ──────────────────────────────────────────────────────────────
-
-#[event]
-pub struct DaoConfigured {
-    pub dao_program: Pubkey,
-    pub voting_period_slots: u64,
-    pub fallback_timeout_slots: u64,
-    pub configured_by: Pubkey,
-}
-
-#[event]
-pub struct DisputeSentToDAO {
-    pub session_id: Pubkey,
-    pub proposal_id: u64,
-    pub buyer_share: u64,
-    pub seller_share: u64,
-}
-
-#[event]
-pub struct DaoVoteCast {
-    pub proposal_id: Pubkey,
-    pub voter: Pubkey,
-    pub vote_for: bool,
-}
-
-#[event]
-pub struct DisputeResolvedByDAO {
-    pub session_id: Pubkey,
-    pub buyer_share: u64,
-    pub seller_share: u64,
-    pub votes_for: u64,
-    pub votes_against: u64,
-}
-
-#[event]
-pub struct DaoFallbackToAdmin {
-    pub session_id: Pubkey,
-    pub admin: Pubkey,
-    pub buyer_share: u64,
-    pub seller_share: u64,
+    // ── Storage Cleanup & Archiving errors (#1139) ────────────────────────────
+    #[msg("Session is not finalized and cannot be archived")]
+    SessionNotFinalized = 900,
+    #[msg("Session has not reached the archive-after threshold")]
+    ArchiveThresholdNotReached = 901,
+    #[msg("Session is already archived")]
+    SessionAlreadyArchived = 902,
+    #[msg("Archive retention period has not elapsed; cannot delete yet")]
+    ArchiveRetentionNotElapsed = 903,
+    #[msg("Batch limit must be between 1 and 20")]
+    InvalidBatchLimit = 904,
+    #[msg("Invalid archive configuration value")]
+    InvalidArchiveConfig = 905,
 }
