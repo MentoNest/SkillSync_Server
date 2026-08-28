@@ -17,6 +17,20 @@ export enum ProfileType {
   ADMIN = 'admin',
 }
 
+/**
+ * #1176: Lifecycle status of a user account.
+ * - active: normal, fully-functional account (default).
+ * - pending_verification: reserved for a future email/identity verification flow.
+ * - suspended: temporarily or permanently blocked by an admin (#1175).
+ * - deleted: soft-deleted by the user or an admin (#1174).
+ */
+export enum UserStatus {
+  ACTIVE = 'active',
+  PENDING_VERIFICATION = 'pending_verification',
+  SUSPENDED = 'suspended',
+  DELETED = 'deleted',
+}
+
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn('uuid')
@@ -55,6 +69,16 @@ export class User {
 
   @Column({ type: 'int', default: 0 })
   tokenVersion: number;
+
+  // #1176: account lifecycle status. Guards reject any request from a
+  // non-active user (see RolesGuard), and public endpoints filter on it.
+  @Index('IDX_users_status')
+  @Column({
+    type: 'enum',
+    enum: UserStatus,
+    default: UserStatus.ACTIVE,
+  })
+  status: UserStatus;
 
   @Column({ type: 'boolean', default: false })
   isLocked: boolean;

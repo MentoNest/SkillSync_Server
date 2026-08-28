@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { User, ProfileType } from './entities/user.entity';
+import { User, ProfileType, UserStatus } from './entities/user.entity';
 import { Role } from '../entities/role.entity';
 import { MentorProfile } from '../entities/mentor-profile.entity';
 import { RedisService } from '../auth/services/redis.service';
@@ -90,6 +90,9 @@ export class UserService {
 
     const queryBuilder = this.userRepository.createQueryBuilder('user')
       .leftJoinAndSelect('user.roles', 'role')
+      // #1174/#1176: this is a public listing endpoint - never surface
+      // suspended, deleted, or not-yet-active accounts.
+      .where('user.status = :activeStatus', { activeStatus: UserStatus.ACTIVE })
       .skip(skip)
       .take(limit)
       .orderBy('user.createdAt', 'DESC');
@@ -163,6 +166,10 @@ export class UserService {
     }
 
     const queryBuilder = this.userRepository.createQueryBuilder('user');
+
+    // #1174/#1176: this is a public search endpoint - never surface
+    // suspended, deleted, or not-yet-active accounts.
+    queryBuilder.andWhere('user.status = :status', { status: UserStatus.ACTIVE });
 
     // Role filter: only users that hold the given role (case-insensitive)
     if (query.role) {

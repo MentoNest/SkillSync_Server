@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ProfileType, User } from '../entities/user.entity';
+import { ProfileType, User, UserStatus } from '../entities/user.entity';
 
 export class UserResponseDto {
   @ApiProperty({
@@ -52,6 +52,13 @@ export class UserResponseDto {
   settings: Record<string, any>;
 
   @ApiProperty({
+    description: 'Account lifecycle status',
+    enum: UserStatus,
+    example: UserStatus.ACTIVE,
+  })
+  status: UserStatus;
+
+  @ApiProperty({
     description: 'Account lock status',
     example: false,
   })
@@ -98,6 +105,7 @@ export class UserResponseDto {
     dto.avatarUrl = user.avatarUrl;
     dto.profileType = user.profileType;
     dto.settings = user.settings || {};
+    dto.status = user.status;
     dto.isLocked = user.isLocked;
     dto.lockoutUntil = user.lockoutUntil;
     dto.lastLoginAt = user.lastLoginAt;

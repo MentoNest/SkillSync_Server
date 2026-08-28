@@ -1,10 +1,11 @@
 import { CanActivate, ExecutionContext, Injectable, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
+import { ALLOW_INACTIVE_STATUS_KEY } from '../decorators/allow-inactive-status.decorator';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User } from '../entities/user.entity';
+import { User, UserStatus } from '../entities/user.entity';
 import { Role } from '../entities/role.entity';
 
 // Hierarchical role permissions - admin inherits all permissions from mentor and mentee
@@ -27,6 +28,10 @@ export class RolesGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const requiredRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    const allowInactiveStatus = this.reflector.getAllAndOverride<boolean>(ALLOW_INACTIVE_STATUS_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
@@ -70,6 +75,13 @@ export class RolesGuard implements CanActivate {
         throw new ForbiddenException('Token has been invalidated due to permission changes or session revocation');
       }
 
+      // #1176: reject requests from non-active users at the guard level.
+      // Routes that a non-active user legitimately needs (e.g. restoring a
+      // soft-deleted account) opt out via @AllowInactiveStatus().
+      if (!allowInactiveStatus && user.status !== UserStatus.ACTIVE) {
+        throw new ForbiddenException(this.buildInactiveStatusError(user));
+      }
+
       // Attach user to request for further use
       request.user = user;
 
@@ -97,6 +109,41 @@ export class RolesGuard implements CanActivate {
         throw error;
       }
       throw new ForbiddenException('Invalid token or insufficient permissions');
+    }
+  }
+
+  /**
+   * #1176 (extended by #1174/#1175): builds the 403 payload for a
+   * non-active user attempting an authenticated request. Suspension/deletion
+   * specific detail (reason, expiry) is layered on by UserService-side
+   * checks at login; here we only know the coarse status.
+   */
+  private buildInactiveStatusError(user: User): Record<string, any> {
+    switch (user.status) {
+      case UserStatus.SUSPENDED:
+        return {
+          statusCode: 403,
+          message: 'This account is suspended.',
+          code: 'account_suspended',
+        };
+      case UserStatus.DELETED:
+        return {
+          statusCode: 403,
+          message: 'This account has been deleted.',
+          code: 'account_deleted',
+        };
+      case UserStatus.PENDING_VERIFICATION:
+        return {
+          statusCode: 403,
+          message: 'This account is pending verification.',
+          code: 'account_pending_verification',
+        };
+      default:
+        return {
+          statusCode: 403,
+          message: 'This account is not active.',
+          code: 'account_inactive',
+        };
     }
   }
 }

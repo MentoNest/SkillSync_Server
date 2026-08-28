@@ -201,7 +201,14 @@ describe('UserService', () => {
     it('should combine role, search and skill filters', async () => {
       await service.searchUsers({ role: 'mentor', search: 'alex', skill: 'Solidity' });
 
-      expect(qb.andWhere).toHaveBeenCalledTimes(3);
+      // status filter (#1176) + role + skill + search
+      expect(qb.andWhere).toHaveBeenCalledTimes(4);
+    });
+
+    it('should always filter to active status (#1176)', async () => {
+      await service.searchUsers({});
+
+      expect(qb.andWhere).toHaveBeenCalledWith('user.status = :status', { status: 'active' });
     });
 
     it('should sort by rating via mentor profile join with NULLS LAST', async () => {

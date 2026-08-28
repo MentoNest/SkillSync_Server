@@ -298,6 +298,7 @@ export class AuthService {
       walletAddress: user.walletAddress,
       tokenVersion: user.tokenVersion || 0,
       roles: user.roles ? user.roles.map((r) => r.name) : [],
+      status: user.status, // #1176
     };
 
     const accessToken = this.jwtService.sign(payload, { expiresIn: '1d' });
@@ -451,6 +452,7 @@ export class AuthService {
       walletAddress: user.walletAddress,
       tokenVersion: user.tokenVersion || 0,
       roles: user.roles ? user.roles.map((r) => r.name) : [],
+      status: user.status, // #1176
     };
 
     const accessToken = this.jwtService.sign(payload, { expiresIn: '1d' });
