@@ -2,6 +2,9 @@ use anchor_lang::prelude::*;
 
 declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"); // Default dummy ID, replace with your own
 
+pub type Address = Pubkey;
+pub type Bytes32 = [u8; 32];
+
 /// Window after completion during which a session can still be disputed;
 /// past this, anyone may trigger an auto-refund on a stuck Completed session.
 const DISPUTE_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60; // 7 days
@@ -9,6 +12,9 @@ const DISPUTE_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60; // 7 days
 /// Default maximum lifetime of a Locked session before it can be auto-cancelled
 /// (~7 days, matching the issue's "30,000 ledgers" figure expressed in seconds).
 const DEFAULT_MAX_SESSION_DURATION_SECONDS: i64 = 7 * 24 * 60 * 60; // 7 days
+
+/// Default freshness threshold for price oracle feeds (5 minutes)
+pub const DEFAULT_PRICE_FRESHNESS_THRESHOLD_SECONDS: i64 = 300;
 
 /// Predefined RBAC Roles
 pub const DEFAULT_ADMIN_ROLE: [u8; 32] = [0u8; 32];
@@ -226,6 +232,67 @@ pub fn calculate_settlement_fee(amount: u64, fee_bps: u32) -> (u64, u64) {
         .unwrap_or(0) as u64;
     let net_amount = amount.saturating_sub(fee_amount);
     (fee_amount, net_amount)
+}
+
+/// Configuration for the price oracle
+#[account]
+#[derive(InitSpace, Debug, PartialEq, Eq)]
+pub struct OracleConfig {
+    pub oracle_id: Pubkey,
+    pub freshness_threshold_seconds: i64,
+    pub is_active: bool,
+    pub updated_at: i64,
+    pub updated_by: Pubkey,
+}
+
+/// Price data posted by or fetched from an oracle
+#[account]
+#[derive(InitSpace, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OraclePriceData {
+    pub asset: [u8; 32],
+    pub price: i128,
+    pub decimals: u32,
+    pub timestamp: i64,
+    pub is_valid: bool,
+}
+
+/// Admin-configured fallback price for an asset when oracle fails or is stale
+#[account]
+#[derive(InitSpace, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FallbackPrice {
+    pub asset: [u8; 32],
+    pub price: i128,
+    pub decimals: u32,
+    pub updated_at: i64,
+    pub is_active: bool,
+}
+
+/// Internal helper function to retrieve asset price using oracle feed with freshness check and fallback
+pub fn get_price(
+    asset: [u8; 32],
+    oracle_feed: Option<&OraclePriceData>,
+    fallback: Option<&FallbackPrice>,
+    freshness_threshold: i64,
+    current_timestamp: i64,
+) -> Result<i128> {
+    // 1. Check oracle price feed if present and valid
+    if let Some(feed) = oracle_feed {
+        if feed.is_valid && feed.asset == asset && feed.price > 0 {
+            let age = current_timestamp.saturating_sub(feed.timestamp);
+            if age <= freshness_threshold && feed.timestamp <= current_timestamp {
+                return Ok(feed.price);
+            }
+        }
+    }
+
+    // 2. Fallback to admin-provided fallback price
+    if let Some(fb) = fallback {
+        if fb.is_active && fb.asset == asset && fb.price > 0 {
+            return Ok(fb.price);
+        }
+    }
+
+    Err(ErrorCode::StalePrice.into())
 }
 
 #[program]
@@ -739,106 +806,175 @@ pub mod skill_sync {
         Ok(ctx.accounts.analytics.average_resolution_time())
     }
 
-    // ── Storage Cleanup & Archiving instructions (#1139) ─────────────────
+    /// Admin only function to set or update the price oracle
+    pub fn set_oracle(ctx: Context<SetOracle>, oracle_id: Pubkey) -> Result<()> {
+        let admin = ctx.accounts.admin.key();
+        if ctx.accounts.platform_state.admin != admin {
+            return Err(ErrorCode::NotAdmin.into());
+        }
 
-    /// Configure the archive policy. Admin only.
-    pub fn set_archive_config(
-        ctx: Context<SetArchiveConfig>,
-        archive_after_seconds: i64,
-        retention_seconds: i64,
+        let oracle_config = &mut ctx.accounts.oracle_config;
+        let now = Clock::get()?.unix_timestamp;
+        let old_oracle = oracle_config.oracle_id;
+
+        oracle_config.oracle_id = oracle_id;
+        if oracle_config.freshness_threshold_seconds == 0 {
+            oracle_config.freshness_threshold_seconds = DEFAULT_PRICE_FRESHNESS_THRESHOLD_SECONDS;
+        }
+        oracle_config.is_active = true;
+        oracle_config.updated_at = now;
+        oracle_config.updated_by = admin;
+
+        emit!(OracleUpdated {
+            old_oracle,
+            new_oracle: oracle_id,
+            updated_by: admin,
+            updated_at: now,
+        });
+
+        Ok(())
+    }
+
+    /// Admin only function to set a fallback price for an asset
+    pub fn set_fallback_price(
+        ctx: Context<SetFallbackPrice>,
+        asset: [u8; 32],
+        price: i128,
+        decimals: u32,
     ) -> Result<()> {
-        let platform_state = &ctx.accounts.platform_state;
-        if ctx.accounts.admin.key() != platform_state.admin {
+        let admin = ctx.accounts.admin.key();
+        if ctx.accounts.platform_state.admin != admin {
             return Err(ErrorCode::NotAdmin.into());
         }
-        if archive_after_seconds <= 0 || retention_seconds <= 0 {
-            return Err(ErrorCode::InvalidArchiveConfig.into());
+
+        if price <= 0 {
+            return Err(ErrorCode::InvalidAmount.into());
         }
 
-        let config = &mut ctx.accounts.archive_config;
-        config.archive_after_seconds = archive_after_seconds;
-        config.retention_seconds = retention_seconds;
-        config.admin = ctx.accounts.admin.key();
+        let fallback = &mut ctx.accounts.fallback_price;
+        let now = Clock::get()?.unix_timestamp;
+        fallback.asset = asset;
+        fallback.price = price;
+        fallback.decimals = decimals;
+        fallback.updated_at = now;
+        fallback.is_active = true;
 
-        emit!(ArchiveConfigUpdated {
-            archive_after_seconds,
-            retention_seconds,
-            updated_by: ctx.accounts.admin.key(),
+        emit!(FallbackPriceUpdated {
+            asset,
+            price,
+            decimals,
+            updated_by: admin,
+            updated_at: now,
         });
 
         Ok(())
     }
 
-    /// Archive a single finalized session. Anyone may call this once the
-    /// session is finalized and the archive-after threshold has elapsed.
-    /// The original Session account is closed (rent reclaimed) and replaced
-    /// by a smaller ArchivedSession PDA containing only the data hash.
-    pub fn archive_session(ctx: Context<ArchiveSession>) -> Result<()> {
-        let session = &ctx.accounts.session;
-        let config = &ctx.accounts.archive_config;
-        let now = Clock::get()?.unix_timestamp;
-
-        // Must be finalized
-        if !session.is_finalized() {
-            return Err(ErrorCode::SessionNotFinalized.into());
+    /// Admin only function to configure price freshness threshold (in seconds)
+    pub fn set_price_freshness_threshold(
+        ctx: Context<SetPriceFreshnessThreshold>,
+        threshold_seconds: i64,
+    ) -> Result<()> {
+        let admin = ctx.accounts.admin.key();
+        if ctx.accounts.platform_state.admin != admin {
+            return Err(ErrorCode::NotAdmin.into());
         }
 
-        // Must have passed the archive-after threshold
-        let finalized_at = session.completed_at.ok_or(ErrorCode::InvalidSessionState)?;
-        if now < finalized_at.saturating_add(config.archive_after_seconds) {
-            return Err(ErrorCode::ArchiveThresholdNotReached.into());
+        if threshold_seconds <= 0 {
+            return Err(ErrorCode::InvalidAmount.into());
         }
 
-        // Compute hash of original session data
-        let data_hash = hash_session(session);
+        let oracle_config = &mut ctx.accounts.oracle_config;
+        let old_threshold = oracle_config.freshness_threshold_seconds;
+        oracle_config.freshness_threshold_seconds = threshold_seconds;
+        oracle_config.updated_at = Clock::get()?.unix_timestamp;
+        oracle_config.updated_by = admin;
 
-        // Populate the archive record
-        let archived = &mut ctx.accounts.archived_session;
-        archived.data_hash = data_hash;
-        archived.buyer = session.buyer;
-        archived.seller = session.seller;
-        archived.amount = session.amount;
-        archived.final_status = session.status;
-        archived.finalized_at = finalized_at;
-        archived.archived_at = now;
-
-        emit!(SessionArchived {
-            session_id: ctx.accounts.session.key(),
-            data_hash,
-            buyer: session.buyer,
-            seller: session.seller,
-            amount: session.amount,
-            final_status: session.status,
-            archived_at: now,
+        emit!(FreshnessThresholdUpdated {
+            old_threshold,
+            new_threshold: threshold_seconds,
+            updated_by: admin,
         });
 
         Ok(())
     }
 
-    /// Permanently delete an archived session after the retention period.
-    /// Admin only. The ArchivedSession account is closed and rent reclaimed.
-    pub fn delete_archived_session(ctx: Context<DeleteArchivedSession>) -> Result<()> {
-        let platform_state = &ctx.accounts.platform_state;
-        let config = &ctx.accounts.archive_config;
-        let archived = &ctx.accounts.archived_session;
-        let now = Clock::get()?.unix_timestamp;
+    /// Post oracle price feed data (mock/oracle provider)
+    pub fn post_oracle_price(
+        ctx: Context<PostOraclePrice>,
+        asset: [u8; 32],
+        price: i128,
+        decimals: u32,
+        timestamp: i64,
+    ) -> Result<()> {
+        let feed = &mut ctx.accounts.oracle_feed;
+        feed.asset = asset;
+        feed.price = price;
+        feed.decimals = decimals;
+        feed.timestamp = timestamp;
+        feed.is_valid = price > 0;
 
-        if ctx.accounts.admin.key() != platform_state.admin {
-            return Err(ErrorCode::NotAdmin.into());
-        }
-
-        // Retention period must have elapsed since archival
-        if now < archived.archived_at.saturating_add(config.retention_seconds) {
-            return Err(ErrorCode::ArchiveRetentionNotElapsed.into());
-        }
-
-        emit!(SessionDeleted {
-            session_id: ctx.accounts.archived_session.key(),
-            deleted_at: now,
-            deleted_by: ctx.accounts.admin.key(),
+        emit!(OraclePricePosted {
+            asset,
+            price,
+            decimals,
+            timestamp,
         });
 
-        // Account is closed via the `close = admin` constraint on the context.
+        Ok(())
+    }
+
+    /// View/query price for an asset: fetches from oracle with freshness check or falls back to admin price
+    pub fn get_asset_price(ctx: Context<GetPrice>, asset: [u8; 32]) -> Result<i128> {
+        let now = Clock::get()?.unix_timestamp;
+        let freshness_threshold = ctx
+            .accounts
+            .oracle_config
+            .as_ref()
+            .map(|c| c.freshness_threshold_seconds)
+            .unwrap_or(DEFAULT_PRICE_FRESHNESS_THRESHOLD_SECONDS);
+
+        let feed_ref = ctx.accounts.oracle_feed.as_deref();
+        let fallback_ref = ctx.accounts.fallback_price.as_deref();
+
+        let price = get_price(
+            asset,
+            feed_ref,
+            fallback_ref,
+            freshness_threshold,
+            now,
+        )?;
+
+        let used_fallback = feed_ref
+            .map(|f| !f.is_valid || now.saturating_sub(f.timestamp) > freshness_threshold)
+            .unwrap_or(true);
+
+        emit!(PriceFetched {
+            asset,
+            price,
+            timestamp: now,
+            used_fallback,
+        });
+
+        Ok(price)
+    }
+
+    /// Upgrade contract program validation (upgrader role / admin only)
+    pub fn upgrade_contract(ctx: Context<UpgradeContract>, new_wasm_hash: [u8; 32]) -> Result<()> {
+        let admin = ctx.accounts.platform_state.admin;
+        let signer = ctx.accounts.signer.key();
+        check_role(&admin, ctx.accounts.role_assignment.as_ref(), &signer, UPGRADER_ROLE)?;
+
+        if new_wasm_hash == [0u8; 32] {
+            return Err(ErrorCode::InvalidWasmHash.into());
+        }
+
+        emit!(ContractUpgraded {
+            new_wasm_hash,
+            upgraded_by: signer,
+            upgraded_at: Clock::get()?.unix_timestamp,
+        });
+
         Ok(())
     }
 }
@@ -1003,6 +1139,99 @@ pub struct HasRoleContext<'info> {
     pub platform_state: Account<'info, PlatformState>,
 }
 
+#[derive(Accounts)]
+pub struct SetOracle<'info> {
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + OracleConfig::INIT_SPACE,
+        seeds = [b"oracle_config"],
+        bump
+    )]
+    pub oracle_config: Account<'info, OracleConfig>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(asset: [u8; 32])]
+pub struct SetFallbackPrice<'info> {
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + FallbackPrice::INIT_SPACE,
+        seeds = [b"fallback_price", asset.as_ref()],
+        bump
+    )]
+    pub fallback_price: Account<'info, FallbackPrice>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SetPriceFreshnessThreshold<'info> {
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(
+        mut,
+        seeds = [b"oracle_config"],
+        bump
+    )]
+    pub oracle_config: Account<'info, OracleConfig>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
+#[instruction(asset: [u8; 32])]
+pub struct PostOraclePrice<'info> {
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = 8 + OraclePriceData::INIT_SPACE,
+        seeds = [b"oracle_feed", asset.as_ref()],
+        bump
+    )]
+    pub oracle_feed: Account<'info, OraclePriceData>,
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(asset: [u8; 32])]
+pub struct GetPrice<'info> {
+    #[account(
+        seeds = [b"oracle_config"],
+        bump
+    )]
+    pub oracle_config: Option<Account<'info, OracleConfig>>,
+    #[account(
+        seeds = [b"oracle_feed", asset.as_ref()],
+        bump
+    )]
+    pub oracle_feed: Option<Account<'info, OraclePriceData>>,
+    #[account(
+        seeds = [b"fallback_price", asset.as_ref()],
+        bump
+    )]
+    pub fallback_price: Option<Account<'info, FallbackPrice>>,
+}
+
+#[derive(Accounts)]
+pub struct UpgradeContract<'info> {
+    pub platform_state: Account<'info, PlatformState>,
+    #[account(
+        seeds = [b"role", UPGRADER_ROLE.as_ref(), signer.key().as_ref()],
+        bump
+    )]
+    pub role_assignment: Option<Account<'info, RoleAssignment>>,
+    pub signer: Signer<'info>,
+}
+
 #[event]
 pub struct RoleGranted {
     pub role: [u8; 32],
@@ -1111,150 +1340,51 @@ pub struct DisputeResolved {
     pub resolved_at: i64,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Storage Cleanup & Archiving (#1139)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// Default: archive sessions finalized more than 30 days ago.
-const DEFAULT_ARCHIVE_AFTER_SECONDS: i64 = 30 * 24 * 60 * 60;
-
-/// Default: retain archived sessions for 90 days before they can be deleted.
-const DEFAULT_ARCHIVE_RETENTION_SECONDS: i64 = 90 * 24 * 60 * 60;
-
-/// Maximum batch size to keep compute budget manageable.
-const MAX_BATCH_SIZE: u32 = 20;
-
-/// Platform-level archive configuration (admin-managed).
-#[account]
-#[derive(InitSpace)]
-pub struct ArchiveConfig {
-    /// Seconds after finalization before a session can be archived.
-    pub archive_after_seconds: i64,
-    /// Seconds an archived record must be retained before deletion.
-    pub retention_seconds: i64,
-    /// Admin who set the config.
-    pub admin: Pubkey,
-}
-
-/// Minimal on-chain record that replaces a closed Session account.
-/// Stores only the hash of the original session data so the full record can
-/// be verified off-chain while freeing most of the on-chain storage.
-#[account]
-#[derive(InitSpace)]
-pub struct ArchivedSession {
-    /// Hash (SHA-256) of the original session data.
-    pub data_hash: [u8; 32],
-    /// Original buyer (kept for lookups).
-    pub buyer: Pubkey,
-    /// Original seller (kept for lookups).
-    pub seller: Pubkey,
-    /// Original amount (kept for analytics).
-    pub amount: u64,
-    /// Final status at archive time.
-    pub final_status: SessionStatus,
-    /// Timestamp when the session was finalized.
-    pub finalized_at: i64,
-    /// Timestamp when the session was archived.
-    pub archived_at: i64,
-}
-
-// ── Archive contexts ────────────────────────────────────────────────────────
-
-#[derive(Accounts)]
-pub struct SetArchiveConfig<'info> {
-    #[account(
-        init_if_needed,
-        payer = admin,
-        seeds = [b"archive_config"],
-        bump,
-        space = 8 + ArchiveConfig::INIT_SPACE,
-    )]
-    pub archive_config: Account<'info, ArchiveConfig>,
-    pub platform_state: Account<'info, PlatformState>,
-    #[account(mut)]
-    pub admin: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct ArchiveSession<'info> {
-    /// The session to archive — will be closed and rent returned to payer.
-    #[account(mut, close = payer)]
-    pub session: Account<'info, Session>,
-    /// The archive record that replaces the session on-chain.
-    #[account(
-        init,
-        payer = payer,
-        space = 8 + ArchivedSession::INIT_SPACE,
-        seeds = [b"archived", session.key().as_ref()],
-        bump,
-    )]
-    pub archived_session: Account<'info, ArchivedSession>,
-    #[account(seeds = [b"archive_config"], bump)]
-    pub archive_config: Account<'info, ArchiveConfig>,
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct DeleteArchivedSession<'info> {
-    #[account(mut, close = admin)]
-    pub archived_session: Account<'info, ArchivedSession>,
-    #[account(seeds = [b"archive_config"], bump)]
-    pub archive_config: Account<'info, ArchiveConfig>,
-    pub platform_state: Account<'info, PlatformState>,
-    #[account(mut)]
-    pub admin: Signer<'info>,
-}
-
-// ── Archive events ──────────────────────────────────────────────────────────
-
 #[event]
-pub struct SessionArchived {
-    pub session_id: Pubkey,
-    pub data_hash: [u8; 32],
-    pub buyer: Pubkey,
-    pub seller: Pubkey,
-    pub amount: u64,
-    pub final_status: SessionStatus,
-    pub archived_at: i64,
+pub struct OracleUpdated {
+    pub old_oracle: Pubkey,
+    pub new_oracle: Pubkey,
+    pub updated_by: Pubkey,
+    pub updated_at: i64,
 }
 
 #[event]
-pub struct SessionDeleted {
-    pub session_id: Pubkey,
-    pub deleted_at: i64,
-    pub deleted_by: Pubkey,
+pub struct FallbackPriceUpdated {
+    pub asset: [u8; 32],
+    pub price: i128,
+    pub decimals: u32,
+    pub updated_by: Pubkey,
+    pub updated_at: i64,
 }
 
 #[event]
-pub struct ArchiveConfigUpdated {
-    pub archive_after_seconds: i64,
-    pub retention_seconds: i64,
+pub struct FreshnessThresholdUpdated {
+    pub old_threshold: i64,
+    pub new_threshold: i64,
     pub updated_by: Pubkey,
 }
 
-/// Compute a deterministic hash of the session fields for archive.
-/// Uses a simple XOR-fold of the fields (not cryptographic — purely for
-/// data-integrity verification off-chain).
-pub fn hash_session(session: &Session) -> [u8; 32] {
-    let mut hash = [0u8; 32];
-    let buyer_bytes = session.buyer.to_bytes();
-    let seller_bytes = session.seller.to_bytes();
-    let amount_bytes = session.amount.to_le_bytes();
-    let created_bytes = session.created_at.to_le_bytes();
+#[event]
+pub struct PriceFetched {
+    pub asset: [u8; 32],
+    pub price: i128,
+    pub timestamp: i64,
+    pub used_fallback: bool,
+}
 
-    // XOR buyer and seller into hash
-    for i in 0..32 {
-        hash[i] = buyer_bytes[i] ^ seller_bytes[i];
-    }
-    // Fold in amount and created_at
-    for i in 0..8 {
-        hash[i] ^= amount_bytes[i];
-        hash[8 + i] ^= created_bytes[i];
-    }
-    hash
+#[event]
+pub struct OraclePricePosted {
+    pub asset: [u8; 32],
+    pub price: i128,
+    pub decimals: u32,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct ContractUpgraded {
+    pub new_wasm_hash: [u8; 32],
+    pub upgraded_by: Pubkey,
+    pub upgraded_at: i64,
 }
 
 #[error_code]
@@ -1303,18 +1433,14 @@ pub enum ErrorCode {
     SessionNotExpired,
     #[msg("Max session duration must be greater than zero")]
     InvalidMaxSessionDuration,
-
-    // ── Storage Cleanup & Archiving errors (#1139) ────────────────────────────
-    #[msg("Session is not finalized and cannot be archived")]
-    SessionNotFinalized = 900,
-    #[msg("Session has not reached the archive-after threshold")]
-    ArchiveThresholdNotReached = 901,
-    #[msg("Session is already archived")]
-    SessionAlreadyArchived = 902,
-    #[msg("Archive retention period has not elapsed; cannot delete yet")]
-    ArchiveRetentionNotElapsed = 903,
-    #[msg("Batch limit must be between 1 and 20")]
-    InvalidBatchLimit = 904,
-    #[msg("Invalid archive configuration value")]
-    InvalidArchiveConfig = 905,
+    #[msg("Provided WASM hash is zero or invalid")]
+    InvalidWasmHash = 600,
+    #[msg("Low-level upgrade failure")]
+    UpgradeFailed = 601,
+    #[msg("Price oracle is not configured")]
+    OracleNotConfigured = 602,
+    #[msg("Oracle price is stale or expired")]
+    StalePrice = 603,
+    #[msg("Oracle price fetch failed and no fallback available")]
+    OraclePriceFailed = 604,
 }
