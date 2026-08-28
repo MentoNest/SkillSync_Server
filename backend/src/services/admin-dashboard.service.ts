@@ -1,9 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThan, MoreThan } from 'typeorm';
-import { User } from '../user/entities/user.entity';
+import { User, UserStatus } from '../user/entities/user.entity';
 import { AuditLog } from '../auth/entities/audit-log.entity';
 import { Role } from '../entities/role.entity';
+import { UserService } from '../user/user.service';
+import { UserResponseDto } from '../user/dto/user-response.dto';
 
 export interface DashboardStats {
   totalUsers: number;
@@ -62,6 +64,7 @@ export class AdminDashboardService {
     private readonly auditLogRepo: Repository<AuditLog>,
     @InjectRepository(Role)
     private readonly roleRepo: Repository<Role>,
+    private readonly userService: UserService,
   ) {}
 
   /**
@@ -182,6 +185,30 @@ export class AdminDashboardService {
       action: 'USER_REACTIVATED',
       details: { targetUserId: userId },
     });
+  }
+
+  /**
+   * #1174: admin visibility into soft-deleted accounts.
+   */
+  async getDeletedUsers(): Promise<UserResponseDto[]> {
+    return this.userService.findDeletedUsers();
+  }
+
+  /**
+   * #1174: admin-only permanent (hard) delete once the restore grace
+   * period has elapsed.
+   */
+  async permanentlyDeleteUser(userId: string, adminId: string): Promise<{ success: boolean; message: string }> {
+    return this.userService.permanentlyDeleteAccount(userId, adminId);
+  }
+
+  /**
+   * #1176: generic admin status-change endpoint. Validates transitions
+   * (e.g. rejects deleted -> active, which must go through the self-service
+   * restore flow) via UserService.adminSetStatus.
+   */
+  async setUserStatus(userId: string, status: UserStatus, adminId: string): Promise<UserResponseDto> {
+    return this.userService.adminSetStatus(userId, status, adminId);
   }
 
   /**

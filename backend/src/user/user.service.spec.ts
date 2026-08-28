@@ -1,17 +1,21 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { UserService } from './user.service';
-import { User, ProfileType } from './entities/user.entity';
+import { User, ProfileType, UserStatus } from './entities/user.entity';
 import { Role } from '../entities/role.entity';
 import { MentorProfile } from '../entities/mentor-profile.entity';
 import { RedisService } from '../auth/services/redis.service';
-import { NotFoundException } from '@nestjs/common';
+import { RefreshToken } from '../auth/entities/refresh-token.entity';
+import { AuditLog } from '../auth/entities/audit-log.entity';
+import { NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 
 describe('UserService', () => {
   let service: UserService;
   let mockUserRepository: any;
   let mockRoleRepository: any;
   let mockMentorProfileRepository: any;
+  let mockRefreshTokenRepository: any;
+  let mockAuditLogRepository: any;
   let mockRedisService: any;
 
   beforeEach(async () => {
@@ -19,6 +23,7 @@ describe('UserService', () => {
       create: jest.fn().mockImplementation((dto) => dto),
       save: jest.fn().mockImplementation((user) => Promise.resolve({ id: 'uuid-123', ...user })),
       findOne: jest.fn(),
+      find: jest.fn().mockResolvedValue([]),
       createQueryBuilder: jest.fn(),
       remove: jest.fn().mockResolvedValue(true),
       update: jest.fn().mockResolvedValue(true),
@@ -32,6 +37,15 @@ describe('UserService', () => {
     mockMentorProfileRepository = {
       find: jest.fn().mockResolvedValue([]),
       createQueryBuilder: jest.fn(),
+    };
+
+    mockRefreshTokenRepository = {
+      delete: jest.fn().mockResolvedValue({ affected: 0 }),
+    };
+
+    mockAuditLogRepository = {
+      create: jest.fn().mockImplementation((entry) => entry),
+      save: jest.fn().mockResolvedValue(undefined),
     };
 
     mockRedisService = {
@@ -56,6 +70,14 @@ describe('UserService', () => {
         {
           provide: getRepositoryToken(MentorProfile),
           useValue: mockMentorProfileRepository,
+        },
+        {
+          provide: getRepositoryToken(RefreshToken),
+          useValue: mockRefreshTokenRepository,
+        },
+        {
+          provide: getRepositoryToken(AuditLog),
+          useValue: mockAuditLogRepository,
         },
         {
           provide: RedisService,
@@ -275,6 +297,141 @@ describe('UserService', () => {
         expect.any(String),
         60,
       );
+    });
+  });
+
+  describe('softDeleteAccount (#1174)', () => {
+    it('sets status to deleted, stamps deletedAt, and invalidates sessions', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'uuid-123',
+        status: UserStatus.ACTIVE,
+        tokenVersion: 0,
+      });
+
+      const result = await service.softDeleteAccount('uuid-123');
+
+      expect(result.success).toBe(true);
+      expect(result.graceDays).toBe(30);
+      expect(mockUserRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: UserStatus.DELETED, tokenVersion: 1 }),
+      );
+      expect(mockRefreshTokenRepository.delete).toHaveBeenCalledWith({ userId: 'uuid-123' });
+    });
+
+    it('rejects deleting an already-deleted account', async () => {
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.DELETED });
+      await expect(service.softDeleteAccount('uuid-123')).rejects.toThrow(BadRequestException);
+    });
+
+    it('honors the DELETE_GRACE_DAYS env var', async () => {
+      process.env.DELETE_GRACE_DAYS = '10';
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.ACTIVE, tokenVersion: 0 });
+
+      const result = await service.softDeleteAccount('uuid-123');
+
+      expect(result.graceDays).toBe(10);
+      delete process.env.DELETE_GRACE_DAYS;
+    });
+  });
+
+  describe('restoreAccount (#1174)', () => {
+    it('restores a deleted account within the grace period', async () => {
+      const deletedAt = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000); // 5 days ago
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.DELETED, deletedAt });
+
+      const result = await service.restoreAccount('uuid-123');
+
+      expect(result).toBeDefined();
+      expect(mockUserRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: UserStatus.ACTIVE, deletedAt: null }),
+      );
+    });
+
+    it('rejects restoring an account that is not deleted', async () => {
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.ACTIVE });
+      await expect(service.restoreAccount('uuid-123')).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects restoring after the grace period has expired', async () => {
+      const deletedAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000); // 31 days ago
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.DELETED, deletedAt });
+
+      await expect(service.restoreAccount('uuid-123')).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('permanentlyDeleteAccount (#1174)', () => {
+    it('hard-deletes a soft-deleted account past its grace period', async () => {
+      const deletedAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.DELETED, deletedAt });
+
+      const result = await service.permanentlyDeleteAccount('uuid-123', 'admin-1');
+
+      expect(result.success).toBe(true);
+      expect(mockUserRepository.remove).toHaveBeenCalled();
+      expect(mockAuditLogRepository.save).toHaveBeenCalled();
+    });
+
+    it('rejects permanent deletion before the grace period ends', async () => {
+      const deletedAt = new Date(); // just deleted
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.DELETED, deletedAt });
+
+      await expect(service.permanentlyDeleteAccount('uuid-123', 'admin-1')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects permanent deletion of a non-deleted account', async () => {
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.ACTIVE });
+      await expect(service.permanentlyDeleteAccount('uuid-123', 'admin-1')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('adminSetStatus (#1176)', () => {
+    it('allows a valid transition (active -> suspended)', async () => {
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.ACTIVE, tokenVersion: 0 });
+
+      await service.adminSetStatus('uuid-123', UserStatus.SUSPENDED, 'admin-1');
+
+      expect(mockUserRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: UserStatus.SUSPENDED }),
+      );
+      expect(mockAuditLogRepository.save).toHaveBeenCalled();
+    });
+
+    it('rejects deleted -> active (must go through restoreAccount)', async () => {
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.DELETED });
+
+      await expect(service.adminSetStatus('uuid-123', UserStatus.ACTIVE, 'admin-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('rejects setting the same status', async () => {
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.ACTIVE });
+      await expect(service.adminSetStatus('uuid-123', UserStatus.ACTIVE, 'admin-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('purgeExpiredDeletedAccounts (#1174)', () => {
+    it('permanently removes only accounts past their grace period', async () => {
+      const expired = {
+        id: 'expired-1',
+        status: UserStatus.DELETED,
+        deletedAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000),
+      };
+      const withinGrace = {
+        id: 'within-1',
+        status: UserStatus.DELETED,
+        deletedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      };
+      mockUserRepository.find.mockResolvedValue([expired, withinGrace]);
+
+      const result = await service.purgeExpiredDeletedAccounts();
+
+      expect(result.purgedCount).toBe(1);
+      expect(result.purgedUserIds).toEqual(['expired-1']);
+      expect(mockUserRepository.remove).toHaveBeenCalledTimes(1);
     });
   });
 });

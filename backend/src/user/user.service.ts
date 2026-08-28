@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
@@ -10,6 +11,8 @@ import { User, ProfileType, UserStatus } from './entities/user.entity';
 import { Role } from '../entities/role.entity';
 import { MentorProfile } from '../entities/mentor-profile.entity';
 import { RedisService } from '../auth/services/redis.service';
+import { RefreshToken } from '../auth/entities/refresh-token.entity';
+import { AuditLog } from '../auth/entities/audit-log.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserQueryDto } from './dto/user-query.dto';
@@ -21,6 +24,21 @@ import { PublicUserResponseDto } from './dto/public-user-response.dto';
 export class UserService {
   private static readonly USER_SEARCH_CACHE_TTL_SECONDS = 60; // 1 minute
 
+  // #1174: number of days a soft-deleted account can be restored, configurable via env.
+  private static readonly DEFAULT_DELETE_GRACE_DAYS = 30;
+
+  // #1176: which status transitions the generic admin status endpoint allows.
+  // 'deleted' is intentionally not reachable as a target here except from
+  // 'active'/'pending_verification'/'suspended' (see adminSetStatus) - and
+  // 'deleted' -> 'active' must go through the dedicated restore flow, which
+  // enforces the grace period.
+  private static readonly STATUS_TRANSITIONS: Record<UserStatus, UserStatus[]> = {
+    [UserStatus.ACTIVE]: [UserStatus.SUSPENDED, UserStatus.DELETED, UserStatus.PENDING_VERIFICATION],
+    [UserStatus.PENDING_VERIFICATION]: [UserStatus.ACTIVE, UserStatus.SUSPENDED, UserStatus.DELETED],
+    [UserStatus.SUSPENDED]: [UserStatus.ACTIVE, UserStatus.DELETED],
+    [UserStatus.DELETED]: [],
+  };
+
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
@@ -28,8 +46,19 @@ export class UserService {
     private readonly roleRepository: Repository<Role>,
     @InjectRepository(MentorProfile)
     private readonly mentorProfileRepository: Repository<MentorProfile>,
+    @InjectRepository(RefreshToken)
+    private readonly refreshTokenRepository: Repository<RefreshToken>,
+    @InjectRepository(AuditLog)
+    private readonly auditLogRepository: Repository<AuditLog>,
     private readonly redisService: RedisService,
   ) {}
+
+  private get deleteGraceDays(): number {
+    const configured = parseInt(process.env.DELETE_GRACE_DAYS || '', 10);
+    return Number.isFinite(configured) && configured > 0
+      ? configured
+      : UserService.DEFAULT_DELETE_GRACE_DAYS;
+  }
 
   async create(createUserDto: CreateUserDto): Promise<UserResponseDto> {
     if (!createUserDto.walletAddress && !createUserDto.email) {
@@ -310,6 +339,210 @@ export class UserService {
       success: true,
       message: `User with ID "${id}" successfully deleted`,
     };
+  }
+
+  /**
+   * #1174: DELETE /user/account - soft-deletes the caller's own account.
+   * Sets status to 'deleted', stamps deletedAt, and immediately invalidates
+   * all of the user's active sessions (access tokens via tokenVersion bump,
+   * refresh tokens via deletion).
+   */
+  async softDeleteAccount(userId: string): Promise<{
+    success: boolean;
+    message: string;
+    deletedAt: Date;
+    graceDays: number;
+  }> {
+    const user = await this.findById(userId);
+
+    if (user.status === UserStatus.DELETED) {
+      throw new BadRequestException('Account is already deleted');
+    }
+
+    user.status = UserStatus.DELETED;
+    user.deletedAt = new Date();
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
+    await this.userRepository.save(user);
+    await this.invalidateSessions(userId);
+
+    return {
+      success: true,
+      message: `Account soft-deleted. You can restore it within ${this.deleteGraceDays} days by logging in and calling POST /user/account/restore.`,
+      deletedAt: user.deletedAt,
+      graceDays: this.deleteGraceDays,
+    };
+  }
+
+  /**
+   * #1174: POST /user/account/restore - reactivates the caller's own
+   * account if it was soft-deleted within the configurable grace period.
+   */
+  async restoreAccount(userId: string): Promise<UserResponseDto> {
+    const user = await this.findById(userId);
+
+    if (user.status !== UserStatus.DELETED) {
+      throw new BadRequestException('Account is not deleted, nothing to restore');
+    }
+
+    const deadline = this.restoreDeadline(user);
+    if (deadline && new Date() > deadline) {
+      throw new ForbiddenException(
+        `The ${this.deleteGraceDays}-day restore grace period ended on ${deadline.toISOString()}. This account can no longer be restored.`,
+      );
+    }
+
+    user.status = UserStatus.ACTIVE;
+    user.deletedAt = null;
+    const saved = await this.userRepository.save(user);
+    return UserResponseDto.fromEntity(saved);
+  }
+
+  /**
+   * #1174: admin-only. Permanently (hard) deletes a soft-deleted user once
+   * their restore grace period has elapsed.
+   */
+  async permanentlyDeleteAccount(
+    userId: string,
+    adminId: string,
+  ): Promise<{ success: boolean; message: string }> {
+    const user = await this.findById(userId);
+
+    if (user.status !== UserStatus.DELETED) {
+      throw new BadRequestException('Only soft-deleted accounts can be permanently deleted');
+    }
+
+    const deadline = this.restoreDeadline(user);
+    if (deadline && new Date() < deadline) {
+      throw new ForbiddenException(
+        `Cannot permanently delete before the restore grace period ends (${deadline.toISOString()})`,
+      );
+    }
+
+    await this.invalidateSessions(userId);
+    await this.userRepository.remove(user);
+    await this.auditLogRepository.save(
+      this.auditLogRepository.create({
+        userId: adminId,
+        eventType: 'user_permanently_deleted',
+        metadata: { targetUserId: userId },
+      }),
+    );
+
+    return { success: true, message: `User ${userId} permanently deleted` };
+  }
+
+  /**
+   * #1174: admin visibility into soft-deleted accounts.
+   */
+  async findDeletedUsers(): Promise<UserResponseDto[]> {
+    const users = await this.userRepository.find({
+      where: { status: UserStatus.DELETED },
+      relations: { roles: true },
+      order: { deletedAt: 'DESC' },
+    });
+    return users.map((u) => UserResponseDto.fromEntity(u));
+  }
+
+  /**
+   * #1176: generic admin status-change endpoint backing PATCH
+   * /admin/users/:userId/status. Validates the transition against
+   * STATUS_TRANSITIONS - notably 'deleted' -> 'active' is rejected here
+   * since that must go through restoreAccount() so the grace period is
+   * enforced.
+   */
+  async adminSetStatus(
+    userId: string,
+    newStatus: UserStatus,
+    adminId: string,
+  ): Promise<UserResponseDto> {
+    const user = await this.findById(userId);
+    const previousStatus = user.status;
+
+    if (previousStatus === newStatus) {
+      throw new BadRequestException(`User is already ${newStatus}`);
+    }
+
+    const allowed = UserService.STATUS_TRANSITIONS[previousStatus] || [];
+    if (!allowed.includes(newStatus)) {
+      const hint =
+        previousStatus === UserStatus.DELETED
+          ? ' Use POST /user/account/restore (self-service) instead.'
+          : '';
+      throw new BadRequestException(
+        `Cannot transition user status from '${previousStatus}' to '${newStatus}'.${hint}`,
+      );
+    }
+
+    user.status = newStatus;
+    user.deletedAt = newStatus === UserStatus.DELETED ? new Date() : null;
+    if (newStatus !== UserStatus.ACTIVE) {
+      user.tokenVersion = (user.tokenVersion || 0) + 1;
+      await this.invalidateSessions(userId);
+    }
+
+    const saved = await this.userRepository.save(user);
+
+    await this.auditLogRepository.save(
+      this.auditLogRepository.create({
+        userId: adminId,
+        eventType: 'user_status_changed',
+        metadata: { targetUserId: userId, from: previousStatus, to: newStatus },
+      }),
+    );
+
+    return UserResponseDto.fromEntity(saved);
+  }
+
+  /**
+   * #1174/#1175: invalidates a user's active sessions immediately - deletes
+   * stored refresh tokens so they can no longer mint new access tokens.
+   * Combined with a tokenVersion bump (done by the caller) this makes both
+   * existing access tokens and refresh tokens unusable right away.
+   */
+  private async invalidateSessions(userId: string): Promise<void> {
+    await this.refreshTokenRepository.delete({ userId });
+  }
+
+  private restoreDeadline(user: User): Date | null {
+    if (!user.deletedAt) {
+      return null;
+    }
+    return new Date(user.deletedAt.getTime() + this.deleteGraceDays * 24 * 60 * 60 * 1000);
+  }
+
+  /**
+   * #1174: sweeps soft-deleted accounts whose restore grace period has
+   * elapsed and permanently removes them.
+   *
+   * TODO: this repo doesn't currently have a job scheduler wired up
+   * (no @nestjs/schedule or equivalent dependency). Once one is added,
+   * call this from a daily cron (e.g. `@Cron(CronExpression.EVERY_DAY_AT_3AM)`).
+   * Until then this can be invoked manually/via a one-off script.
+   */
+  async purgeExpiredDeletedAccounts(): Promise<{ purgedCount: number; purgedUserIds: string[] }> {
+    const candidates = await this.userRepository.find({ where: { status: UserStatus.DELETED } });
+    const purgedUserIds: string[] = [];
+
+    for (const user of candidates) {
+      const deadline = this.restoreDeadline(user);
+      if (deadline && new Date() > deadline) {
+        await this.invalidateSessions(user.id);
+        await this.userRepository.remove(user);
+        purgedUserIds.push(user.id);
+      }
+    }
+
+    if (purgedUserIds.length > 0) {
+      await this.auditLogRepository.save(
+        this.auditLogRepository.create({
+          userId: null,
+          eventType: 'user_accounts_purged',
+          metadata: { purgedUserIds, purgedCount: purgedUserIds.length },
+        }),
+      );
+    }
+
+    return { purgedCount: purgedUserIds.length, purgedUserIds };
   }
 
   async incrementTokenVersion(userId: string): Promise<number> {

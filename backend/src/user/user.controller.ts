@@ -28,6 +28,7 @@ import { UserResponseDto } from './dto/user-response.dto';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { User } from './entities/user.entity';
 import { RolesGuard } from '../guards/roles.guard';
+import { AllowInactiveStatus } from '../decorators/allow-inactive-status.decorator';
 
 @ApiTags('User')
 @Controller('user')
@@ -102,6 +103,40 @@ export class UserController {
       throw new UnauthorizedException('Authentication required to delete profile');
     }
     return this.userService.remove(user.id);
+  }
+
+  // #1174: DELETE /user/account - soft-deletes the caller's own account
+  // (distinct from the legacy hard-delete DELETE /user/profile above).
+  @Delete('account')
+  @UseGuards(RolesGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('Bearer Auth')
+  @ApiOperation({ summary: 'Soft-delete the current user account (#1174)' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Account soft-deleted' })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Not authenticated' })
+  async deleteAccount(@CurrentUser() user: User) {
+    if (!user || !user.id) {
+      throw new UnauthorizedException('Authentication required to delete account');
+    }
+    return this.userService.softDeleteAccount(user.id);
+  }
+
+  // #1174: POST /user/account/restore - reactivates the caller's own
+  // soft-deleted account within the grace period. Marked
+  // @AllowInactiveStatus() so RolesGuard lets a 'deleted' user reach it.
+  @Post('account/restore')
+  @UseGuards(RolesGuard)
+  @AllowInactiveStatus()
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('Bearer Auth')
+  @ApiOperation({ summary: 'Restore a soft-deleted account within the grace period (#1174)' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Account restored', type: UserResponseDto })
+  @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Grace period expired' })
+  async restoreAccount(@CurrentUser() user: User): Promise<UserResponseDto> {
+    if (!user || !user.id) {
+      throw new UnauthorizedException('Authentication required to restore account');
+    }
+    return this.userService.restoreAccount(user.id);
   }
 
   @Get(':id')

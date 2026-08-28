@@ -80,6 +80,13 @@ export class User {
   })
   status: UserStatus;
 
+  // #1174: soft-delete timestamp. Non-null while status === DELETED; used
+  // to compute the restore grace period and eligibility for permanent
+  // (hard) deletion.
+  @Index('IDX_users_deletedAt')
+  @Column({ type: 'timestamp', nullable: true })
+  deletedAt: Date | null;
+
   @Column({ type: 'boolean', default: false })
   isLocked: boolean;
 

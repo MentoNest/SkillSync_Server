@@ -2,6 +2,8 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
+  Patch,
   Body,
   Param,
   Query,
@@ -10,12 +12,14 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { RolesGuard } from '../guards/roles.guard';
 import { Roles } from '../decorators/roles.decorator';
 import { AdminDashboardService } from '../services/admin-dashboard.service';
+import { UserStatus } from '../user/entities/user.entity';
 
 @ApiTags('Admin')
 @ApiBearerAuth('Bearer Auth')
@@ -79,6 +83,39 @@ export class AdminController {
   ) {
     await this.adminService.reactivateUser(id, req.user.id);
     return { success: true };
+  }
+
+  // #1174: view soft-deleted accounts
+  @Get('users/deleted')
+  @ApiOperation({ summary: 'List soft-deleted users (#1174)' })
+  @ApiResponse({ status: 200, description: 'Soft-deleted users retrieved' })
+  async getDeletedUsers() {
+    return this.adminService.getDeletedUsers();
+  }
+
+  // #1174: hard-delete a soft-deleted user once its grace period has elapsed
+  @Delete('users/:userId/permanent')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Permanently delete a soft-deleted user past its grace period (#1174)' })
+  @ApiResponse({ status: 200, description: 'User permanently deleted' })
+  async permanentlyDeleteUser(@Param('userId', ParseUUIDPipe) userId: string, @Request() req: any) {
+    return this.adminService.permanentlyDeleteUser(userId, req.user.id);
+  }
+
+  // #1176: generic admin status transition endpoint
+  @Patch('users/:userId/status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "Change a user's lifecycle status (#1176)" })
+  @ApiResponse({ status: 200, description: 'Status changed' })
+  async setUserStatus(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body('status') status: string,
+    @Request() req: any,
+  ) {
+    if (!Object.values(UserStatus).includes(status as UserStatus)) {
+      throw new BadRequestException(`status must be one of: ${Object.values(UserStatus).join(', ')}`);
+    }
+    return this.adminService.setUserStatus(userId, status as UserStatus, req.user.id);
   }
 
   @Get('moderation')
