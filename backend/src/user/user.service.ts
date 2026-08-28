@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { User, ProfileType, UserStatus } from './entities/user.entity';
+import { UserSuspension } from './entities/user-suspension.entity';
 import { Role } from '../entities/role.entity';
 import { MentorProfile } from '../entities/mentor-profile.entity';
 import { RedisService } from '../auth/services/redis.service';
@@ -50,6 +51,8 @@ export class UserService {
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     @InjectRepository(AuditLog)
     private readonly auditLogRepository: Repository<AuditLog>,
+    @InjectRepository(UserSuspension)
+    private readonly suspensionRepository: Repository<UserSuspension>,
     private readonly redisService: RedisService,
   ) {}
 
@@ -491,6 +494,115 @@ export class UserService {
     );
 
     return UserResponseDto.fromEntity(saved);
+  }
+
+  /**
+   * #1175: POST /admin/users/:userId/suspend - suspends a user temporarily
+   * (durationDays set) or permanently (durationDays null/undefined).
+   * Immediately invalidates the user's active sessions.
+   */
+  async suspendUser(
+    targetUserId: string,
+    reason: string,
+    durationDays: number | null | undefined,
+    adminId: string,
+  ): Promise<UserSuspension> {
+    if (!reason || !reason.trim()) {
+      throw new BadRequestException('A suspension reason is required');
+    }
+
+    const user = await this.findById(targetUserId);
+    if (user.status === UserStatus.SUSPENDED) {
+      throw new BadRequestException('User is already suspended');
+    }
+    if (user.status === UserStatus.DELETED) {
+      throw new BadRequestException('Cannot suspend a deleted account');
+    }
+
+    // Deactivate any stale suspension rows for this user (defensive - there
+    // should only ever be one active suspension at a time).
+    await this.suspensionRepository.update(
+      { userId: targetUserId, isActive: true },
+      { isActive: false, liftedAt: new Date(), liftReason: 'superseded' },
+    );
+
+    const suspendedUntil =
+      durationDays === null || durationDays === undefined
+        ? null
+        : new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000);
+
+    const suspension = await this.suspensionRepository.save(
+      this.suspensionRepository.create({
+        userId: targetUserId,
+        reason: reason.trim(),
+        suspendedBy: adminId,
+        suspendedUntil,
+        isActive: true,
+      }),
+    );
+
+    user.status = UserStatus.SUSPENDED;
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
+    await this.userRepository.save(user);
+    // #1175: suspended user's active sessions are invalidated immediately.
+    await this.invalidateSessions(targetUserId);
+
+    return suspension;
+  }
+
+  /**
+   * #1175: POST /admin/users/:userId/unsuspend - lifts an active
+   * suspension. `unsuspendedBy` is an admin id for admin-initiated lifts,
+   * or null when called from an automatic expiry check (login/guard).
+   */
+  async unsuspendUser(targetUserId: string, unsuspendedBy: string | null): Promise<void> {
+    const user = await this.findById(targetUserId);
+    if (user.status !== UserStatus.SUSPENDED) {
+      throw new BadRequestException('User is not currently suspended');
+    }
+
+    const activeSuspension = await this.getActiveSuspension(targetUserId);
+    if (activeSuspension) {
+      activeSuspension.isActive = false;
+      activeSuspension.liftedAt = new Date();
+      activeSuspension.liftedBy = unsuspendedBy;
+      activeSuspension.liftReason = unsuspendedBy ? 'unsuspended' : 'expired';
+      await this.suspensionRepository.save(activeSuspension);
+    }
+
+    user.status = UserStatus.ACTIVE;
+    await this.userRepository.save(user);
+  }
+
+  /**
+   * #1175: the currently-effective suspension record for a user, if any.
+   */
+  async getActiveSuspension(userId: string): Promise<UserSuspension | null> {
+    return this.suspensionRepository.findOne({
+      where: { userId, isActive: true },
+      order: { suspendedAt: 'DESC' },
+    });
+  }
+
+  /**
+   * #1175: checked at login. If the user is suspended, returns the active
+   * suspension detail. A temporary suspension whose window has already
+   * passed is auto-lifted (status flipped back to active) and null is
+   * returned so login can proceed.
+   */
+  async checkAndExpireSuspension(user: User): Promise<UserSuspension | null> {
+    if (user.status !== UserStatus.SUSPENDED) {
+      return null;
+    }
+
+    const activeSuspension = await this.getActiveSuspension(user.id);
+    if (activeSuspension?.suspendedUntil && new Date() > new Date(activeSuspension.suspendedUntil)) {
+      await this.unsuspendUser(user.id, null);
+      user.status = UserStatus.ACTIVE;
+      return null;
+    }
+
+    return activeSuspension;
   }
 
   /**

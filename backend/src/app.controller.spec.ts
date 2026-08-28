@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { User } from './entities/user.entity';
 import { Role } from './entities/role.entity';
+import { UserSuspension } from './user/entities/user-suspension.entity';
 
 describe('AppController', () => {
   let appController: AppController;
@@ -25,6 +26,10 @@ describe('AppController', () => {
         },
         {
           provide: getRepositoryToken(Role),
+          useValue: {},
+        },
+        {
+          provide: getRepositoryToken(UserSuspension),
           useValue: {},
         },
       ],

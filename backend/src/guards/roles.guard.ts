@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User, UserStatus } from '../entities/user.entity';
 import { Role } from '../entities/role.entity';
+import { UserSuspension } from '../user/entities/user-suspension.entity';
 
 // Hierarchical role permissions - admin inherits all permissions from mentor and mentee
 const roleHierarchy: Record<string, string[]> = {
@@ -24,6 +25,8 @@ export class RolesGuard implements CanActivate {
     private userRepository: Repository<User>,
     @InjectRepository(Role)
     private roleRepository: Repository<Role>,
+    @InjectRepository(UserSuspension)
+    private suspensionRepository: Repository<UserSuspension>,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -79,7 +82,28 @@ export class RolesGuard implements CanActivate {
       // Routes that a non-active user legitimately needs (e.g. restoring a
       // soft-deleted account) opt out via @AllowInactiveStatus().
       if (!allowInactiveStatus && user.status !== UserStatus.ACTIVE) {
-        throw new ForbiddenException(this.buildInactiveStatusError(user));
+        // #1175: a temporary suspension may have already lapsed since the
+        // token was issued - auto-expire it here too (defense in depth;
+        // the primary check is at login).
+        if (user.status === UserStatus.SUSPENDED) {
+          const activeSuspension = await this.suspensionRepository.findOne({
+            where: { userId: user.id, isActive: true },
+            order: { suspendedAt: 'DESC' },
+          });
+
+          if (activeSuspension?.suspendedUntil && new Date() > new Date(activeSuspension.suspendedUntil)) {
+            activeSuspension.isActive = false;
+            activeSuspension.liftedAt = new Date();
+            activeSuspension.liftReason = 'expired';
+            await this.suspensionRepository.save(activeSuspension);
+            user.status = UserStatus.ACTIVE;
+            await this.userRepository.save(user);
+          } else {
+            throw new ForbiddenException(this.buildInactiveStatusError(user, activeSuspension));
+          }
+        } else {
+          throw new ForbiddenException(this.buildInactiveStatusError(user));
+        }
       }
 
       // Attach user to request for further use
@@ -118,13 +142,20 @@ export class RolesGuard implements CanActivate {
    * specific detail (reason, expiry) is layered on by UserService-side
    * checks at login; here we only know the coarse status.
    */
-  private buildInactiveStatusError(user: User): Record<string, any> {
+  private buildInactiveStatusError(
+    user: User,
+    activeSuspension?: UserSuspension | null,
+  ): Record<string, any> {
     switch (user.status) {
       case UserStatus.SUSPENDED:
         return {
           statusCode: 403,
-          message: 'This account is suspended.',
+          message: activeSuspension?.suspendedUntil
+            ? `This account is suspended until ${new Date(activeSuspension.suspendedUntil).toISOString()}. Reason: ${activeSuspension.reason}`
+            : `This account is permanently suspended.${activeSuspension?.reason ? ` Reason: ${activeSuspension.reason}` : ''}`,
           code: 'account_suspended',
+          reason: activeSuspension?.reason ?? null,
+          suspendedUntil: activeSuspension?.suspendedUntil ?? null,
         };
       case UserStatus.DELETED:
         return {

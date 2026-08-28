@@ -60,29 +60,41 @@ export class AdminController {
     });
   }
 
-  @Post('users/:id/suspend')
+  // #1175: suspend a user temporarily (durationDays) or permanently (omit/null)
+  @Post('users/:userId/suspend')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Suspend a user' })
+  @ApiOperation({ summary: 'Suspend a user, temporarily or permanently (#1175)' })
   @ApiResponse({ status: 200, description: 'User suspended' })
   async suspendUser(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
     @Body('reason') reason: string,
+    @Body('durationDays') durationDays: number | null | undefined,
     @Request() req: any,
   ) {
-    await this.adminService.suspendUser(id, reason, req.user.id);
-    return { success: true };
+    return this.adminService.suspendUser(userId, reason, req.user.id, durationDays ?? null);
   }
 
+  // #1175: lift an active suspension
+  @Post('users/:userId/unsuspend')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Lift an active suspension (#1175)' })
+  @ApiResponse({ status: 200, description: 'User unsuspended' })
+  async unsuspendUser(@Param('userId', ParseUUIDPipe) userId: string, @Request() req: any) {
+    return this.adminService.unsuspendUser(userId, req.user.id);
+  }
+
+  /**
+   * @deprecated kept for backward compatibility - use POST users/:userId/unsuspend.
+   */
   @Post('users/:id/reactivate')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Reactivate a user' })
+  @ApiOperation({ summary: '[deprecated] use POST users/:userId/unsuspend' })
   @ApiResponse({ status: 200, description: 'User reactivated' })
   async reactivateUser(
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: any,
   ) {
-    await this.adminService.reactivateUser(id, req.user.id);
-    return { success: true };
+    return this.adminService.reactivateUser(id, req.user.id);
   }
 
   // #1174: view soft-deleted accounts

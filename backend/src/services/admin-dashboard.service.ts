@@ -160,31 +160,60 @@ export class AdminDashboardService {
   }
 
   /**
-   * Suspend a user
+   * #1175: POST /admin/users/:userId/suspend - suspends a user temporarily
+   * (durationDays) or permanently (durationDays null/undefined), and
+   * records an admin audit log entry.
    */
-  async suspendUser(userId: string, reason: string, adminId: string): Promise<void> {
-    // In a real implementation, this would update user status
+  async suspendUser(
+    userId: string,
+    reason: string,
+    adminId: string,
+    durationDays?: number | null,
+  ): Promise<{ success: boolean }> {
+    const suspension = await this.userService.suspendUser(userId, reason, durationDays ?? null, adminId);
     this.logger.log(`User ${userId} suspended by ${adminId}: ${reason}`);
 
-    // Log the action
-    await this.auditLogRepo.save({
-      userId: adminId,
-      action: 'USER_SUSPENDED',
-      details: { targetUserId: userId, reason },
-    });
+    await this.auditLogRepo.save(
+      this.auditLogRepo.create({
+        userId: adminId,
+        eventType: 'user_suspended',
+        metadata: {
+          targetUserId: userId,
+          reason,
+          durationDays: durationDays ?? null,
+          permanent: durationDays === null || durationDays === undefined,
+          suspendedUntil: suspension.suspendedUntil,
+        },
+      }),
+    );
+
+    return { success: true };
   }
 
   /**
-   * Reactivate a user
+   * #1175: POST /admin/users/:userId/unsuspend - lifts an active suspension
+   * and records an admin audit log entry.
    */
-  async reactivateUser(userId: string, adminId: string): Promise<void> {
-    this.logger.log(`User ${userId} reactivated by ${adminId}`);
+  async unsuspendUser(userId: string, adminId: string): Promise<{ success: boolean }> {
+    await this.userService.unsuspendUser(userId, adminId);
+    this.logger.log(`User ${userId} unsuspended by ${adminId}`);
 
-    await this.auditLogRepo.save({
-      userId: adminId,
-      action: 'USER_REACTIVATED',
-      details: { targetUserId: userId },
-    });
+    await this.auditLogRepo.save(
+      this.auditLogRepo.create({
+        userId: adminId,
+        eventType: 'user_unsuspended',
+        metadata: { targetUserId: userId },
+      }),
+    );
+
+    return { success: true };
+  }
+
+  /**
+   * @deprecated kept for backward compatibility - use unsuspendUser().
+   */
+  async reactivateUser(userId: string, adminId: string): Promise<{ success: boolean }> {
+    return this.unsuspendUser(userId, adminId);
   }
 
   /**

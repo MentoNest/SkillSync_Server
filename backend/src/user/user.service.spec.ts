@@ -7,6 +7,7 @@ import { MentorProfile } from '../entities/mentor-profile.entity';
 import { RedisService } from '../auth/services/redis.service';
 import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { AuditLog } from '../auth/entities/audit-log.entity';
+import { UserSuspension } from './entities/user-suspension.entity';
 import { NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 
 describe('UserService', () => {
@@ -16,6 +17,7 @@ describe('UserService', () => {
   let mockMentorProfileRepository: any;
   let mockRefreshTokenRepository: any;
   let mockAuditLogRepository: any;
+  let mockSuspensionRepository: any;
   let mockRedisService: any;
 
   beforeEach(async () => {
@@ -48,6 +50,13 @@ describe('UserService', () => {
       save: jest.fn().mockResolvedValue(undefined),
     };
 
+    mockSuspensionRepository = {
+      create: jest.fn().mockImplementation((entry) => entry),
+      save: jest.fn().mockImplementation((entry) => Promise.resolve({ id: 'susp-uuid', ...entry })),
+      findOne: jest.fn().mockResolvedValue(null),
+      update: jest.fn().mockResolvedValue({ affected: 0 }),
+    };
+
     mockRedisService = {
       get: jest.fn().mockResolvedValue(null),
       set: jest.fn(),
@@ -78,6 +87,10 @@ describe('UserService', () => {
         {
           provide: getRepositoryToken(AuditLog),
           useValue: mockAuditLogRepository,
+        },
+        {
+          provide: getRepositoryToken(UserSuspension),
+          useValue: mockSuspensionRepository,
         },
         {
           provide: RedisService,
@@ -432,6 +445,123 @@ describe('UserService', () => {
       expect(result.purgedCount).toBe(1);
       expect(result.purgedUserIds).toEqual(['expired-1']);
       expect(mockUserRepository.remove).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('suspendUser (#1175)', () => {
+    it('creates a temporary suspension and updates the user', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'uuid-123',
+        status: UserStatus.ACTIVE,
+        tokenVersion: 0,
+      });
+
+      const suspension = await service.suspendUser('uuid-123', 'spam', 7, 'admin-1');
+
+      expect(suspension.suspendedUntil).toBeInstanceOf(Date);
+      expect(mockUserRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: UserStatus.SUSPENDED, tokenVersion: 1 }),
+      );
+      expect(mockRefreshTokenRepository.delete).toHaveBeenCalledWith({ userId: 'uuid-123' });
+    });
+
+    it('creates a permanent suspension when durationDays is null', async () => {
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.ACTIVE, tokenVersion: 0 });
+
+      const suspension = await service.suspendUser('uuid-123', 'severe abuse', null, 'admin-1');
+
+      expect(suspension.suspendedUntil).toBeNull();
+    });
+
+    it('rejects suspending without a reason', async () => {
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.ACTIVE });
+      await expect(service.suspendUser('uuid-123', '', 7, 'admin-1')).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects suspending an already-suspended user', async () => {
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.SUSPENDED });
+      await expect(service.suspendUser('uuid-123', 'x', 7, 'admin-1')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('unsuspendUser (#1175)', () => {
+    it('lifts an active suspension and reactivates the user', async () => {
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.SUSPENDED });
+      mockSuspensionRepository.findOne.mockResolvedValue({
+        id: 'susp-1',
+        userId: 'uuid-123',
+        isActive: true,
+      });
+
+      await service.unsuspendUser('uuid-123', 'admin-1');
+
+      expect(mockSuspensionRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ isActive: false, liftedBy: 'admin-1', liftReason: 'unsuspended' }),
+      );
+      expect(mockUserRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: UserStatus.ACTIVE }),
+      );
+    });
+
+    it('marks the lift as auto-expiry when unsuspendedBy is null', async () => {
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.SUSPENDED });
+      mockSuspensionRepository.findOne.mockResolvedValue({ id: 'susp-1', userId: 'uuid-123', isActive: true });
+
+      await service.unsuspendUser('uuid-123', null);
+
+      expect(mockSuspensionRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ liftReason: 'expired' }),
+      );
+    });
+
+    it('rejects unsuspending a user who is not suspended', async () => {
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.ACTIVE });
+      await expect(service.unsuspendUser('uuid-123', 'admin-1')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('checkAndExpireSuspension (#1175)', () => {
+    it('returns null and does nothing for a non-suspended user', async () => {
+      const result = await service.checkAndExpireSuspension({ id: 'uuid-123', status: UserStatus.ACTIVE } as User);
+      expect(result).toBeNull();
+    });
+
+    it('returns the active suspension when still in effect', async () => {
+      const suspendedUntil = new Date(Date.now() + 86400000);
+      mockSuspensionRepository.findOne.mockResolvedValue({
+        id: 'susp-1',
+        userId: 'uuid-123',
+        reason: 'spam',
+        isActive: true,
+        suspendedUntil,
+      });
+
+      const result = await service.checkAndExpireSuspension({
+        id: 'uuid-123',
+        status: UserStatus.SUSPENDED,
+      } as User);
+
+      expect(result?.suspendedUntil).toEqual(suspendedUntil);
+    });
+
+    it('auto-expires a lapsed temporary suspension and returns null', async () => {
+      mockUserRepository.findOne.mockResolvedValue({ id: 'uuid-123', status: UserStatus.SUSPENDED });
+      mockSuspensionRepository.findOne.mockResolvedValue({
+        id: 'susp-1',
+        userId: 'uuid-123',
+        reason: 'spam',
+        isActive: true,
+        suspendedUntil: new Date(Date.now() - 1000),
+      });
+
+      const user = { id: 'uuid-123', status: UserStatus.SUSPENDED } as User;
+      const result = await service.checkAndExpireSuspension(user);
+
+      expect(result).toBeNull();
+      expect(user.status).toBe(UserStatus.ACTIVE);
+      expect(mockUserRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: UserStatus.ACTIVE }),
+      );
     });
   });
 });

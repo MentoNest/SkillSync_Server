@@ -1,10 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { JwtService } from '@nestjs/jwt';
-import { UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { UnauthorizedException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Keypair } from '@stellar/stellar-sdk';
 import { AuthService } from './auth.service';
 import { UserService } from '../user/user.service';
+import { UserStatus } from '../user/entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { AuditLog } from './entities/audit-log.entity';
 import { RedisService } from './services/redis.service';
@@ -42,10 +43,13 @@ describe('AuthService', () => {
         tokenVersion: 1,
         roles: [],
       }),
+      findByEmail: jest.fn(),
       findByWalletAddress: jest.fn(),
       create: jest.fn(),
       recordLogin: jest.fn(),
       incrementTokenVersion: jest.fn().mockResolvedValue(2),
+      unlockAccount: jest.fn(),
+      checkAndExpireSuspension: jest.fn().mockResolvedValue(null),
     };
 
     // Simulate Redis-backed nonce storage so issue/consume flows work end-to-end
@@ -274,6 +278,47 @@ describe('AuthService', () => {
       await expect(
         service.login({ walletAddress: wallet, nonce, signature }),
       ).rejects.toThrow(UnauthorizedException);
+    });
+
+    describe('#1174/#1175 status-gated login', () => {
+      it('rejects login for a soft-deleted user still within the grace period', async () => {
+        mockUserService.findByWalletAddress.mockResolvedValue({
+          ...mockUser,
+          status: UserStatus.DELETED,
+          deletedAt: new Date(),
+        });
+        const { nonce, signature } = await issueNonceAndSign();
+
+        await expect(service.login({ walletAddress: wallet, nonce, signature })).rejects.toThrow(
+          ForbiddenException,
+        );
+      });
+
+      it('rejects login for a permanently suspended user with reason in the error', async () => {
+        mockUserService.findByWalletAddress.mockResolvedValue({ ...mockUser, status: UserStatus.SUSPENDED });
+        mockUserService.checkAndExpireSuspension.mockResolvedValue({
+          reason: 'terms violation',
+          suspendedUntil: null,
+        });
+        const { nonce, signature } = await issueNonceAndSign();
+
+        try {
+          await service.login({ walletAddress: wallet, nonce, signature });
+          fail('expected ForbiddenException');
+        } catch (err: any) {
+          expect(err).toBeInstanceOf(ForbiddenException);
+          expect(err.getResponse().reason).toBe('terms violation');
+        }
+      });
+
+      it('allows login through once a temporary suspension has auto-expired', async () => {
+        mockUserService.findByWalletAddress.mockResolvedValue({ ...mockUser, status: UserStatus.SUSPENDED });
+        mockUserService.checkAndExpireSuspension.mockResolvedValue(null); // already expired/lifted
+        const { nonce, signature } = await issueNonceAndSign();
+
+        const result = await service.login({ walletAddress: wallet, nonce, signature });
+        expect(result.accessToken).toBeDefined();
+      });
     });
   });
 });
