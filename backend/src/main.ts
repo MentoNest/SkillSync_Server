@@ -10,6 +10,8 @@ import { GracefulShutdownService } from './common/shutdown/graceful-shutdown.ser
 import { EncryptionService } from './common/encryption/encryption.service';
 import { BackupService } from './common/backup/backup.service';
 import { requestLoggingMiddleware } from './common/middleware/logging.middleware';
+import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
+import { ValidationException } from './common/exceptions/validation.exception';
 
 const logger = new Logger('Bootstrap');
 
@@ -46,6 +48,11 @@ async function bootstrap() {
   // including requests that never reach a controller.
   app.use(requestLoggingMiddleware);
 
+  // #1144: centralized exception filter — every error response (known
+  // HttpExceptions and unexpected errors alike) is normalized to
+  // { statusCode, message, error, timestamp, path, requestId }.
+  app.useGlobalFilters(new GlobalExceptionFilter());
+
   // API Versioning - URI path strategy
   app.enableVersioning({
     type: VersioningType.URI,
@@ -53,12 +60,16 @@ async function bootstrap() {
     prefix: 'api/v',
   });
 
-  // Global validation pipe
+  // Global validation pipe. A custom exceptionFactory turns class-validator's
+  // ValidationError[] into a ValidationException (#1144) so the exception
+  // filter can format it as `{ field, errors[] }[]` instead of a flat array
+  // of strings.
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       transform: true,
       forbidNonWhitelisted: false,
+      exceptionFactory: (errors) => new ValidationException(errors),
     }),
   );
 
