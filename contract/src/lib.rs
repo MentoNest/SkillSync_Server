@@ -77,7 +77,7 @@ impl Default for SessionStatus {
 
 /// Session struct containing all required fields for an escrow session
 #[account]
-#[derive(InitSpace)]
+#[derive(InitSpace, Clone)]
 pub struct Session {
     pub buyer: Pubkey,
     pub seller: Pubkey,
@@ -116,9 +116,27 @@ impl Session {
         session_account.dispute_opened_at = None;
     }
 
+    /// Whether a session can be refunded from the given status.
+    pub fn can_refund(status: SessionStatus) -> bool {
+        matches!(status, SessionStatus::Locked | SessionStatus::Disputed)
+    }
+
+    /// Whether a session is in a terminal (finalized) state.
+    pub fn is_finalized(&self) -> bool {
+        matches!(
+            self.status,
+            SessionStatus::Approved | SessionStatus::Refunded | SessionStatus::Resolved
+        )
+    }
+
     /// Whether the session has an expiry set and has already passed it.
     pub fn is_expired(&self, now: i64) -> bool {
         self.expires_at > 0 && now >= self.expires_at
+    }
+
+    /// Whether a session can be refunded from the given status.
+    pub fn can_refund(status: SessionStatus) -> bool {
+        matches!(status, SessionStatus::Locked | SessionStatus::Disputed)
     }
 
     /// Update session status
