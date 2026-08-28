@@ -429,110 +429,57 @@ fn test_timeout_and_dispute_error_codes() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Insurance Pool tests (#1136)
+// Conditional Escrow tests (#1137)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn test_insurance_pool_initialization() {
-    let admin = Pubkey::new_unique();
-    let pool = InsurancePool {
-        total_pool: 0,
-        premium_bps: 100, // 1%
-        coverage_pct: 100, // 100%
-        min_coverage_threshold: 80, // 80%
-        admin,
-    };
-
-    assert_eq!(pool.total_pool, 0);
-    assert_eq!(pool.premium_bps, 100);
-    assert_eq!(pool.coverage_pct, 100);
-    assert_eq!(pool.min_coverage_threshold, 80);
-    assert_eq!(pool.admin, admin);
-}
-
-#[test]
-fn test_insurance_premium_calculation() {
-    let amount: u64 = 10_000;
-    let premium_bps: u32 = 200; // 2%
-
-    let premium = (amount as u128)
-        .saturating_mul(premium_bps as u128)
-        .checked_div(10_000)
-        .unwrap_or(0) as u64;
-
-    assert_eq!(premium, 200); // 2% of 10_000
-}
-
-#[test]
-fn test_insurance_coverage_calculation() {
-    let amount: u64 = 10_000;
-    let coverage_pct: u32 = 100; // 100%
-
-    let coverage_amount = (amount as u128)
-        .saturating_mul(coverage_pct as u128)
-        .checked_div(100)
-        .unwrap_or(0) as u64;
-
-    assert_eq!(coverage_amount, 10_000);
-}
-
-#[test]
-fn test_insured_session_fields() {
+fn test_conditional_session_fields() {
     let session_key = Pubkey::new_unique();
-    let insured = InsuredSession {
+    let condition_program = Pubkey::new_unique();
+    let condition_account = Pubkey::new_unique();
+
+    let conditional = ConditionalSession {
         session: session_key,
-        premium_paid: 200,
-        coverage_amount: 10_000,
-        claimed: false,
+        condition_program,
+        condition_account,
+        condition_met: false,
+        condition_timeout_slots: 10_000,
+        created_slot: 500,
     };
 
-    assert_eq!(insured.session, session_key);
-    assert_eq!(insured.premium_paid, 200);
-    assert_eq!(insured.coverage_amount, 10_000);
-    assert!(!insured.claimed);
+    assert_eq!(conditional.session, session_key);
+    assert_eq!(conditional.condition_program, condition_program);
+    assert!(!conditional.condition_met);
+    assert_eq!(conditional.condition_timeout_slots, 10_000);
+    assert_eq!(conditional.created_slot, 500);
 }
 
 #[test]
-fn test_insurance_claim_eligibility() {
-    // Buyer received 7000 out of 10000 (70%). Threshold is 80%.
-    // Shortfall = 8000 - 7000 = 1000. Claim should be min(1000, coverage).
-    let amount: u64 = 10_000;
-    let buyer_share: u64 = 7_000;
-    let min_coverage_threshold: u32 = 80;
-    let coverage_amount: u64 = 10_000;
+fn test_conditional_timeout_check() {
+    let conditional = ConditionalSession {
+        session: Pubkey::new_unique(),
+        condition_program: Pubkey::new_unique(),
+        condition_account: Pubkey::new_unique(),
+        condition_met: false,
+        condition_timeout_slots: 5_000,
+        created_slot: 1_000,
+    };
 
-    let threshold_amount = (amount as u128)
-        .saturating_mul(min_coverage_threshold as u128)
-        .checked_div(100)
-        .unwrap_or(0) as u64;
+    let deadline = conditional.created_slot.saturating_add(conditional.condition_timeout_slots);
+    assert_eq!(deadline, 6_000);
 
-    assert_eq!(threshold_amount, 8_000);
-    assert!(buyer_share < threshold_amount, "buyer is eligible for insurance");
-
-    let shortfall = threshold_amount.saturating_sub(buyer_share);
-    let claim_amount = shortfall.min(coverage_amount);
-    assert_eq!(claim_amount, 1_000);
+    // Before deadline
+    assert!(5_999 < deadline, "not timed out yet");
+    // At deadline
+    assert!(6_000 >= deadline, "timed out at deadline");
 }
 
 #[test]
-fn test_insurance_claim_not_eligible_when_buyer_share_above_threshold() {
-    let amount: u64 = 10_000;
-    let buyer_share: u64 = 9_000;
-    let min_coverage_threshold: u32 = 80;
-
-    let threshold_amount = (amount as u128)
-        .saturating_mul(min_coverage_threshold as u128)
-        .checked_div(100)
-        .unwrap_or(0) as u64;
-
-    assert!(buyer_share >= threshold_amount, "buyer is NOT eligible");
-}
-
-#[test]
-fn test_insurance_error_codes() {
-    assert_eq!(ErrorCode::InsuranceNotAvailable as u32, 600);
-    assert_eq!(ErrorCode::InsuranceAlreadyClaimed as u32, 601);
-    assert_eq!(ErrorCode::InsuranceClaimNotEligible as u32, 602);
-    assert_eq!(ErrorCode::InsurancePoolInsufficientFunds as u32, 603);
+fn test_conditional_escrow_error_codes() {
+    assert_eq!(ErrorCode::ConditionNotMet as u32, 700);
+    assert_eq!(ErrorCode::ConditionTimedOut as u32, 701);
+    assert_eq!(ErrorCode::ConditionAlreadyMet as u32, 702);
+    assert_eq!(ErrorCode::InvalidConditionProgram as u32, 703);
+    assert_eq!(ErrorCode::ConditionNotTimedOut as u32, 704);
 }
 

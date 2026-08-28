@@ -751,133 +751,93 @@ pub mod skill_sync {
         Ok(())
     }
 
-    /// Update insurance pool parameters (admin only).
-    pub fn set_insurance_params(
-        ctx: Context<SetInsuranceParams>,
-        premium_bps: u32,
-        coverage_pct: u32,
-        min_coverage_threshold: u32,
-    ) -> Result<()> {
-        if ctx.accounts.platform_state.admin != ctx.accounts.admin.key() {
-            return Err(ErrorCode::NotAdmin.into());
+    /// Check if the external condition has been met by reading the
+    /// condition account. If the account has data (non-empty), the
+    /// condition is considered met.
+    pub fn check_condition(ctx: Context<CheckCondition>) -> Result<bool> {
+        let conditional = &mut ctx.accounts.conditional_session;
+
+        if conditional.condition_met {
+            return Err(ErrorCode::ConditionAlreadyMet.into());
         }
 
-        let pool = &mut ctx.accounts.insurance_pool;
-        pool.premium_bps = premium_bps;
-        pool.coverage_pct = coverage_pct;
-        pool.min_coverage_threshold = min_coverage_threshold;
+        // Check if the condition account has data — a simple heuristic.
+        // Production code would use CPI to call the condition program.
+        let account_data = ctx.accounts.condition_account.try_borrow_data()?;
+        let met = !account_data.is_empty() && account_data[0] != 0;
 
-        emit!(InsuranceParamsUpdated {
-            premium_bps,
-            coverage_pct,
-            min_coverage_threshold,
-            updated_by: ctx.accounts.admin.key(),
-        });
+        if met {
+            conditional.condition_met = true;
+        }
 
-        Ok(())
-    }
-
-    /// Lock funds with insurance — buyer pays an extra premium that goes
-    /// to the insurance pool.
-    pub fn lock_funds_with_insurance(
-        ctx: Context<LockFundsWithInsurance>,
-        seller: Pubkey,
-        amount: u64,
-    ) -> Result<()> {
-        let pool = &mut ctx.accounts.insurance_pool;
-        let session = &mut ctx.accounts.session;
-        let platform_state = &mut ctx.accounts.platform_state;
-        let analytics = &mut ctx.accounts.analytics;
-        let buyer = ctx.accounts.buyer.key();
         let now = Clock::get()?.unix_timestamp;
+        emit!(ConditionChecked {
+            session_id: conditional.session,
+            condition_met: met,
+            checked_at: now,
+        });
 
-        // Calculate premium
-        let premium = (amount as u128)
-            .saturating_mul(pool.premium_bps as u128)
-            .checked_div(10_000)
-            .unwrap_or(0) as u64;
+        Ok(met)
+    }
 
-        // Calculate coverage
-        let coverage_amount = (amount as u128)
-            .saturating_mul(pool.coverage_pct as u128)
-            .checked_div(100)
-            .unwrap_or(0) as u64;
+    /// Release funds if the condition has been met. Callable by anyone.
+    pub fn release_if_condition_met(ctx: Context<ReleaseConditional>) -> Result<()> {
+        let conditional = &ctx.accounts.conditional_session;
+        let session = &mut ctx.accounts.session;
 
-        // Create the session
-        Session::save_session(session, buyer, seller, amount, now);
-        analytics.record_session_created(amount);
-        platform_state.session_counter += 1;
+        if !conditional.condition_met {
+            return Err(ErrorCode::ConditionNotMet.into());
+        }
 
-        // Record premium in pool
-        pool.total_pool = pool.total_pool.saturating_add(premium);
+        if session.status != SessionStatus::Locked {
+            return Err(ErrorCode::InvalidSessionState.into());
+        }
 
-        // Record insured session
-        let insured = &mut ctx.accounts.insured_session;
-        insured.session = session.key();
-        insured.premium_paid = premium;
-        insured.coverage_amount = coverage_amount;
-        insured.claimed = false;
+        Session::update_status(session, SessionStatus::Approved)?;
+        ctx.accounts.analytics.record_session_deactivated();
 
-        emit!(InsurancePurchased {
+        let now = Clock::get()?.unix_timestamp;
+        emit!(ConditionMet {
             session_id: session.key(),
-            buyer,
-            premium_paid: premium,
-            coverage_amount,
+            released_at: now,
         });
 
         Ok(())
     }
 
-    /// Claim insurance after a dispute resolution gave the buyer less than
-    /// the configured threshold percentage of the session amount.
-    pub fn claim_insurance(
-        ctx: Context<ClaimInsurance>,
-        buyer_share: u64,
-    ) -> Result<()> {
-        let session = &ctx.accounts.session;
-        let insured = &mut ctx.accounts.insured_session;
-        let pool = &mut ctx.accounts.insurance_pool;
+    /// Refund the buyer if the condition timed out.
+    pub fn refund_conditional_failed(ctx: Context<RefundConditionalFailed>) -> Result<()> {
+        let conditional = &ctx.accounts.conditional_session;
+        let session = &mut ctx.accounts.session;
+        let slot = Clock::get()?.slot;
 
-        // Must be the buyer
         if ctx.accounts.buyer.key() != session.buyer {
             return Err(ErrorCode::NotBuyer.into());
         }
 
-        // Session must be resolved
-        if session.status != SessionStatus::Resolved {
+        if conditional.condition_met {
+            return Err(ErrorCode::ConditionAlreadyMet.into());
+        }
+
+        if session.status != SessionStatus::Locked {
             return Err(ErrorCode::InvalidSessionState.into());
         }
 
-        // Cannot claim twice
-        if insured.claimed {
-            return Err(ErrorCode::InsuranceAlreadyClaimed.into());
+        // Check if timeout has passed
+        let deadline = conditional.created_slot.saturating_add(conditional.condition_timeout_slots);
+        if slot < deadline {
+            return Err(ErrorCode::ConditionNotTimedOut.into());
         }
 
-        // Check eligibility: buyer_share < threshold% of amount
-        let threshold_amount = (session.amount as u128)
-            .saturating_mul(pool.min_coverage_threshold as u128)
-            .checked_div(100)
-            .unwrap_or(0) as u64;
+        Session::update_status(session, SessionStatus::Refunded)?;
+        ctx.accounts.analytics.record_session_deactivated();
 
-        if buyer_share >= threshold_amount {
-            return Err(ErrorCode::InsuranceClaimNotEligible.into());
-        }
-
-        // Calculate claim: cover shortfall up to coverage_amount
-        let shortfall = threshold_amount.saturating_sub(buyer_share);
-        let claim_amount = shortfall.min(insured.coverage_amount);
-
-        if pool.total_pool < claim_amount {
-            return Err(ErrorCode::InsurancePoolInsufficientFunds.into());
-        }
-
-        pool.total_pool = pool.total_pool.saturating_sub(claim_amount);
-        insured.claimed = true;
-
-        emit!(InsuranceClaimPaid {
+        let now = Clock::get()?.unix_timestamp;
+        emit!(ConditionFailedRefund {
             session_id: session.key(),
-            buyer: ctx.accounts.buyer.key(),
-            claim_amount,
+            buyer: session.buyer,
+            amount: session.amount,
+            refunded_at: now,
         });
 
         Ok(())
@@ -1199,84 +1159,47 @@ pub enum ErrorCode {
     #[msg("Max session duration must be greater than zero")]
     InvalidMaxSessionDuration,
 
-    // ── Insurance Pool errors (#1136) ────────────────────────────────────────
-    #[msg("Insurance pool is not initialized")]
-    InsuranceNotAvailable = 600,
-    #[msg("Insurance has already been claimed for this session")]
-    InsuranceAlreadyClaimed = 601,
-    #[msg("Insurance claim is not eligible — buyer received above threshold")]
-    InsuranceClaimNotEligible = 602,
-    #[msg("Insurance pool has insufficient funds to cover claim")]
-    InsurancePoolInsufficientFunds = 603,
+    // ── Conditional Escrow errors (#1137) ────────────────────────────────────
+    #[msg("Condition has not been met")]
+    ConditionNotMet = 700,
+    #[msg("Condition has timed out")]
+    ConditionTimedOut = 701,
+    #[msg("Condition has already been met")]
+    ConditionAlreadyMet = 702,
+    #[msg("Invalid condition program")]
+    InvalidConditionProgram = 703,
+    #[msg("Condition timeout has not been reached yet")]
+    ConditionNotTimedOut = 704,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Insurance Pool (#1136)
+// Conditional Escrow (#1137)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Configuration for the optional insurance pool where users pay a small
-/// premium to get protection against dispute losses.
+/// Tracks a conditional escrow session whose release depends on the state
+/// of an external program account.
 #[account]
 #[derive(InitSpace)]
-pub struct InsurancePool {
-    /// Total funds in the insurance pool (in lamports / token base units).
-    pub total_pool: u64,
-    /// Premium rate in basis points (e.g. 100 = 1%).
-    pub premium_bps: u32,
-    /// Coverage percentage (e.g. 100 = 100% of shortfall covered).
-    pub coverage_pct: u32,
-    /// Minimum buyer share percentage to trigger insurance.
-    /// If the buyer receives less than this % of the session amount in a
-    /// dispute resolution, they can claim insurance for the shortfall.
-    pub min_coverage_threshold: u32,
-    /// Admin who initialized the pool.
-    pub admin: Pubkey,
-}
-
-/// Tracks an insured session — created when a buyer opts into insurance.
-#[account]
-#[derive(InitSpace)]
-pub struct InsuredSession {
-    /// The session this insurance covers.
+pub struct ConditionalSession {
+    /// The session this condition applies to.
     pub session: Pubkey,
-    /// Premium amount paid by the buyer.
-    pub premium_paid: u64,
-    /// Maximum coverage amount.
-    pub coverage_amount: u64,
-    /// Whether insurance has been claimed.
-    pub claimed: bool,
+    /// External program whose account state is checked.
+    pub condition_program: Pubkey,
+    /// Account to read from the external program.
+    pub condition_account: Pubkey,
+    /// Whether the condition has been met.
+    pub condition_met: bool,
+    /// Timeout in slots — if condition is not met within this many slots
+    /// after creation, the buyer can reclaim funds.
+    pub condition_timeout_slots: u64,
+    /// Slot at which the conditional session was created.
+    pub created_slot: u64,
 }
 
-// ── Insurance instructions ──────────────────────────────────────────────────
+// ── Conditional escrow contexts ─────────────────────────────────────────────
 
 #[derive(Accounts)]
-pub struct InitializeInsurancePool<'info> {
-    #[account(
-        init,
-        payer = admin,
-        seeds = [b"insurance_pool"],
-        bump,
-        space = 8 + InsurancePool::INIT_SPACE,
-    )]
-    pub insurance_pool: Account<'info, InsurancePool>,
-    #[account(mut)]
-    pub platform_state: Account<'info, PlatformState>,
-    #[account(mut)]
-    pub admin: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct SetInsuranceParams<'info> {
-    #[account(mut, seeds = [b"insurance_pool"], bump)]
-    pub insurance_pool: Account<'info, InsurancePool>,
-    pub platform_state: Account<'info, PlatformState>,
-    #[account(mut)]
-    pub admin: Signer<'info>,
-}
-
-#[derive(Accounts)]
-pub struct LockFundsWithInsurance<'info> {
+pub struct LockFundsConditional<'info> {
     #[account(mut)]
     pub platform_state: Account<'info, PlatformState>,
     #[account(
@@ -1290,13 +1213,11 @@ pub struct LockFundsWithInsurance<'info> {
     #[account(
         init,
         payer = buyer,
-        space = 8 + InsuredSession::INIT_SPACE,
-        seeds = [b"insured", platform_state.session_counter.to_le_bytes().as_ref()],
+        space = 8 + ConditionalSession::INIT_SPACE,
+        seeds = [b"conditional", platform_state.session_counter.to_le_bytes().as_ref()],
         bump,
     )]
-    pub insured_session: Account<'info, InsuredSession>,
-    #[account(mut, seeds = [b"insurance_pool"], bump)]
-    pub insurance_pool: Account<'info, InsurancePool>,
+    pub conditional_session: Account<'info, ConditionalSession>,
     #[account(mut)]
     pub analytics: Account<'info, EscrowAnalytics>,
     #[account(mut)]
@@ -1305,37 +1226,65 @@ pub struct LockFundsWithInsurance<'info> {
 }
 
 #[derive(Accounts)]
-pub struct ClaimInsurance<'info> {
-    #[account(mut)]
+pub struct CheckCondition<'info> {
     pub session: Account<'info, Session>,
     #[account(mut)]
-    pub insured_session: Account<'info, InsuredSession>,
-    #[account(mut, seeds = [b"insurance_pool"], bump)]
-    pub insurance_pool: Account<'info, InsurancePool>,
+    pub conditional_session: Account<'info, ConditionalSession>,
+    /// CHECK: The external account whose state determines the condition.
+    pub condition_account: AccountInfo<'info>,
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct ReleaseConditional<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    pub conditional_session: Account<'info, ConditionalSession>,
+    #[account(mut)]
+    pub analytics: Account<'info, EscrowAnalytics>,
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct RefundConditionalFailed<'info> {
+    #[account(mut)]
+    pub session: Account<'info, Session>,
+    pub conditional_session: Account<'info, ConditionalSession>,
+    #[account(mut)]
+    pub analytics: Account<'info, EscrowAnalytics>,
     pub buyer: Signer<'info>,
 }
 
-// ── Insurance events ────────────────────────────────────────────────────────
+// ── Conditional escrow events ───────────────────────────────────────────────
 
 #[event]
-pub struct InsurancePurchased {
+pub struct ConditionalEscrowCreated {
     pub session_id: Pubkey,
     pub buyer: Pubkey,
-    pub premium_paid: u64,
-    pub coverage_amount: u64,
+    pub seller: Pubkey,
+    pub amount: u64,
+    pub condition_program: Pubkey,
+    pub condition_account: Pubkey,
+    pub condition_timeout_slots: u64,
 }
 
 #[event]
-pub struct InsuranceClaimPaid {
+pub struct ConditionChecked {
     pub session_id: Pubkey,
-    pub buyer: Pubkey,
-    pub claim_amount: u64,
+    pub condition_met: bool,
+    pub checked_at: i64,
 }
 
 #[event]
-pub struct InsuranceParamsUpdated {
-    pub premium_bps: u32,
-    pub coverage_pct: u32,
-    pub min_coverage_threshold: u32,
-    pub updated_by: Pubkey,
+pub struct ConditionMet {
+    pub session_id: Pubkey,
+    pub released_at: i64,
+}
+
+#[event]
+pub struct ConditionFailedRefund {
+    pub session_id: Pubkey,
+    pub buyer: Pubkey,
+    pub amount: u64,
+    pub refunded_at: i64,
 }
