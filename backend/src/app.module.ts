@@ -31,6 +31,7 @@ import { ApiVersioningModule } from './common/versioning/api-versioning.module';
 import { NotificationModule } from './modules/notification.module';
 import { AdminModule } from './modules/admin.module';
 import { HealthController } from './controllers/health.controller';
+import { RedisModule } from './redis/redis.module';
 import {
   getDatabaseConfig,
   getDatabaseRetryConfig,
@@ -66,6 +67,9 @@ import {
         limit: 100,
       },
     ]),
+    // #1142: global, injectable Redis module (cache, sessions, rate
+    // limiting, token blacklisting, future Bull/BullMQ queues).
+    RedisModule,
     UserModule,
     AuthModule,
     EncryptionModule,
