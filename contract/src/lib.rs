@@ -128,6 +128,11 @@ impl Session {
         self.expires_at > 0 && now >= self.expires_at
     }
 
+    /// Whether a session can be refunded from the given status.
+    pub fn can_refund(status: SessionStatus) -> bool {
+        matches!(status, SessionStatus::Locked | SessionStatus::Disputed)
+    }
+
     /// Update session status
     pub fn update_status(session_account: &mut Account<Session>, new_status: SessionStatus) -> Result<()> {
         let current_timestamp = Clock::get()?.unix_timestamp;
