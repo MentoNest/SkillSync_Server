@@ -22,6 +22,7 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 import { UserService } from './user.service';
+import { ProfileCompletenessService, CompletenessResult } from './services/profile-completeness.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateUsernameDto } from './dto/update-username.dto';
@@ -35,7 +36,10 @@ import { AllowInactiveStatus } from '../decorators/allow-inactive-status.decorat
 @ApiTags('User')
 @Controller('user')
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly profileCompletenessService: ProfileCompletenessService
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Register or create a new user profile' })
@@ -65,6 +69,22 @@ export class UserController {
       throw new UnauthorizedException('Authentication required to access profile');
     }
     return this.userService.findUserResponseById(user.id);
+  }
+
+  @Get('profile/completeness')
+  @UseGuards(RolesGuard)
+  @ApiBearerAuth('Bearer Auth')
+  @ApiOperation({ summary: 'Get profile completeness score and missing fields' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Profile completeness data returned',
+  })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Not authenticated' })
+  async getProfileCompleteness(@CurrentUser() user: User): Promise<CompletenessResult> {
+    if (!user || !user.id) {
+      throw new UnauthorizedException('Authentication required to access profile');
+    }
+    return this.profileCompletenessService.calculateUserCompleteness(user.id);
   }
 
   @Patch('profile')

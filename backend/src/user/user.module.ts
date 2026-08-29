@@ -9,10 +9,13 @@ import { User } from './entities/user.entity';
 import { UserSuspension } from './entities/user-suspension.entity';
 import { Role } from '../entities/role.entity';
 import { MentorProfile } from '../entities/mentor-profile.entity';
+import { MenteeProfile } from '../entities/mentee-profile.entity';
+import { AvailabilitySlot } from '../entities/availability-slot.entity';
 import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { AuditLog } from '../auth/entities/audit-log.entity';
 import { RolesGuard } from '../guards/roles.guard';
 import { AuthModule } from '../auth/auth.module';
+import { ProfileCompletenessService } from './services/profile-completeness.service';
 
 @Module({
   imports: [
@@ -21,7 +24,7 @@ import { AuthModule } from '../auth/auth.module';
     // actions (soft delete/restore/admin status changes) directly.
     // #1175: UserSuspension registered so UserService/RolesGuard can read
     // and manage suspension records.
-    TypeOrmModule.forFeature([User, Role, MentorProfile, UserSuspension, RefreshToken, AuditLog]),
+    TypeOrmModule.forFeature([User, Role, MentorProfile, MenteeProfile, AvailabilitySlot, UserSuspension, RefreshToken, AuditLog]),
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
       signOptions: { expiresIn: '1d' },
@@ -32,7 +35,7 @@ import { AuthModule } from '../auth/auth.module';
   ],
   // #1177: ProfileLookupController serves GET /profiles/:idOrUsername
   controllers: [UserController, UsersController, ProfileLookupController],
-  providers: [UserService, RolesGuard],
-  exports: [UserService, TypeOrmModule],
+  providers: [UserService, ProfileCompletenessService, RolesGuard],
+  exports: [UserService, ProfileCompletenessService, TypeOrmModule],
 })
 export class UserModule {}

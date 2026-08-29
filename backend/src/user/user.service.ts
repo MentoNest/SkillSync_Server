@@ -11,7 +11,10 @@ import { User, ProfileType, UserStatus } from './entities/user.entity';
 import { UserSuspension } from './entities/user-suspension.entity';
 import { Role } from '../entities/role.entity';
 import { MentorProfile } from '../entities/mentor-profile.entity';
+import { MenteeProfile } from '../entities/mentee-profile.entity';
+import { AvailabilitySlot } from '../entities/availability-slot.entity';
 import { RedisService } from '../auth/services/redis.service';
+import { ProfileCompletenessService } from './services/profile-completeness.service';
 import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { AuditLog } from '../auth/entities/audit-log.entity';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -48,6 +51,10 @@ export class UserService {
     private readonly roleRepository: Repository<Role>,
     @InjectRepository(MentorProfile)
     private readonly mentorProfileRepository: Repository<MentorProfile>,
+    @InjectRepository(MenteeProfile)
+    private readonly menteeProfileRepository: Repository<MenteeProfile>,
+    @InjectRepository(AvailabilitySlot)
+    private readonly availabilitySlotRepository: Repository<AvailabilitySlot>,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     @InjectRepository(AuditLog)
@@ -55,6 +62,7 @@ export class UserService {
     @InjectRepository(UserSuspension)
     private readonly suspensionRepository: Repository<UserSuspension>,
     private readonly redisService: RedisService,
+    private readonly profileCompletenessService: ProfileCompletenessService,
   ) {}
 
   // #1177: 30-day cooldown between username changes.
@@ -300,7 +308,11 @@ export class UserService {
 
   async findUserResponseById(id: string): Promise<UserResponseDto> {
     const user = await this.findById(id);
-    return UserResponseDto.fromEntity(user);
+    const dto = UserResponseDto.fromEntity(user);
+    // Calculate and add profile completion score
+    const completeness = await this.profileCompletenessService.calculateUserCompleteness(id);
+    dto.profileCompletionScore = completeness.score;
+    return dto;
   }
 
   async findByWalletAddress(walletAddress: string): Promise<User | null> {
@@ -345,7 +357,12 @@ export class UserService {
     }
 
     const updatedUser = await this.userRepository.save(user);
-    return UserResponseDto.fromEntity(updatedUser);
+    // Clear cache after profile update to recalculate completeness score
+    await this.profileCompletenessService.clearUserCache(id);
+    const dto = UserResponseDto.fromEntity(updatedUser);
+    const completeness = await this.profileCompletenessService.calculateUserCompleteness(id);
+    dto.profileCompletionScore = completeness.score;
+    return dto;
   }
 
   async remove(id: string): Promise<{ success: boolean; message: string }> {

@@ -96,6 +96,12 @@ export class UserResponseDto {
   roles: string[];
 
   @ApiProperty({
+    description: 'Profile completion percentage (0-100)',
+    example: 85,
+  })
+  profileCompletionScore?: number;
+
+  @ApiProperty({
     description: 'Account creation timestamp',
     example: '2026-08-01T10:00:00.000Z',
   })
