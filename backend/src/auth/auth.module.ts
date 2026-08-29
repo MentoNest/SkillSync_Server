@@ -16,13 +16,17 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { WalletStrategy } from './strategies/wallet.strategy';
 import { UserModule } from '../user/user.module';
 import { User } from '../user/entities/user.entity';
+import { UserSuspension } from '../user/entities/user-suspension.entity';
 import { Role } from '../entities/role.entity';
 import { RolesGuard } from '../guards/roles.guard';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([RefreshToken, AuditLog, User, Role]),
+    // #1175: UserSuspension registered here too since RolesGuard is
+    // provided both here and in UserModule (each module resolves its own
+    // instance's dependencies from its own imports).
+    TypeOrmModule.forFeature([RefreshToken, AuditLog, User, Role, UserSuspension]),
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
       signOptions: { expiresIn: '1d' },

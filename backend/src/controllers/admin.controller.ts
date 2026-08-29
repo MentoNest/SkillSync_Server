@@ -2,6 +2,8 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
+  Patch,
   Body,
   Param,
   Query,
@@ -10,12 +12,14 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { RolesGuard } from '../guards/roles.guard';
 import { Roles } from '../decorators/roles.decorator';
 import { AdminDashboardService } from '../services/admin-dashboard.service';
+import { UserStatus } from '../user/entities/user.entity';
 
 @ApiTags('Admin')
 @ApiBearerAuth('Bearer Auth')
@@ -56,29 +60,74 @@ export class AdminController {
     });
   }
 
-  @Post('users/:id/suspend')
+  // #1175: suspend a user temporarily (durationDays) or permanently (omit/null)
+  @Post('users/:userId/suspend')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Suspend a user' })
+  @ApiOperation({ summary: 'Suspend a user, temporarily or permanently (#1175)' })
   @ApiResponse({ status: 200, description: 'User suspended' })
   async suspendUser(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
     @Body('reason') reason: string,
+    @Body('durationDays') durationDays: number | null | undefined,
     @Request() req: any,
   ) {
-    await this.adminService.suspendUser(id, reason, req.user.id);
-    return { success: true };
+    return this.adminService.suspendUser(userId, reason, req.user.id, durationDays ?? null);
   }
 
+  // #1175: lift an active suspension
+  @Post('users/:userId/unsuspend')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Lift an active suspension (#1175)' })
+  @ApiResponse({ status: 200, description: 'User unsuspended' })
+  async unsuspendUser(@Param('userId', ParseUUIDPipe) userId: string, @Request() req: any) {
+    return this.adminService.unsuspendUser(userId, req.user.id);
+  }
+
+  /**
+   * @deprecated kept for backward compatibility - use POST users/:userId/unsuspend.
+   */
   @Post('users/:id/reactivate')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Reactivate a user' })
+  @ApiOperation({ summary: '[deprecated] use POST users/:userId/unsuspend' })
   @ApiResponse({ status: 200, description: 'User reactivated' })
   async reactivateUser(
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: any,
   ) {
-    await this.adminService.reactivateUser(id, req.user.id);
-    return { success: true };
+    return this.adminService.reactivateUser(id, req.user.id);
+  }
+
+  // #1174: view soft-deleted accounts
+  @Get('users/deleted')
+  @ApiOperation({ summary: 'List soft-deleted users (#1174)' })
+  @ApiResponse({ status: 200, description: 'Soft-deleted users retrieved' })
+  async getDeletedUsers() {
+    return this.adminService.getDeletedUsers();
+  }
+
+  // #1174: hard-delete a soft-deleted user once its grace period has elapsed
+  @Delete('users/:userId/permanent')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Permanently delete a soft-deleted user past its grace period (#1174)' })
+  @ApiResponse({ status: 200, description: 'User permanently deleted' })
+  async permanentlyDeleteUser(@Param('userId', ParseUUIDPipe) userId: string, @Request() req: any) {
+    return this.adminService.permanentlyDeleteUser(userId, req.user.id);
+  }
+
+  // #1176: generic admin status transition endpoint
+  @Patch('users/:userId/status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "Change a user's lifecycle status (#1176)" })
+  @ApiResponse({ status: 200, description: 'Status changed' })
+  async setUserStatus(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body('status') status: string,
+    @Request() req: any,
+  ) {
+    if (!Object.values(UserStatus).includes(status as UserStatus)) {
+      throw new BadRequestException(`status must be one of: ${Object.values(UserStatus).join(', ')}`);
+    }
+    return this.adminService.setUserStatus(userId, status as UserStatus, req.user.id);
   }
 
   @Get('moderation')

@@ -12,6 +12,7 @@ import {
   HttpCode,
   HttpStatus,
   UnauthorizedException,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -23,11 +24,13 @@ import {
 import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UpdateUsernameDto } from './dto/update-username.dto';
 import { UserQueryDto } from './dto/user-query.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { User } from './entities/user.entity';
 import { RolesGuard } from '../guards/roles.guard';
+import { AllowInactiveStatus } from '../decorators/allow-inactive-status.decorator';
 
 @ApiTags('User')
 @Controller('user')
@@ -102,6 +105,71 @@ export class UserController {
       throw new UnauthorizedException('Authentication required to delete profile');
     }
     return this.userService.remove(user.id);
+  }
+
+  // #1174: DELETE /user/account - soft-deletes the caller's own account
+  // (distinct from the legacy hard-delete DELETE /user/profile above).
+  @Delete('account')
+  @UseGuards(RolesGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('Bearer Auth')
+  @ApiOperation({ summary: 'Soft-delete the current user account (#1174)' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Account soft-deleted' })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Not authenticated' })
+  async deleteAccount(@CurrentUser() user: User) {
+    if (!user || !user.id) {
+      throw new UnauthorizedException('Authentication required to delete account');
+    }
+    return this.userService.softDeleteAccount(user.id);
+  }
+
+  // #1174: POST /user/account/restore - reactivates the caller's own
+  // soft-deleted account within the grace period. Marked
+  // @AllowInactiveStatus() so RolesGuard lets a 'deleted' user reach it.
+  @Post('account/restore')
+  @UseGuards(RolesGuard)
+  @AllowInactiveStatus()
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('Bearer Auth')
+  @ApiOperation({ summary: 'Restore a soft-deleted account within the grace period (#1174)' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Account restored', type: UserResponseDto })
+  @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Grace period expired' })
+  async restoreAccount(@CurrentUser() user: User): Promise<UserResponseDto> {
+    if (!user || !user.id) {
+      throw new UnauthorizedException('Authentication required to restore account');
+    }
+    return this.userService.restoreAccount(user.id);
+  }
+
+  // #1177: GET /user/username/available?username=foo - public availability
+  // check. Declared before the :id route so 'username' isn't captured by it.
+  @Get('username/available')
+  @ApiOperation({ summary: 'Check whether a username is available (#1177)' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Availability result' })
+  async checkUsernameAvailable(@Query('username') username?: string) {
+    if (!username) {
+      throw new BadRequestException('username query parameter is required');
+    }
+    const available = await this.userService.isUsernameAvailable(username);
+    return { username: username.toLowerCase(), available };
+  }
+
+  // #1177: PATCH /user/username - change the caller's username (30-day cooldown)
+  @Patch('username')
+  @UseGuards(RolesGuard)
+  @ApiBearerAuth('Bearer Auth')
+  @ApiOperation({ summary: 'Change the current username, subject to a 30-day cooldown (#1177)' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Username changed', type: UserResponseDto })
+  @ApiResponse({ status: HttpStatus.CONFLICT, description: 'Username already taken' })
+  @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Cooldown still in effect' })
+  async updateUsername(
+    @CurrentUser() user: User,
+    @Body() updateUsernameDto: UpdateUsernameDto,
+  ): Promise<UserResponseDto> {
+    if (!user || !user.id) {
+      throw new UnauthorizedException('Authentication required to change username');
+    }
+    return this.userService.changeUsername(user.id, updateUsernameDto.username);
   }
 
   @Get(':id')

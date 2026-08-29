@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ProfileType, User } from '../entities/user.entity';
+import { ProfileType, User, UserStatus } from '../entities/user.entity';
 
 export class UserResponseDto {
   @ApiProperty({
@@ -27,6 +27,18 @@ export class UserResponseDto {
   displayName: string | null;
 
   @ApiPropertyOptional({
+    description: 'Unique username/handle',
+    example: 'alex_rivers',
+  })
+  username: string | null;
+
+  @ApiPropertyOptional({
+    description: 'When the username was last changed (governs the 30-day cooldown)',
+    example: null,
+  })
+  usernameChangedAt: Date | null;
+
+  @ApiPropertyOptional({
     description: 'User biography',
     example: 'Staff Software Architect specializing in Web3 and Distributed Systems.',
   })
@@ -50,6 +62,13 @@ export class UserResponseDto {
     example: { notifications: true, theme: 'light', emailAlerts: true },
   })
   settings: Record<string, any>;
+
+  @ApiProperty({
+    description: 'Account lifecycle status',
+    enum: UserStatus,
+    example: UserStatus.ACTIVE,
+  })
+  status: UserStatus;
 
   @ApiProperty({
     description: 'Account lock status',
@@ -94,10 +113,13 @@ export class UserResponseDto {
     dto.walletAddress = user.walletAddress;
     dto.email = user.email;
     dto.displayName = user.displayName;
+    dto.username = user.username;
+    dto.usernameChangedAt = user.usernameChangedAt;
     dto.bio = user.bio;
     dto.avatarUrl = user.avatarUrl;
     dto.profileType = user.profileType;
     dto.settings = user.settings || {};
+    dto.status = user.status;
     dto.isLocked = user.isLocked;
     dto.lockoutUntil = user.lockoutUntil;
     dto.lastLoginAt = user.lastLoginAt;

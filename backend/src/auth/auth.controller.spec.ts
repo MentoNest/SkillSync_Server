@@ -5,6 +5,7 @@ import { SuspiciousDetectionService } from './services/suspicious-detection.serv
 import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { User } from '../user/entities/user.entity';
+import { UserSuspension } from '../user/entities/user-suspension.entity';
 import { Role } from '../entities/role.entity';
 import { RedisService } from './services/redis.service';
 
@@ -64,6 +65,7 @@ describe('AuthController', () => {
         { provide: RedisService, useValue: { incr: jest.fn().mockResolvedValue(1), expire: jest.fn() } },
         { provide: getRepositoryToken(User), useValue: {} },
         { provide: getRepositoryToken(Role), useValue: {} },
+        { provide: getRepositoryToken(UserSuspension), useValue: {} },
       ],
     }).compile();
 

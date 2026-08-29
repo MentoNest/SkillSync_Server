@@ -14,6 +14,9 @@ export class PublicUserResponseDto {
   @ApiPropertyOptional({ description: 'Public display name', example: 'Alex Rivers' })
   displayName: string | null;
 
+  @ApiPropertyOptional({ description: 'Unique username/handle, usable in /profiles/:username', example: 'alex_rivers' })
+  username: string | null;
+
   @ApiPropertyOptional({ description: 'Public biography' })
   bio: string | null;
 
@@ -42,6 +45,7 @@ export class PublicUserResponseDto {
     const dto = new PublicUserResponseDto();
     dto.id = user.id;
     dto.displayName = user.displayName;
+    dto.username = user.username;
     dto.bio = user.bio;
     dto.avatarUrl = user.avatarUrl;
     dto.roles = user.roles ? user.roles.map((r) => r.name) : [];

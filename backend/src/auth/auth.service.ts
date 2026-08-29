@@ -13,7 +13,7 @@ import * as crypto from 'crypto';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { AuditLog } from './entities/audit-log.entity';
 import { UserService } from '../user/user.service';
-import { User, ProfileType } from '../user/entities/user.entity';
+import { User, ProfileType, UserStatus } from '../user/entities/user.entity';
 import { RedisService } from './services/redis.service';
 import { NotificationService } from './services/notification.service';
 import { SuspiciousDetectionService } from './services/suspicious-detection.service';
@@ -116,6 +116,47 @@ export class AuthService {
 
     if (!user) {
       throw new UnauthorizedException('Authentication failed');
+    }
+
+    // #1174: reject login by a soft-deleted user with reactivation instructions
+    if (user.status === UserStatus.DELETED) {
+      const graceDays = parseInt(process.env.DELETE_GRACE_DAYS || '', 10) || 30;
+      const deadline = user.deletedAt
+        ? new Date(user.deletedAt.getTime() + graceDays * 24 * 60 * 60 * 1000)
+        : null;
+
+      if (deadline && new Date() < deadline) {
+        throw new ForbiddenException({
+          statusCode: 403,
+          message: `This account was deleted. You can restore it until ${deadline.toISOString()} by logging in again and calling POST /user/account/restore.`,
+          code: 'account_deleted_restorable',
+          restoreDeadline: deadline,
+        });
+      }
+
+      throw new ForbiddenException({
+        statusCode: 403,
+        message: 'This account has been permanently deleted.',
+        code: 'account_deleted',
+      });
+    }
+
+    // #1175: reject login by a suspended user with reason + expected end date.
+    // A temporary suspension whose window has passed is auto-lifted here.
+    if (user.status === UserStatus.SUSPENDED) {
+      const activeSuspension = await this.userService.checkAndExpireSuspension(user);
+      if (activeSuspension) {
+        throw new ForbiddenException({
+          statusCode: 403,
+          message: activeSuspension.suspendedUntil
+            ? `Your account is suspended until ${new Date(activeSuspension.suspendedUntil).toISOString()}. Reason: ${activeSuspension.reason}`
+            : `Your account is permanently suspended. Reason: ${activeSuspension.reason}`,
+          code: 'account_suspended',
+          reason: activeSuspension.reason,
+          suspendedUntil: activeSuspension.suspendedUntil,
+        });
+      }
+      // else: suspension auto-expired, user.status was flipped back to 'active' - fall through
     }
 
     // Check account lockout
@@ -298,6 +339,7 @@ export class AuthService {
       walletAddress: user.walletAddress,
       tokenVersion: user.tokenVersion || 0,
       roles: user.roles ? user.roles.map((r) => r.name) : [],
+      status: user.status, // #1176
     };
 
     const accessToken = this.jwtService.sign(payload, { expiresIn: '1d' });
@@ -451,6 +493,7 @@ export class AuthService {
       walletAddress: user.walletAddress,
       tokenVersion: user.tokenVersion || 0,
       roles: user.roles ? user.roles.map((r) => r.name) : [],
+      status: user.status, // #1176
     };
 
     const accessToken = this.jwtService.sign(payload, { expiresIn: '1d' });

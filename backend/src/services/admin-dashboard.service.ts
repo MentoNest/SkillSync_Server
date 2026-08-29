@@ -1,9 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThan, MoreThan } from 'typeorm';
-import { User } from '../user/entities/user.entity';
+import { User, UserStatus } from '../user/entities/user.entity';
 import { AuditLog } from '../auth/entities/audit-log.entity';
 import { Role } from '../entities/role.entity';
+import { UserService } from '../user/user.service';
+import { UserResponseDto } from '../user/dto/user-response.dto';
 
 export interface DashboardStats {
   totalUsers: number;
@@ -62,6 +64,7 @@ export class AdminDashboardService {
     private readonly auditLogRepo: Repository<AuditLog>,
     @InjectRepository(Role)
     private readonly roleRepo: Repository<Role>,
+    private readonly userService: UserService,
   ) {}
 
   /**
@@ -157,31 +160,84 @@ export class AdminDashboardService {
   }
 
   /**
-   * Suspend a user
+   * #1175: POST /admin/users/:userId/suspend - suspends a user temporarily
+   * (durationDays) or permanently (durationDays null/undefined), and
+   * records an admin audit log entry.
    */
-  async suspendUser(userId: string, reason: string, adminId: string): Promise<void> {
-    // In a real implementation, this would update user status
+  async suspendUser(
+    userId: string,
+    reason: string,
+    adminId: string,
+    durationDays?: number | null,
+  ): Promise<{ success: boolean }> {
+    const suspension = await this.userService.suspendUser(userId, reason, durationDays ?? null, adminId);
     this.logger.log(`User ${userId} suspended by ${adminId}: ${reason}`);
 
-    // Log the action
-    await this.auditLogRepo.save({
-      userId: adminId,
-      action: 'USER_SUSPENDED',
-      details: { targetUserId: userId, reason },
-    });
+    await this.auditLogRepo.save(
+      this.auditLogRepo.create({
+        userId: adminId,
+        eventType: 'user_suspended',
+        metadata: {
+          targetUserId: userId,
+          reason,
+          durationDays: durationDays ?? null,
+          permanent: durationDays === null || durationDays === undefined,
+          suspendedUntil: suspension.suspendedUntil,
+        },
+      }),
+    );
+
+    return { success: true };
   }
 
   /**
-   * Reactivate a user
+   * #1175: POST /admin/users/:userId/unsuspend - lifts an active suspension
+   * and records an admin audit log entry.
    */
-  async reactivateUser(userId: string, adminId: string): Promise<void> {
-    this.logger.log(`User ${userId} reactivated by ${adminId}`);
+  async unsuspendUser(userId: string, adminId: string): Promise<{ success: boolean }> {
+    await this.userService.unsuspendUser(userId, adminId);
+    this.logger.log(`User ${userId} unsuspended by ${adminId}`);
 
-    await this.auditLogRepo.save({
-      userId: adminId,
-      action: 'USER_REACTIVATED',
-      details: { targetUserId: userId },
-    });
+    await this.auditLogRepo.save(
+      this.auditLogRepo.create({
+        userId: adminId,
+        eventType: 'user_unsuspended',
+        metadata: { targetUserId: userId },
+      }),
+    );
+
+    return { success: true };
+  }
+
+  /**
+   * @deprecated kept for backward compatibility - use unsuspendUser().
+   */
+  async reactivateUser(userId: string, adminId: string): Promise<{ success: boolean }> {
+    return this.unsuspendUser(userId, adminId);
+  }
+
+  /**
+   * #1174: admin visibility into soft-deleted accounts.
+   */
+  async getDeletedUsers(): Promise<UserResponseDto[]> {
+    return this.userService.findDeletedUsers();
+  }
+
+  /**
+   * #1174: admin-only permanent (hard) delete once the restore grace
+   * period has elapsed.
+   */
+  async permanentlyDeleteUser(userId: string, adminId: string): Promise<{ success: boolean; message: string }> {
+    return this.userService.permanentlyDeleteAccount(userId, adminId);
+  }
+
+  /**
+   * #1176: generic admin status-change endpoint. Validates transitions
+   * (e.g. rejects deleted -> active, which must go through the self-service
+   * restore flow) via UserService.adminSetStatus.
+   */
+  async setUserStatus(userId: string, status: UserStatus, adminId: string): Promise<UserResponseDto> {
+    return this.userService.adminSetStatus(userId, status, adminId);
   }
 
   /**

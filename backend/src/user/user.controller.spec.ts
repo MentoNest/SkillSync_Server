@@ -4,6 +4,7 @@ import { UserService } from './user.service';
 import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { User, ProfileType } from './entities/user.entity';
+import { UserSuspension } from './entities/user-suspension.entity';
 import { Role } from '../entities/role.entity';
 
 describe('UserController', () => {
@@ -36,6 +37,10 @@ describe('UserController', () => {
         },
         {
           provide: getRepositoryToken(Role),
+          useValue: {},
+        },
+        {
+          provide: getRepositoryToken(UserSuspension),
           useValue: {},
         },
       ],

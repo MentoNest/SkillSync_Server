@@ -11,6 +11,7 @@ export interface JwtPayload {
   walletAddress?: string | null;
   tokenVersion?: number;
   roles?: string[];
+  status?: string; // #1176: account lifecycle status at time of token issuance
 }
 
 /**
