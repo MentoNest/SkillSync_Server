@@ -117,6 +117,12 @@ export class MentorProfile {
   @IsOptional()
   mentoringStyle?: string | null;
 
+  @Column('text', { array: true, default: '{}' })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  portfolioLinks: string[];
+
   @Column({ type: 'boolean', default: false })
   @IsBoolean()
   @IsOptional()

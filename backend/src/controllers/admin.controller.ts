@@ -19,6 +19,7 @@ import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { RolesGuard } from '../guards/roles.guard';
 import { Roles } from '../decorators/roles.decorator';
 import { AdminDashboardService } from '../services/admin-dashboard.service';
+import { ProfileCompletenessService } from '../user/services/profile-completeness.service';
 import { UserStatus } from '../user/entities/user.entity';
 
 @ApiTags('Admin')
@@ -27,13 +28,23 @@ import { UserStatus } from '../user/entities/user.entity';
 @Roles('admin')
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly adminService: AdminDashboardService) {}
+  constructor(
+    private readonly adminService: AdminDashboardService,
+    private readonly profileCompletenessService: ProfileCompletenessService
+  ) {}
 
   @Get('dashboard')
   @ApiOperation({ summary: 'Get admin dashboard statistics' })
   @ApiResponse({ status: 200, description: 'Dashboard stats retrieved' })
   async getDashboard() {
     return this.adminService.getDashboardStats();
+  }
+
+  @Get('users/profile-completeness')
+  @ApiOperation({ summary: 'Get profile completeness scores for all users' })
+  @ApiResponse({ status: 200, description: 'All users profile completeness data retrieved' })
+  async getAllUsersProfileCompleteness() {
+    return this.profileCompletenessService.getAllUsersCompleteness();
   }
 
   @Get('users')
