@@ -14,6 +14,7 @@ import { IsUUID, IsInt, Min, Max, IsString, Matches } from 'class-validator';
  */
 @Entity('availability_slots')
 @Index('IDX_availability_slots_mentorId', ['mentorId'])
+@Index('IDX_availability_slots_mentorId_dayOfWeek', ['mentorId', 'dayOfWeek'])
 export class AvailabilitySlot {
   @PrimaryGeneratedColumn('uuid')
   id: string;
