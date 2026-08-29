@@ -26,6 +26,7 @@ import { User } from './user.entity';
 @Index('IDX_mentor_profiles_skills', ['skills'])
 @Index('IDX_mentor_profiles_hourlyRate', ['hourlyRate'])
 @Index('IDX_mentor_profiles_averageRating', ['averageRating'])
+@Index('IDX_mentor_profiles_isVerified_averageRating', ['isVerified', 'averageRating'])
 export class MentorProfile {
   @PrimaryGeneratedColumn('uuid')
   @IsUUID()

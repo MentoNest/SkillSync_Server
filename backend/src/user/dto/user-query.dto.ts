@@ -1,34 +1,13 @@
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsEnum, IsOptional, IsString } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { ProfileType } from '../entities/user.entity';
+import { BasePaginationQueryDto } from '../../common/dtos/base-pagination-query.dto';
 
-export class UserQueryDto {
-  @ApiPropertyOptional({
-    description: 'Page number for pagination',
-    default: 1,
-    minimum: 1,
-    example: 1,
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page?: number = 1;
-
-  @ApiPropertyOptional({
-    description: 'Number of results per page',
-    default: 10,
-    minimum: 1,
-    maximum: 100,
-    example: 10,
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number = 10;
+export class UserQueryDto extends BasePaginationQueryDto {
+  constructor() {
+    super();
+    this.limit = 10; // Override default limit for this specific DTO
+  }
 
   @ApiPropertyOptional({
     description: 'Filter users by profile type',

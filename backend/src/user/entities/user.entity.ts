@@ -32,6 +32,8 @@ export enum UserStatus {
 }
 
 @Entity('users')
+@Index('IDX_users_walletAddress_status', ['walletAddress', 'status'])
+@Index('IDX_users_role_status_createdAt', ['roles', 'status', 'createdAt'])
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;

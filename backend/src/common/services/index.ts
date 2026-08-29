@@ -1,0 +1,1 @@
+export { PaginationService, PaginatedResponse } from './pagination.service';
