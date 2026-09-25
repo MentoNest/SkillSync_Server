@@ -5,6 +5,7 @@ mod events;
 mod storage;
 mod admin;
 mod fee;
+mod session;
 
 #[cfg(test)]
 mod tests;
@@ -12,7 +13,7 @@ mod tests;
 pub use admin::initialize;
 pub use fee::{set_platform_fee, get_platform_fee};
 
-use soroban_sdk::{contract, contractimpl, Address, Env};
+use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};
 
 use errors::ContractError;
 
@@ -58,5 +59,17 @@ impl SkillSyncContract {
     /// Return the current platform fee in basis points.
     pub fn get_platform_fee(env: Env) -> u32 {
         fee::get_platform_fee(&env)
+    }
+
+    /// Lock funds into a new escrow session between `buyer` and `seller`.
+    /// Minimal creation path for `refund_session` — see `session` module.
+    pub fn lock_funds(env: Env, session_id: Bytes, buyer: Address, seller: Address, amount: i128) {
+        session::lock_funds(&env, session_id, buyer, seller, amount)
+    }
+
+    /// Allows the buyer to request a refund before the session is
+    /// completed. Full amount returned, no fee deducted.
+    pub fn refund_session(env: Env, session_id: Bytes) {
+        session::refund_session(&env, session_id)
     }
 }
