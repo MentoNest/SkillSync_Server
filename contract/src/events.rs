@@ -1,4 +1,4 @@
-use soroban_sdk::{symbol_short, Address, Env};
+use soroban_sdk::{symbol_short, Address, Bytes, Env};
 
 /// Emitted when the contract is successfully initialized.
 ///
@@ -41,6 +41,17 @@ pub fn emit_initialized_with_dispute_window(
 pub fn emit_platform_fee_updated(env: &Env, new_fee_bps: u32) {
     env.events()
         .publish((symbol_short!("fee_upd"), new_fee_bps), ());
+}
+
+/// Emitted when the seller marks a session as complete.
+///
+/// Topics: ["sess_cmp"]
+/// Data: (session_id, seller, completed_at)
+pub fn emit_session_completed(env: &Env, session_id: &Bytes, seller: &Address, completed_at: u64) {
+    env.events().publish(
+        (symbol_short!("sess_cmp"),),
+        (session_id.clone(), seller.clone(), completed_at),
+    );
 }
 
 #[cfg(test)]
