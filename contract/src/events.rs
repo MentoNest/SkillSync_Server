@@ -1,4 +1,4 @@
-use soroban_sdk::{symbol_short, Address, Env};
+use soroban_sdk::{symbol_short, Address, Bytes, Env};
 
 /// Emitted when the contract is successfully initialized.
 ///
@@ -41,6 +41,25 @@ pub fn emit_initialized_with_dispute_window(
 pub fn emit_platform_fee_updated(env: &Env, new_fee_bps: u32) {
     env.events()
         .publish((symbol_short!("fee_upd"), new_fee_bps), ());
+}
+
+/// Emitted when a session's escrowed funds are refunded to the buyer.
+///
+/// Shared by every refund path (manual `refund_session` and auto-refund),
+/// so indexers see a single `SessionRefunded` shape.
+///
+/// Topics: ["sess_ref"]
+/// Data: (session_id, buyer, amount, timestamp)
+pub fn emit_session_refunded(env: &Env, session_id: &Bytes, buyer: &Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("sess_ref"),),
+        (
+            session_id.clone(),
+            buyer.clone(),
+            amount,
+            env.ledger().timestamp(),
+        ),
+    );
 }
 
 #[cfg(test)]
