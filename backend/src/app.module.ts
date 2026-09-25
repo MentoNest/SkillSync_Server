@@ -1,104 +1,79 @@
-import { Module, OnModuleInit } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { JwtModule } from '@nestjs/jwt';
-import { ThrottlerModule } from '@nestjs/throttler';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
-import { User } from './user/entities/user.entity';
-import { Role } from './entities/role.entity';
-import { RefreshToken } from './auth/entities/refresh-token.entity';
-import { AuditLog } from './auth/entities/audit-log.entity';
-import { Notification } from './entities/notification.entity';
-import { RolesGuard } from './guards/roles.guard';
-import { RolesService } from './services/roles.service';
-import { UserService } from './services/user.service';
-import { AuditLogService } from './services/audit-log.service';
-import { RedisService } from './services/redis.service';
-import { RolesController } from './controllers/roles.controller';
-import { UserController } from './controllers/user.controller';
-import { UserModule } from './user/user.module';
-import { AuthModule } from './auth/auth.module';
-import { HealthModule } from './health/health.module';
-import { SessionModule } from './session/session.module';
-import { ChatModule } from './chat/chat.module';
-import { MetricsModule } from './metrics/metrics.module';
-import { AuditLogsController } from './controllers/audit-logs.controller';
-import { EncryptionModule } from './common/encryption/encryption.module';
-import { BackupModule } from './common/backup/backup.module';
-import { GracefulShutdownModule } from './common/shutdown/graceful-shutdown.module';
-import { ContractTestingModule } from './common/contract-testing/contract-testing.module';
-import { ApiVersioningModule } from './common/versioning/api-versioning.module';
-import { NotificationModule } from './modules/notification.module';
-import { AdminModule } from './modules/admin.module';
-import { HealthController } from './controllers/health.controller';
-import { RedisModule } from './redis/redis.module';
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { createObserveModule } from '@nestjs/observe';
+
+import { AppController } from './app.controller.js';
+import { AppService } from './app.service.js';
+
 import {
-  getDatabaseConfig,
-  getDatabaseRetryConfig,
-} from './config/database.config';
+  appConfig,
+  databaseConfig,
+  featureFlagsConfig,
+  envValidationSchema,
+} from './config/index.js';
+
+import { DatabaseModule } from './database/database.module.js';
+import { HealthModule } from './modules/health/health.module.js';
+
+import {
+  HttpExceptionFilter,
+  LoggingInterceptor,
+  TransformInterceptor,
+} from './common/index.js';
+
+export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
 @Module({
   imports: [
-    // #1141: env-driven config, auto-loaded entities, retry logic, pooling,
-    // SSL and slow-query logging live in ./config/database.config.ts so the
-    // TypeORM CLI (src/data-source.ts) shares the exact same settings.
-    TypeOrmModule.forRootAsync({
-      useFactory: () => ({
-        ...getDatabaseConfig(),
-        // Nest-specific extras layered on top of the shared DataSourceOptions.
-        autoLoadEntities: true,
-        ...getDatabaseRetryConfig(),
-      }),
+    // ─── Config ────────────────────────────────────────────────────────────
+    ConfigModule.forRoot({
+      isGlobal: true, // Available in every module without re-importing
+      envFilePath: ['.env', `.env.${process.env.NODE_ENV ?? 'development'}`],
+      load: [appConfig, databaseConfig, featureFlagsConfig],
+      validationSchema: envValidationSchema,
+      validationOptions: {},
     }),
-    TypeOrmModule.forFeature([
-      User,
-      Role,
-      RefreshToken,
-      AuditLog,
-      Notification,
-    ]),
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
-      signOptions: { expiresIn: '1d' },
+
+    // ─── Observability ─────────────────────────────────────────────────────
+    ObserveModule.forRoot({
+      appKey: process.env.OBSERVE_APP_KEY ?? '',
+      appSecret: process.env.OBSERVE_APP_SECRET ?? '',
+      serviceId: 'skillsync-backend',
     }),
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60000,
-        limit: 100,
-      },
-    ]),
-    // #1142: global, injectable Redis module (cache, sessions, rate
-    // limiting, token blacklisting, future Bull/BullMQ queues).
-    RedisModule,
-    UserModule,
-    AuthModule,
-    EncryptionModule,
-    BackupModule,
-    GracefulShutdownModule,
-    ContractTestingModule,
-    ApiVersioningModule,
-    NotificationModule,
-    AdminModule,
+
+    // ─── Database ──────────────────────────────────────────────────────────
+    DatabaseModule,
+
+    // ─── Feature Modules ───────────────────────────────────────────────────
+    HealthModule,
+    // Add further feature modules here, e.g.:
+    // UsersModule,
+    // AuthModule,
+    // SkillsModule,
+    // EscrowModule,
   ],
-  controllers: [
-    AppController,
-    RolesController,
-    AuditLogsController,
-    HealthController,
-  ],
+  controllers: [AppController],
   providers: [
     AppService,
-    RolesService,
-    RolesGuard,
-    AuditLogService,
-    RedisService,
-  ],
-  exports: [RedisService],
-})
-export class AppModule implements OnModuleInit {
-  constructor(private readonly rolesService: RolesService) {}
 
-  async onModuleInit() {
-    await this.rolesService.initializeDefaultRoles();
-  }
-}
+    // Global exception filter — catches all HTTP exceptions
+    {
+      provide: APP_FILTER,
+      useClass: HttpExceptionFilter,
+    },
+
+    // Global logging interceptor — logs request method/url/duration
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: LoggingInterceptor,
+    },
+
+    // Global response transformer — wraps all responses in { data, timestamp }
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TransformInterceptor,
+    },
+  ],
+})
+export class AppModule {}
