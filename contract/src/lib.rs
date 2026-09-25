@@ -5,6 +5,7 @@ mod events;
 mod storage;
 mod admin;
 mod fee;
+mod dispute;
 
 #[cfg(test)]
 mod tests;
@@ -12,7 +13,7 @@ mod tests;
 pub use admin::initialize;
 pub use fee::{set_platform_fee, get_platform_fee};
 
-use soroban_sdk::{contract, contractimpl, Address, Env};
+use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, String};
 
 use errors::ContractError;
 
@@ -58,5 +59,25 @@ impl SkillSyncContract {
     /// Return the current platform fee in basis points.
     pub fn get_platform_fee(env: Env) -> u32 {
         fee::get_platform_fee(&env)
+    }
+
+    /// Opens a dispute on a Completed or Locked session. Callable by
+    /// either the buyer or seller. See the `dispute` module.
+    pub fn open_dispute(env: Env, session_id: Bytes, caller: Address, reason: String) {
+        dispute::open_dispute(&env, session_id, caller, reason)
+    }
+
+    /// Admin resolves a dispute, splitting the escrowed amount between
+    /// buyer and seller. Returns (buyer_payout, seller_payout, total_fee).
+    /// See the `dispute` module.
+    pub fn resolve_dispute(
+        env: Env,
+        session_id: Bytes,
+        admin: Address,
+        buyer_share: i128,
+        seller_share: i128,
+    ) -> (i128, i128, i128) {
+        let fee_bps = fee::get_platform_fee(&env);
+        dispute::resolve_dispute(&env, session_id, admin, buyer_share, seller_share, fee_bps)
     }
 }
