@@ -1,4 +1,4 @@
-use soroban_sdk::{symbol_short, Address, Env};
+use soroban_sdk::{symbol_short, Address, Bytes, Env};
 
 /// Emitted when the contract is successfully initialized.
 ///
@@ -41,6 +41,29 @@ pub fn emit_initialized_with_dispute_window(
 pub fn emit_platform_fee_updated(env: &Env, new_fee_bps: u32) {
     env.events()
         .publish((symbol_short!("fee_upd"), new_fee_bps), ());
+}
+
+/// Emitted when a buyer locks funds into a new escrow session.
+///
+/// Topics: ["fund_lock"]
+/// Data: (session_id, buyer, seller, amount, timestamp)
+pub fn emit_funds_locked(
+    env: &Env,
+    session_id: &Bytes,
+    buyer: &Address,
+    seller: &Address,
+    amount: i128,
+) {
+    env.events().publish(
+        (symbol_short!("fund_lock"),),
+        (
+            session_id.clone(),
+            buyer.clone(),
+            seller.clone(),
+            amount,
+            env.ledger().timestamp(),
+        ),
+    );
 }
 
 #[cfg(test)]
