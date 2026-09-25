@@ -5,7 +5,7 @@ mod events;
 mod storage;
 mod admin;
 mod fee;
-mod session;
+mod dispute;
 
 #[cfg(test)]
 mod tests;
@@ -13,7 +13,7 @@ mod tests;
 pub use admin::initialize;
 pub use fee::{set_platform_fee, get_platform_fee};
 
-use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};
+use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, String};
 
 use errors::ContractError;
 
@@ -61,15 +61,23 @@ impl SkillSyncContract {
         fee::get_platform_fee(&env)
     }
 
-    /// Lock funds into a new escrow session between `buyer` and `seller`.
-    /// Minimal creation path for `refund_session` — see `session` module.
-    pub fn lock_funds(env: Env, session_id: Bytes, buyer: Address, seller: Address, amount: i128) {
-        session::lock_funds(&env, session_id, buyer, seller, amount)
+    /// Opens a dispute on a Completed or Locked session. Callable by
+    /// either the buyer or seller. See the `dispute` module.
+    pub fn open_dispute(env: Env, session_id: Bytes, caller: Address, reason: String) {
+        dispute::open_dispute(&env, session_id, caller, reason)
     }
 
-    /// Allows the buyer to request a refund before the session is
-    /// completed. Full amount returned, no fee deducted.
-    pub fn refund_session(env: Env, session_id: Bytes) {
-        session::refund_session(&env, session_id)
+    /// Admin resolves a dispute, splitting the escrowed amount between
+    /// buyer and seller. Returns (buyer_payout, seller_payout, total_fee).
+    /// See the `dispute` module.
+    pub fn resolve_dispute(
+        env: Env,
+        session_id: Bytes,
+        admin: Address,
+        buyer_share: i128,
+        seller_share: i128,
+    ) -> (i128, i128, i128) {
+        let fee_bps = fee::get_platform_fee(&env);
+        dispute::resolve_dispute(&env, session_id, admin, buyer_share, seller_share, fee_bps)
     }
 }
