@@ -82,6 +82,30 @@ pub fn get(env: &Env, session_id: Bytes) -> Session {
     get_session(env, &session_id)
 }
 
+/// Marks a session as complete. Only the session's `seller` can call this.
+///
+/// # Reverts
+/// - `"session not found"` if `session_id` doesn't exist.
+/// - `"InvalidSessionState"` unless the session is currently `Locked`.
+///
+/// # Events
+/// Emits `SessionCompleted` (see [`events::emit_session_completed`]).
+pub fn complete_session(env: &Env, session_id: Bytes) {
+    let mut session = get_session(env, &session_id);
+
+    assert!(
+        session.status == SessionStatus::Locked,
+        "InvalidSessionState"
+    );
+
+    session.seller.require_auth();
+
+    session.status = SessionStatus::Completed;
+    save_session(env, session_id.clone(), &session);
+
+    events::emit_session_completed(env, &session_id, &session.seller, env.ledger().timestamp());
+}
+
 /// Allows the buyer to request an early refund before the session is
 /// completed. The full escrowed amount is returned to the buyer with no
 /// fee deducted, per this issue's "no fee for early refund" requirement
@@ -129,21 +153,37 @@ mod tests {
     }
 
     #[test]
-    fn lock_funds_emits_funds_locked_event() {
+    fn complete_session_emits_session_completed_event() {
         let (env, buyer, seller, session_id) = setup();
         env.ledger().set_timestamp(1_700_000_000);
         let contract_id = env.register(SkillSyncContract, ());
         let client = SkillSyncContractClient::new(&env, &contract_id);
-
         client.lock_funds(&session_id, &buyer, &seller, &1_000);
+
+        client.complete_session(&session_id);
 
         let events = env.events().all();
         assert_eq!(events.len(), 1);
         let (emitter, topics, data) = events.last().unwrap();
         assert_eq!(emitter, contract_id);
-        assert_eq!(topics, (symbol_short!("fund_lock"),).into_val(&env));
-        let data = <(Bytes, Address, Address, i128, u64)>::try_from_val(&env, &data).unwrap();
-        assert_eq!(data, (session_id, buyer, seller, 1_000, 1_700_000_000));
+        assert_eq!(topics, (symbol_short!("sess_cmp"),).into_val(&env));
+        let data = <(Bytes, Address, u64)>::try_from_val(&env, &data).unwrap();
+        assert_eq!(data, (session_id.clone(), seller, 1_700_000_000));
+
+        let session = env.as_contract(&contract_id, || get(&env, session_id));
+        assert_eq!(session.status, SessionStatus::Completed);
+    }
+
+    #[test]
+    #[should_panic]
+    fn complete_session_reverts_if_not_locked() {
+        let (env, buyer, seller, session_id) = setup();
+        let contract_id = env.register(SkillSyncContract, ());
+        let client = SkillSyncContractClient::new(&env, &contract_id);
+        client.lock_funds(&session_id, &buyer, &seller, &1_000);
+        client.complete_session(&session_id);
+
+        client.complete_session(&session_id);
     }
 
     #[test]

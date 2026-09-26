@@ -43,26 +43,14 @@ pub fn emit_platform_fee_updated(env: &Env, new_fee_bps: u32) {
         .publish((symbol_short!("fee_upd"), new_fee_bps), ());
 }
 
-/// Emitted when a buyer locks funds into a new escrow session.
+/// Emitted when the seller marks a session as complete.
 ///
-/// Topics: ["fund_lock"]
-/// Data: (session_id, buyer, seller, amount, timestamp)
-pub fn emit_funds_locked(
-    env: &Env,
-    session_id: &Bytes,
-    buyer: &Address,
-    seller: &Address,
-    amount: i128,
-) {
+/// Topics: ["sess_cmp"]
+/// Data: (session_id, seller, completed_at)
+pub fn emit_session_completed(env: &Env, session_id: &Bytes, seller: &Address, completed_at: u64) {
     env.events().publish(
-        (symbol_short!("fund_lock"),),
-        (
-            session_id.clone(),
-            buyer.clone(),
-            seller.clone(),
-            amount,
-            env.ledger().timestamp(),
-        ),
+        (symbol_short!("sess_cmp"),),
+        (session_id.clone(), seller.clone(), completed_at),
     );
 }
 
