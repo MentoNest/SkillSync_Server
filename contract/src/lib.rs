@@ -72,6 +72,12 @@ impl SkillSyncContract {
         session::complete_session(&env, session_id)
     }
 
+    /// Buyer approves a completed session, releasing funds to the seller
+    /// minus the platform fee.
+    pub fn approve_session(env: Env, session_id: Bytes) {
+        session::approve_session(&env, session_id)
+    }
+
     /// Allows the buyer to request a refund before the session is
     /// completed. Full amount returned, no fee deducted.
     pub fn refund_session(env: Env, session_id: Bytes) {

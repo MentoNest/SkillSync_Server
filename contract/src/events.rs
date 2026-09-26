@@ -43,14 +43,31 @@ pub fn emit_platform_fee_updated(env: &Env, new_fee_bps: u32) {
         .publish((symbol_short!("fee_upd"), new_fee_bps), ());
 }
 
-/// Emitted when the seller marks a session as complete.
+/// Emitted when the buyer approves a session and funds are released.
 ///
-/// Topics: ["sess_cmp"]
-/// Data: (session_id, seller, completed_at)
-pub fn emit_session_completed(env: &Env, session_id: &Bytes, seller: &Address, completed_at: u64) {
+/// `amount` is the gross escrowed amount and `fee` the platform fee taken
+/// from it, so the seller's net payout is `amount - fee`.
+///
+/// Topics: ["sess_appr"]
+/// Data: (session_id, buyer, seller, amount, fee, timestamp)
+pub fn emit_session_approved(
+    env: &Env,
+    session_id: &Bytes,
+    buyer: &Address,
+    seller: &Address,
+    amount: i128,
+    fee: i128,
+) {
     env.events().publish(
-        (symbol_short!("sess_cmp"),),
-        (session_id.clone(), seller.clone(), completed_at),
+        (symbol_short!("sess_appr"),),
+        (
+            session_id.clone(),
+            buyer.clone(),
+            seller.clone(),
+            amount,
+            fee,
+            env.ledger().timestamp(),
+        ),
     );
 }
 
