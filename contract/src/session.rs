@@ -4,6 +4,9 @@ use crate::events;
 
 use crate::{events, fee};
 
+use crate::fee;
+use crate::storage;
+
 /// Escrow session lifecycle (BE refund function).
 ///
 /// This module owns its own storage key space (`SessionDataKey`) and status
@@ -31,6 +34,9 @@ pub struct Session {
     pub amount: i128,
     pub status: SessionStatus,
     pub created_at: u32,
+    pub completed_at: Option<u32>,
+    pub seller_payout: i128,
+    pub platform_fee: i128,
 }
 
 #[contracttype]
@@ -72,6 +78,9 @@ pub fn lock_funds(env: &Env, session_id: Bytes, buyer: Address, seller: Address,
         amount,
         status: SessionStatus::Locked,
         created_at: env.ledger().sequence(),
+        completed_at: None,
+        seller_payout: 0,
+        platform_fee: 0,
     };
     save_session(env, session_id.clone(), &session);
 
@@ -145,6 +154,78 @@ pub fn refund_session(env: &Env, session_id: Bytes) {
     save_session(env, session_id.clone(), &session);
 
     events::emit_session_refunded(env, &session_id, &session.buyer, session.amount);
+}
+
+/// Seller marks delivery of goods/services as complete, which starts the
+/// completion phase and opens the dispute window.
+///
+/// # Reverts
+/// - `"session not found"` if `session_id` doesn't exist.
+/// - `"InvalidSessionState"` unless the session is currently `Locked`
+///   (i.e. it reverts if already `Completed`, `Approved`, or `Refunded`).
+///
+/// # Authorization
+/// Only the session's stored `seller` can call this, enforced by
+/// `seller.require_auth()`.
+pub fn complete_session(env: &Env, session_id: Bytes) {
+    let mut session = get_session(env, &session_id);
+
+    assert!(
+        session.status == SessionStatus::Locked,
+        "InvalidSessionState"
+    );
+
+    session.seller.require_auth();
+
+    session.status = SessionStatus::Completed;
+    session.completed_at = Some(env.ledger().sequence());
+    save_session(env, session_id.clone(), &session);
+
+    env.events().publish(
+        (symbol_short!("sess_done"),),
+        (session_id, session.seller, session.completed_at),
+    );
+}
+
+/// Buyer approves a completed session, which settles it in the seller's
+/// favour: the seller receives the escrowed amount minus the platform fee,
+/// and the fee is routed to the treasury.
+///
+/// The fee split is computed with [`crate::fee::apply_platform_fee`] and
+/// recorded on the session. No tokens are moved here — the contract has no
+/// token transfer wired up yet — so the payout and fee are stored and emitted
+/// for the settlement layer to act on, and the treasury is reported in the
+/// event as the intended fee destination.
+///
+/// # Reverts
+/// - `"session not found"` if `session_id` doesn't exist.
+/// - `"InvalidSessionState"` unless the session is currently `Completed`.
+///
+/// # Authorization
+/// Only the session's stored `buyer` can call this, enforced by
+/// `buyer.require_auth()`.
+pub fn approve_session(env: &Env, session_id: Bytes) {
+    let mut session = get_session(env, &session_id);
+
+    assert!(
+        session.status == SessionStatus::Completed,
+        "InvalidSessionState"
+    );
+
+    session.buyer.require_auth();
+
+    let (payout, fee_amount) = fee::apply_platform_fee(env, session.amount);
+    let treasury = storage::get_treasury(env);
+
+    session.seller_payout = payout;
+    session.platform_fee = fee_amount;
+    session.status = SessionStatus::Approved;
+    save_session(env, session_id.clone(), &session);
+
+    env.events().publish(
+        (symbol_short!("sess_appr"),),
+        (session_id, session.seller, payout, fee_amount, treasury),
+    );
 }
 
 #[cfg(test)]
