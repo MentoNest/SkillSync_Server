@@ -75,6 +75,9 @@ pub enum ContractError {
     /// No usable price is available for the asset: the oracle is unset,
     /// unreachable, or too stale to trust, and no admin fallback is set.
     PriceUnavailable = 405,
+    /// A token transfer into or out of the escrow failed: the token reverted,
+    /// does not implement the expected interface, or the balance was short.
+    TokenTransferFailed = 406,
 
     // ── Timeouts and disputes (500–599) ────────────────────────────────
     /// The dispute window has not elapsed yet; auto-refund is not available.
@@ -169,6 +172,10 @@ impl core::fmt::Display for ContractError {
                 "PriceUnavailable",
                 "no usable price is available for the asset",
             ),
+            ContractError::TokenTransferFailed => (
+                "TokenTransferFailed",
+                "a token transfer into or out of the escrow failed",
+            ),
             ContractError::DisputeWindowNotElapsed => (
                 "DisputeWindowNotElapsed",
                 "the dispute window has not elapsed yet",
@@ -205,7 +212,7 @@ mod tests {
 
     /// Every variant the contract can return, with the code each one is
     /// specified to carry.
-    const ALL: [(ContractError, u32); 27] = [
+    const ALL: [(ContractError, u32); 28] = [
         // Initialization.
         (AlreadyInitialized, 1),
         (NotInitialized, 2),
@@ -229,6 +236,7 @@ mod tests {
         (InvalidSplit, 403),
         (Overflow, 404),
         (PriceUnavailable, 405),
+        (TokenTransferFailed, 406),
         // Timeouts and disputes.
         (DisputeWindowNotElapsed, 500),
         (DisputeAlreadyOpen, 501),

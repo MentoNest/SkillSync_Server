@@ -163,6 +163,49 @@ pub fn emit_auto_refund_executed(
     );
 }
 
+/// Emitted when the platform fee could not be moved to the treasury.
+///
+/// The fee has already been deducted from the seller's payout, so the
+/// approval is left settled and the tokens stay held by the contract. This
+/// event is how an operator learns to sweep them.
+///
+/// Topics: ["fee_fail", token]
+/// Data: (treasury, amount, error_code)
+pub fn emit_fee_routing_failed(
+    env: &Env,
+    token: &Address,
+    treasury: &Address,
+    amount: i128,
+    error: &crate::errors::ContractError,
+) {
+    env.events().publish(
+        (symbol_short!("fee_fail"), token.clone()),
+        (treasury.clone(), amount, error.code()),
+    );
+}
+
+/// Emitted when the admin-pinned fee token is not the token a session
+/// escrowed, so the fee was taken in the escrowed token instead.
+///
+/// The contract holds exactly one token per session and will not invent a
+/// conversion rate, so a mismatch degrades to "fee in the escrowed token"
+/// and says so here rather than silently paying the treasury in a currency
+/// nobody asked for.
+///
+/// Topics: ["fee_mm", pinned_token]
+/// Data: (session_token, fee_amount)
+pub fn emit_fee_token_mismatch(
+    env: &Env,
+    pinned_token: &Address,
+    session_token: &Address,
+    fee_amount: i128,
+) {
+    env.events().publish(
+        (symbol_short!("fee_mm"), pinned_token.clone()),
+        (session_token.clone(), fee_amount),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

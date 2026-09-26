@@ -14,8 +14,11 @@ mod fee;
 mod oracle;
 mod session;
 mod storage;
+mod token;
 mod upgrade;
 
+#[cfg(test)]
+mod testutil;
 #[cfg(test)]
 mod tests;
 
@@ -35,6 +38,7 @@ use errors::ContractError;
 /// - Dispute opening and admin resolution.
 /// - Admin-scheduled WASM upgrades.
 /// - Price oracle reads with an admin-published fallback.
+/// - Any SEP-41 token, one per session.
 #[contract]
 pub struct SkillSyncContract;
 
@@ -74,20 +78,27 @@ impl SkillSyncContract {
         fee::get_platform_fee(&env)
     }
 
-    /// Escrow `amount` between a buyer and seller, creating a `Locked`
-    /// session.
+    /// Escrow `amount` of `token_address` between a buyer and seller,
+    /// creating a `Locked` session.
+    ///
+    /// The funds are pulled with the token's own `transfer_from`, so the
+    /// buyer must have approved this contract an allowance first. The token
+    /// is fixed for the life of the session: a session holds exactly one
+    /// token, so it can never be settled in a mixture.
     ///
     /// # Errors
     /// - [`ContractError::InvalidAmount`] if `amount` is not positive.
     /// - [`ContractError::DuplicateSessionId`] if the ID is taken.
+    /// - [`ContractError::TokenTransferFailed`] if the pull fails.
     pub fn lock_funds(
         env: Env,
         session_id: Bytes,
         buyer: Address,
         seller: Address,
         amount: i128,
+        token_address: Address,
     ) -> Result<(), ContractError> {
-        session::lock_funds(&env, session_id, buyer, seller, amount)
+        session::lock_funds(&env, session_id, buyer, seller, amount, token_address)
     }
 
     /// Seller marks the session as complete, opening the dispute window.
@@ -268,6 +279,32 @@ impl SkillSyncContract {
     /// - [`ContractError::Overflow`] if the multiplication overflows.
     pub fn quote(env: Env, asset: BytesN<32>, base_amount: i128) -> Result<i128, ContractError> {
         oracle::quote(&env, asset, base_amount)
+    }
+
+    /// Pin the token the platform fee is settled in (admin only).
+    ///
+    /// The fee is always taken in the token a session escrows, because that is
+    /// the only token the contract holds. Pinning a token therefore sets the
+    /// currency for sessions escrowed in it; for a session in a different
+    /// token the fee stays where it is and a `FeeTokenMismatch` event says so.
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    pub fn set_fee_token(env: Env, caller: Address, fee_token: Address) -> Result<(), ContractError> {
+        token::set_fee_token(&env, caller, fee_token)
+    }
+
+    /// Go back to settling the fee in whatever the session escrows (admin only).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    pub fn clear_fee_token(env: Env, caller: Address) -> Result<(), ContractError> {
+        token::clear_fee_token(&env, caller)
+    }
+
+    /// The token the platform fee is settled in, if the admin has pinned one.
+    pub fn get_fee_token(env: Env) -> Option<Address> {
+        token::get_fee_token(&env)
     }
 
     /// Admin splits the escrowed amount between buyer and seller to settle
