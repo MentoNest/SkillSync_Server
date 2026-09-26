@@ -14,6 +14,7 @@ use soroban_sdk::contracterror;
 /// | sess  | 300–399 | Session lookup and lifecycle transitions  |
 /// | fin   | 400–499 | Amounts, balances, fees, splits           |
 /// | disp  | 500–599 | Timeouts and dispute state               |
+/// | upgr  | 600–699 | Contract upgrades                        |
 ///
 /// Within a band, codes are also ordered: the low end is the "you called this
 /// wrong" case and the high end is the "the world moved on" case (e.g.
@@ -81,6 +82,12 @@ pub enum ContractError {
     DisputeNotOpen = 502,
     /// Session is not eligible for dispute resolution.
     ResolutionNotAllowed = 503,
+
+    // ── Upgrades (600–699) ─────────────────────────────────────────────
+    /// The provided WASM hash is zero or otherwise invalid.
+    InvalidWasmHash = 600,
+    /// The low-level contract upgrade call failed.
+    UpgradeFailed = 601,
 }
 
 impl From<ContractError> for u32 {
@@ -105,7 +112,7 @@ mod tests {
 
     /// Every variant the contract can return, with the code each one is
     /// specified to carry.
-    const ALL: [(ContractError, u32); 24] = [
+    const ALL: [(ContractError, u32); 26] = [
         // Initialization.
         (AlreadyInitialized, 1),
         (NotInitialized, 2),
@@ -133,6 +140,9 @@ mod tests {
         (DisputeAlreadyOpen, 501),
         (DisputeNotOpen, 502),
         (ResolutionNotAllowed, 503),
+        // Upgrades.
+        (InvalidWasmHash, 600),
+        (UpgradeFailed, 601),
     ];
 
     #[test]
@@ -164,12 +174,13 @@ mod tests {
     #[test]
     fn every_code_is_in_its_declared_band() {
         /// Inclusive `(low, high)` bounds for each band.
-        const BANDS: [(u32, u32); 5] = [
+        const BANDS: [(u32, u32); 6] = [
             (1, 99),
             (200, 299),
             (300, 399),
             (400, 499),
             (500, 599),
+            (600, 699),
         ];
         for (variant, code) in ALL.iter() {
             assert!(

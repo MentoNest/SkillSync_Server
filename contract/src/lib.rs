@@ -7,6 +7,7 @@ mod events;
 mod fee;
 mod session;
 mod storage;
+mod upgrade;
 
 #[cfg(test)]
 mod tests;
@@ -14,7 +15,7 @@ mod tests;
 pub use admin::initialize;
 pub use fee::{get_platform_fee, set_platform_fee};
 
-use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, String};
+use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String};
 
 use errors::ContractError;
 
@@ -25,6 +26,7 @@ use errors::ContractError;
 /// - Platform fee management (basis points, 0–1000).
 /// - Escrow session lifecycle (lock, complete, approve, refund).
 /// - Dispute opening and admin resolution.
+/// - Admin-scheduled WASM upgrades.
 #[contract]
 pub struct SkillSyncContract;
 
@@ -91,6 +93,44 @@ impl SkillSyncContract {
     /// either the buyer or seller. See the `dispute` module.
     pub fn open_dispute(env: Env, session_id: Bytes, caller: Address, reason: String) {
         dispute::open_dispute(&env, session_id, caller, reason);
+    }
+
+    /// Stage `new_hash` as the WASM to upgrade to on the next
+    /// [`execute_upgrade`] call (admin only).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    /// - [`ContractError::InvalidWasmHash`] if `new_hash` is all zeroes.
+    pub fn stage_upgrade(
+        env: Env,
+        caller: Address,
+        new_hash: BytesN<32>,
+    ) -> Result<(), ContractError> {
+        upgrade::stage_upgrade(&env, caller, new_hash)
+    }
+
+    /// Apply the hash staged by [`stage_upgrade`] to the running contract
+    /// (admin only).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    /// - [`ContractError::InvalidWasmHash`] if no hash has been staged.
+    /// - [`ContractError::UpgradeFailed`] if the deployer rejects the upgrade.
+    pub fn execute_upgrade(env: Env, caller: Address) -> Result<(), ContractError> {
+        upgrade::execute_upgrade(&env, caller)
+    }
+
+    /// The WASM hash staged for the next upgrade, if any.
+    pub fn get_staged_wasm_hash(env: Env) -> Option<BytesN<32>> {
+        upgrade::get_staged_wasm_hash(&env)
+    }
+
+    /// Discard any staged WASM hash (admin only).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    pub fn cancel_upgrade(env: Env, caller: Address) -> Result<(), ContractError> {
+        upgrade::cancel_upgrade(&env, caller)
     }
 
     /// Admin splits the escrowed amount between buyer and seller to settle
