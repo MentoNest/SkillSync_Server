@@ -163,6 +163,75 @@ pub fn emit_auto_refund_executed(
     );
 }
 
+/// Emitted when a session's off-chain metadata URI is set or replaced.
+///
+/// Topics: ["meta_upd", session_id]
+/// Data: (caller, metadata_uri)
+pub fn emit_metadata_updated(
+    env: &Env,
+    session_id: &Bytes,
+    caller: &Address,
+    metadata_uri: &soroban_sdk::String,
+) {
+    env.events().publish(
+        (symbol_short!("meta_upd"), session_id.clone()),
+        (caller.clone(), metadata_uri.clone()),
+    );
+}
+
+/// Emitted when a linear vesting schedule is attached to a session.
+///
+/// Topics: ["vest_new", session_id]
+/// Data: (total, cliff_ledgers, vesting_duration, start_ledger)
+pub fn emit_vesting_created(
+    env: &Env,
+    session_id: &Bytes,
+    total: i128,
+    cliff_ledgers: u64,
+    vesting_duration: u64,
+    start_ledger: u64,
+) {
+    env.events().publish(
+        (symbol_short!("vest_new"), session_id.clone()),
+        (total, cliff_ledgers, vesting_duration, start_ledger),
+    );
+}
+
+/// Emitted when the seller claims the part of the schedule that has vested.
+///
+/// Topics: ["vest_clam", session_id]
+/// Data: (seller, claimed_now, claimed_total, total)
+pub fn emit_vesting_claimed(
+    env: &Env,
+    session_id: &Bytes,
+    seller: &Address,
+    claimed_now: i128,
+    claimed_total: i128,
+    total: i128,
+) {
+    env.events().publish(
+        (symbol_short!("vest_clam"), session_id.clone()),
+        (seller.clone(), claimed_now, claimed_total, total),
+    );
+}
+
+/// Emitted when an unvested remainder is returned to the buyer because the
+/// session was disputed.
+///
+/// Topics: ["unvested", session_id]
+/// Data: (returned_to_buyer, already_claimed)
+pub fn emit_unvested_refunded(
+    env: &Env,
+    session_id: &Bytes,
+    returned_to_buyer: i128,
+    already_claimed: i128,
+) {
+    env.events().publish(
+        (symbol_short!("unvested"), session_id.clone()),
+        (returned_to_buyer, already_claimed),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
