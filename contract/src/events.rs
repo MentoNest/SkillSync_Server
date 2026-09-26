@@ -1,4 +1,4 @@
-use soroban_sdk::{symbol_short, Address, Env};
+use soroban_sdk::{symbol_short, Address, BytesN, Env};
 
 /// Emitted when the contract is successfully initialized.
 ///
@@ -43,6 +43,27 @@ pub fn emit_platform_fee_updated(env: &Env, new_fee_bps: u32) {
         .publish((symbol_short!("fee_upd"), new_fee_bps), ());
 }
 
+/// Emitted when a session is auto-refunded to the buyer because it was not
+/// approved within the timeout window (distinct from a buyer-requested
+/// refund), so failed completions can be tracked.
+///
+/// Topics: ["auto_ref", session_id]
+/// Data: (buyer, amount, completed_at, refunded_at)
+#[allow(dead_code)] // no timeout-based auto-refund entry point exists yet
+pub fn emit_auto_refund_executed(
+    env: &Env,
+    session_id: &BytesN<32>,
+    buyer: &Address,
+    amount: i128,
+    completed_at: u64,
+    refunded_at: u64,
+) {
+    env.events().publish(
+        (symbol_short!("auto_ref"), session_id.clone()),
+        (buyer.clone(), amount, completed_at, refunded_at),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -66,5 +87,26 @@ mod tests {
             (symbol_short!("init"), admin.clone(), treasury.clone()).into_val(&env)
         );
         assert_eq!(data, 1_000u32.into_val(&env));
+    }
+
+    #[test]
+    fn auto_refund_executed_emits_expected_topics_and_data() {
+        let env = Env::default();
+        let contract_id = env.register(crate::SkillSyncContract, ());
+        let session_id = BytesN::from_array(&env, &[7u8; 32]);
+        let buyer = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            emit_auto_refund_executed(&env, &session_id, &buyer, 1_000, 100, 200);
+        });
+
+        let (emitter, topics, data) = env.events().all().last().unwrap();
+        assert_eq!(emitter, contract_id);
+        assert_eq!(
+            topics,
+            (symbol_short!("auto_ref"), session_id).into_val(&env)
+        );
+        let data: (Address, i128, u64, u64) = data.into_val(&env);
+        assert_eq!(data, (buyer, 1_000, 100, 200));
     }
 }
