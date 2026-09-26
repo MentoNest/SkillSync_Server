@@ -28,7 +28,7 @@ pub fn set_platform_fee(env: &Env, caller: Address, new_fee_bps: u32) -> Result<
     let admin = storage::get_admin(env).ok_or(ContractError::NotInitialized)?;
 
     if caller != admin {
-        return Err(ContractError::Unauthorized);
+        return Err(ContractError::NotAdmin);
     }
 
     // Require the admin to have signed this transaction
@@ -36,7 +36,7 @@ pub fn set_platform_fee(env: &Env, caller: Address, new_fee_bps: u32) -> Result<
 
     // ── Fee range validation ─────────────────────────────────────────────
     if new_fee_bps > MAX_FEE_BPS {
-        return Err(ContractError::InvalidFee);
+        return Err(ContractError::FeeTooHigh);
     }
 
     // ── Persist and emit ─────────────────────────────────────────────────

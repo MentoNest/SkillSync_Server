@@ -49,8 +49,8 @@ impl SkillSyncContract {
     /// * `new_fee_bps` - Fee in basis points (0–1000, i.e. 0%–10%).
     ///
     /// # Errors
-    /// - [`ContractError::Unauthorized`] if caller is not the admin.
-    /// - [`ContractError::InvalidFee`] if `new_fee_bps` > 1000.
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    /// - [`ContractError::FeeTooHigh`] if `new_fee_bps` > 1000.
     pub fn set_platform_fee(
         env: Env,
         caller: Address,
