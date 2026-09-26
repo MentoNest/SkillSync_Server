@@ -51,7 +51,13 @@ pub fn open_dispute(env: &Env, session_id: Bytes, caller: Address, reason: Strin
 
     s.status = SessionStatus::Disputed;
     s.dispute_opened_at = Some(env.ledger().sequence());
-    session::save_session(env, session_id, &s);
+    session::save_session(env, session_id.clone(), &s);
+
+    // A session with a vesting schedule hands the unvested remainder back to
+    // the buyer: a disputed session is not one a schedule recovers from, and
+    // what the seller has not earned is exactly what is still at risk. No-op
+    // for the overwhelming majority of sessions, which have no schedule.
+    crate::vesting::on_dispute(env, session_id.clone());
 
     events::emit_dispute_opened(
         env,

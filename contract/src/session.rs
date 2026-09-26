@@ -63,11 +63,23 @@ pub enum SessionDataKey {
 ///
 /// # Panics
 /// Panics if no record is stored under `session_id`.
+pub /// Load a session, or panic with `"session not found"` if it does not exist.
+///
+/// # Panics
+/// Panics if no record is stored under `session_id`.
 pub fn get_session(env: &Env, session_id: &Bytes) -> Session {
+    try_get_session(env, session_id).expect("session not found")
+}
+
+/// Load a session if it exists.
+///
+/// The fallible counterpart to [`get_session`], for modules that want to
+/// report a missing session as an error rather than aborting. Both live here
+/// so that there is still exactly one place that knows how a session is keyed.
+pub fn try_get_session(env: &Env, session_id: &Bytes) -> Option<Session> {
     env.storage()
         .persistent()
         .get(&SessionDataKey::Session(session_id.clone()))
-        .expect("session not found")
 }
 
 /// Persist a session record.

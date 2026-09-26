@@ -33,6 +33,11 @@ pub enum ContractError {
     AlreadyInitialized = 1,
     /// Contract has not been initialized yet.
     NotInitialized = 2,
+    /// A configured off-chain endpoint (webhook URL) is empty, over the
+    /// length limit, or not an https URL the relayer will accept.
+    InvalidWebhookUrl = 3,
+    /// A metadata URI is empty or over the length limit.
+    InvalidMetadataUri = 4,
 
     // ── Authorization (200–299) ───────────────────────────────────────
     /// Caller is not authorized to perform this action.
@@ -43,6 +48,9 @@ pub enum ContractError {
     NotBuyer = 202,
     /// Caller is not the seller of the session being acted on.
     NotSeller = 203,
+    /// Caller is neither the buyer nor the seller of the session being acted
+    /// on, so is not a participant of it at all.
+    NotParticipant = 204,
 
     // ── Session validation (300–399) ──────────────────────────────────
     /// Session ID does not exist.
@@ -59,6 +67,21 @@ pub enum ContractError {
     SessionAlreadyRefunded = 305,
     /// Session is under dispute and cannot be acted on.
     SessionInDispute = 306,
+    /// A batch carried the same session id twice.
+    DuplicateInBatch = 307,
+    /// A batch operation was called with no sessions at all.
+    InvalidBatch = 308,
+    /// A batch operation carried more sessions than the per-transaction cap.
+    BatchTooLarge = 309,
+    /// The session's money has already moved (refunded or resolved), so its
+    /// record is frozen and no longer accepts writes.
+    SessionNotSettled = 310,
+    /// The session has no metadata to clear.
+    NoMetadata = 311,
+    /// The session has no vesting schedule.
+    NoVestingSchedule = 312,
+    /// Nothing has vested yet, or everything vested has already been claimed.
+    NothingToClaim = 313,
 
     // ── Financial validation (400–499) ─────────────────────────────────
     /// Amount is zero or negative.
@@ -71,6 +94,9 @@ pub enum ContractError {
     InvalidSplit = 403,
     /// Arithmetic overflow detected.
     Overflow = 404,
+    /// A vesting schedule has a zero duration, or a cliff longer than its
+    /// duration.
+    InvalidVestingSchedule = 405,
 
     // ── Timeouts and disputes (500–599) ────────────────────────────────
     /// The dispute window has not elapsed yet; auto-refund is not available.
@@ -105,15 +131,18 @@ mod tests {
 
     /// Every variant the contract can return, with the code each one is
     /// specified to carry.
-    const ALL: [(ContractError, u32); 24] = [
+    const ALL: [(ContractError, u32); 33] = [
         // Initialization.
         (AlreadyInitialized, 1),
         (NotInitialized, 2),
+        (InvalidWebhookUrl, 3),
+        (InvalidMetadataUri, 4),
         // Authorization.
         (Unauthorized, 200),
         (NotAdmin, 201),
         (NotBuyer, 202),
         (NotSeller, 203),
+        (NotParticipant, 204),
         // Session validation.
         (SessionNotFound, 300),
         (DuplicateSessionId, 301),
@@ -122,12 +151,20 @@ mod tests {
         (SessionAlreadyApproved, 304),
         (SessionAlreadyRefunded, 305),
         (SessionInDispute, 306),
+        (DuplicateInBatch, 307),
+        (InvalidBatch, 308),
+        (BatchTooLarge, 309),
+        (SessionNotSettled, 310),
+        (NoMetadata, 311),
+        (NoVestingSchedule, 312),
+        (NothingToClaim, 313),
         // Financial validation.
         (InvalidAmount, 400),
         (InsufficientBalance, 401),
         (FeeTooHigh, 402),
         (InvalidSplit, 403),
         (Overflow, 404),
+        (InvalidVestingSchedule, 405),
         // Timeouts and disputes.
         (DisputeWindowNotElapsed, 500),
         (DisputeAlreadyOpen, 501),
