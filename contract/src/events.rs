@@ -163,72 +163,46 @@ pub fn emit_auto_refund_executed(
     );
 }
 
-/// Emitted when a session's off-chain metadata URI is set or replaced.
+/// Emitted when the platform fee could not be moved to the treasury.
 ///
-/// Topics: ["meta_upd", session_id]
-/// Data: (caller, metadata_uri)
-pub fn emit_metadata_updated(
+/// The fee has already been deducted from the seller's payout, so the
+/// approval is left settled and the tokens stay held by the contract. This
+/// event is how an operator learns to sweep them.
+///
+/// Topics: ["fee_fail", token]
+/// Data: (treasury, amount, error_code)
+pub fn emit_fee_routing_failed(
     env: &Env,
-    session_id: &Bytes,
-    caller: &Address,
-    metadata_uri: &soroban_sdk::String,
+    token: &Address,
+    treasury: &Address,
+    amount: i128,
+    error: &crate::errors::ContractError,
 ) {
     env.events().publish(
-        (symbol_short!("meta_upd"), session_id.clone()),
-        (caller.clone(), metadata_uri.clone()),
+        (symbol_short!("fee_fail"), token.clone()),
+        (treasury.clone(), amount, error.code()),
     );
 }
 
-/// Emitted when a linear vesting schedule is attached to a session.
+/// Emitted when the admin-pinned fee token is not the token a session
+/// escrowed, so the fee was taken in the escrowed token instead.
 ///
-/// Topics: ["vest_new", session_id]
-/// Data: (total, cliff_ledgers, vesting_duration, start_ledger)
-pub fn emit_vesting_created(
+/// The contract holds exactly one token per session and will not invent a
+/// conversion rate, so a mismatch degrades to "fee in the escrowed token"
+/// and says so here rather than silently paying the treasury in a currency
+/// nobody asked for.
+///
+/// Topics: ["fee_mm", pinned_token]
+/// Data: (session_token, fee_amount)
+pub fn emit_fee_token_mismatch(
     env: &Env,
-    session_id: &Bytes,
-    total: i128,
-    cliff_ledgers: u64,
-    vesting_duration: u64,
-    start_ledger: u64,
+    pinned_token: &Address,
+    session_token: &Address,
+    fee_amount: i128,
 ) {
     env.events().publish(
-        (symbol_short!("vest_new"), session_id.clone()),
-        (total, cliff_ledgers, vesting_duration, start_ledger),
-    );
-}
-
-/// Emitted when the seller claims the part of the schedule that has vested.
-///
-/// Topics: ["vest_clam", session_id]
-/// Data: (seller, claimed_now, claimed_total, total)
-pub fn emit_vesting_claimed(
-    env: &Env,
-    session_id: &Bytes,
-    seller: &Address,
-    claimed_now: i128,
-    claimed_total: i128,
-    total: i128,
-) {
-    env.events().publish(
-        (symbol_short!("vest_clam"), session_id.clone()),
-        (seller.clone(), claimed_now, claimed_total, total),
-    );
-}
-
-/// Emitted when an unvested remainder is returned to the buyer because the
-/// session was disputed.
-///
-/// Topics: ["unvested", session_id]
-/// Data: (returned_to_buyer, already_claimed)
-pub fn emit_unvested_refunded(
-    env: &Env,
-    session_id: &Bytes,
-    returned_to_buyer: i128,
-    already_claimed: i128,
-) {
-    env.events().publish(
-        (symbol_short!("unvested"), session_id.clone()),
-        (returned_to_buyer, already_claimed),
+        (symbol_short!("fee_mm"), pinned_token.clone()),
+        (session_token.clone(), fee_amount),
     );
 }
 

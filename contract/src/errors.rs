@@ -14,6 +14,7 @@ use soroban_sdk::contracterror;
 /// | sess  | 300–399 | Session lookup and lifecycle transitions  |
 /// | fin   | 400–499 | Amounts, balances, fees, splits           |
 /// | disp  | 500–599 | Timeouts and dispute state               |
+/// | upgr  | 600–699 | Contract upgrades                        |
 ///
 /// Within a band, codes are also ordered: the low end is the "you called this
 /// wrong" case and the high end is the "the world moved on" case (e.g.
@@ -48,9 +49,6 @@ pub enum ContractError {
     NotBuyer = 202,
     /// Caller is not the seller of the session being acted on.
     NotSeller = 203,
-    /// Caller is neither the buyer nor the seller of the session being acted
-    /// on, so is not a participant of it at all.
-    NotParticipant = 204,
 
     // ── Session validation (300–399) ──────────────────────────────────
     /// Session ID does not exist.
@@ -67,21 +65,6 @@ pub enum ContractError {
     SessionAlreadyRefunded = 305,
     /// Session is under dispute and cannot be acted on.
     SessionInDispute = 306,
-    /// A batch carried the same session id twice.
-    DuplicateInBatch = 307,
-    /// A batch operation was called with no sessions at all.
-    InvalidBatch = 308,
-    /// A batch operation carried more sessions than the per-transaction cap.
-    BatchTooLarge = 309,
-    /// The session's money has already moved (refunded or resolved), so its
-    /// record is frozen and no longer accepts writes.
-    SessionNotSettled = 310,
-    /// The session has no metadata to clear.
-    NoMetadata = 311,
-    /// The session has no vesting schedule.
-    NoVestingSchedule = 312,
-    /// Nothing has vested yet, or everything vested has already been claimed.
-    NothingToClaim = 313,
 
     // ── Financial validation (400–499) ─────────────────────────────────
     /// Amount is zero or negative.
@@ -94,9 +77,12 @@ pub enum ContractError {
     InvalidSplit = 403,
     /// Arithmetic overflow detected.
     Overflow = 404,
-    /// A vesting schedule has a zero duration, or a cliff longer than its
-    /// duration.
-    InvalidVestingSchedule = 405,
+    /// No usable price is available for the asset: the oracle is unset,
+    /// unreachable, or too stale to trust, and no admin fallback is set.
+    PriceUnavailable = 405,
+    /// A token transfer into or out of the escrow failed: the token reverted,
+    /// does not implement the expected interface, or the balance was short.
+    TokenTransferFailed = 406,
 
     // ── Timeouts and disputes (500–599) ────────────────────────────────
     /// The dispute window has not elapsed yet; auto-refund is not available.
@@ -107,6 +93,12 @@ pub enum ContractError {
     DisputeNotOpen = 502,
     /// Session is not eligible for dispute resolution.
     ResolutionNotAllowed = 503,
+
+    // ── Upgrades (600–699) ─────────────────────────────────────────────
+    /// The provided WASM hash is zero or otherwise invalid.
+    InvalidWasmHash = 600,
+    /// The low-level contract upgrade call failed.
+    UpgradeFailed = 601,
 }
 
 impl From<ContractError> for u32 {
@@ -125,24 +117,115 @@ impl ContractError {
     }
 }
 
+/// A human-readable rendering of an error, for logs and off-chain tooling.
+///
+/// The wire format is the numeric code; this is the string form. It is
+/// written as `"<code>: <name> - <description>"` so that a log line carries
+/// all three things a person needs to act on it: which code to look up, what
+/// the variant is called, and what went wrong. Off-chain clients that switch
+/// on the string get the variant name, which is stable, rather than prose
+/// that can be reworded.
+impl core::fmt::Display for ContractError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let (name, description) = match self {
+            ContractError::AlreadyInitialized => (
+                "AlreadyInitialized",
+                "contract has already been initialized",
+            ),
+            ContractError::NotInitialized => ("NotInitialized", "contract is not initialized"),
+            ContractError::Unauthorized => (
+                "Unauthorized",
+                "caller is not authorized to perform this action",
+            ),
+            ContractError::NotAdmin => ("NotAdmin", "caller is not the contract admin"),
+            ContractError::NotBuyer => ("NotBuyer", "caller is not the session buyer"),
+            ContractError::NotSeller => ("NotSeller", "caller is not the session seller"),
+            ContractError::SessionNotFound => ("SessionNotFound", "session id does not exist"),
+            ContractError::DuplicateSessionId => ("DuplicateSessionId", "session id already exists"),
+            ContractError::InvalidSessionState => (
+                "InvalidSessionState",
+                "operation is not allowed in the session's current state",
+            ),
+            ContractError::SessionAlreadyCompleted => (
+                "SessionAlreadyCompleted",
+                "session is already completed",
+            ),
+            ContractError::SessionAlreadyApproved => (
+                "SessionAlreadyApproved",
+                "session is already approved",
+            ),
+            ContractError::SessionAlreadyRefunded => (
+                "SessionAlreadyRefunded",
+                "session is already refunded",
+            ),
+            ContractError::SessionInDispute => (
+                "SessionInDispute",
+                "session is under dispute and cannot be acted on",
+            ),
+            ContractError::InvalidAmount => ("InvalidAmount", "amount is zero or negative"),
+            ContractError::InsufficientBalance => (
+                "InsufficientBalance",
+                "buyer does not have enough funds",
+            ),
+            ContractError::FeeTooHigh => ("FeeTooHigh", "fee exceeds the maximum of 1000 bps"),
+            ContractError::InvalidSplit => (
+                "InvalidSplit",
+                "dispute split does not sum to the session amount",
+            ),
+            ContractError::Overflow => ("Overflow", "arithmetic overflow detected"),
+            ContractError::PriceUnavailable => (
+                "PriceUnavailable",
+                "no usable price is available for the asset",
+            ),
+            ContractError::TokenTransferFailed => (
+                "TokenTransferFailed",
+                "a token transfer into or out of the escrow failed",
+            ),
+            ContractError::DisputeWindowNotElapsed => (
+                "DisputeWindowNotElapsed",
+                "the dispute window has not elapsed yet",
+            ),
+            ContractError::DisputeAlreadyOpen => (
+                "DisputeAlreadyOpen",
+                "a dispute is already open for this session",
+            ),
+            ContractError::DisputeNotOpen => (
+                "DisputeNotOpen",
+                "no dispute is open for this session",
+            ),
+            ContractError::ResolutionNotAllowed => (
+                "ResolutionNotAllowed",
+                "session is not eligible for dispute resolution",
+            ),
+            ContractError::InvalidWasmHash => (
+                "InvalidWasmHash",
+                "the provided wasm hash is zero or invalid",
+            ),
+            ContractError::UpgradeFailed => (
+                "UpgradeFailed",
+                "the low-level contract upgrade call failed",
+            ),
+        };
+
+        write!(f, "{}: {} - {}", self.code(), name, description)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::ContractError::{self, *};
 
     /// Every variant the contract can return, with the code each one is
     /// specified to carry.
-    const ALL: [(ContractError, u32); 33] = [
+    const ALL: [(ContractError, u32); 28] = [
         // Initialization.
         (AlreadyInitialized, 1),
         (NotInitialized, 2),
-        (InvalidWebhookUrl, 3),
-        (InvalidMetadataUri, 4),
         // Authorization.
         (Unauthorized, 200),
         (NotAdmin, 201),
         (NotBuyer, 202),
         (NotSeller, 203),
-        (NotParticipant, 204),
         // Session validation.
         (SessionNotFound, 300),
         (DuplicateSessionId, 301),
@@ -151,25 +234,22 @@ mod tests {
         (SessionAlreadyApproved, 304),
         (SessionAlreadyRefunded, 305),
         (SessionInDispute, 306),
-        (DuplicateInBatch, 307),
-        (InvalidBatch, 308),
-        (BatchTooLarge, 309),
-        (SessionNotSettled, 310),
-        (NoMetadata, 311),
-        (NoVestingSchedule, 312),
-        (NothingToClaim, 313),
         // Financial validation.
         (InvalidAmount, 400),
         (InsufficientBalance, 401),
         (FeeTooHigh, 402),
         (InvalidSplit, 403),
         (Overflow, 404),
-        (InvalidVestingSchedule, 405),
+        (PriceUnavailable, 405),
+        (TokenTransferFailed, 406),
         // Timeouts and disputes.
         (DisputeWindowNotElapsed, 500),
         (DisputeAlreadyOpen, 501),
         (DisputeNotOpen, 502),
         (ResolutionNotAllowed, 503),
+        // Upgrades.
+        (InvalidWasmHash, 600),
+        (UpgradeFailed, 601),
     ];
 
     #[test]
@@ -201,12 +281,13 @@ mod tests {
     #[test]
     fn every_code_is_in_its_declared_band() {
         /// Inclusive `(low, high)` bounds for each band.
-        const BANDS: [(u32, u32); 5] = [
+        const BANDS: [(u32, u32); 6] = [
             (1, 99),
             (200, 299),
             (300, 399),
             (400, 499),
             (500, 599),
+            (600, 699),
         ];
         for (variant, code) in ALL.iter() {
             assert!(
@@ -222,5 +303,47 @@ mod tests {
     fn code_helper_matches_the_repr() {
         assert_eq!(InvalidSplit.code(), 403);
         assert_eq!(SessionInDispute.code(), 306);
+    }
+
+    /// The `Display` tests need `String` and `format!`, which a `no_std`
+    /// crate does not have in scope. `lib.rs` pulls `std` in under
+    /// `cfg(test)` for exactly this purpose.
+    use std::format;
+    use std::string::String;
+
+    fn render(error: ContractError) -> String {
+        use core::fmt::Write;
+        let mut out = String::new();
+        write!(out, "{}", error).expect("writing to a String cannot fail");
+        out
+    }
+
+    #[test]
+    fn display_starts_with_the_numeric_code_and_variant_name() {
+        for (variant, code) in ALL.iter() {
+            let rendered = render(*variant);
+            assert!(
+                rendered.starts_with(&format!("{}: {:?} - ", code, variant)),
+                "{:?} rendered as {:?}",
+                variant,
+                rendered
+            );
+        }
+    }
+
+    #[test]
+    fn display_descriptions_are_non_empty() {
+        for (variant, _) in ALL.iter() {
+            let rendered = render(*variant);
+            let description = rendered
+                .split(" - ")
+                .nth(1)
+                .unwrap_or_else(|| panic!("{:?} has no description: {:?}", variant, rendered));
+            assert!(
+                !description.is_empty(),
+                "{:?} has an empty description",
+                variant
+            );
+        }
     }
 }

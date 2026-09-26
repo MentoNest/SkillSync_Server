@@ -19,9 +19,15 @@ enum ConfigKey {
     DisputeWindow,
 }
 
-/// Assert that `caller` is the stored admin, and that they authorized this
-/// call. Shared by the admin-only setters in this module.
-fn require_admin(env: &Env, caller: &Address) -> Result<(), ContractError> {
+/// Assert that `caller` is the stored admin and that they authorized this
+/// call, returning the admin address so callers can reuse it.
+///
+/// This is the single admin guard for the whole contract: `admin`, `fee`,
+/// `upgrade`, `oracle` and `token` all route through it, so a new
+/// admin-only entry point cannot accidentally invent its own notion of who
+/// the admin is, or forget the `require_auth` check that turns a stored
+/// address into an authenticated one.
+pub fn require_admin(env: &Env, caller: &Address) -> Result<Address, ContractError> {
     if !storage::is_initialized(env) {
         return Err(ContractError::NotInitialized);
     }
@@ -32,7 +38,7 @@ fn require_admin(env: &Env, caller: &Address) -> Result<(), ContractError> {
     }
 
     caller.require_auth();
-    Ok(())
+    Ok(admin)
 }
 
 /// Initialize the contract state.

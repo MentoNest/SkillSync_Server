@@ -1,26 +1,31 @@
 #![no_std]
 
+/// The `no_std` crate has no `String`/`format!` in scope, which the error
+/// `Display` tests need. `std` is only linked into test builds; the contract
+/// WASM itself stays `no_std`.
+#[cfg(test)]
+extern crate std;
+
 mod admin;
-mod batch;
 mod dispute;
 mod errors;
 mod events;
 mod fee;
-mod metadata;
+mod oracle;
 mod session;
 mod storage;
-mod vesting;
-mod webhook;
+mod token;
+mod upgrade;
 
 #[cfg(test)]
-mod session_modules_tests;
+mod testutil;
 #[cfg(test)]
 mod tests;
 
 pub use admin::initialize;
 pub use fee::{get_platform_fee, set_platform_fee};
 
-use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String};
 
 use errors::ContractError;
 
@@ -31,10 +36,9 @@ use errors::ContractError;
 /// - Platform fee management (basis points, 0–1000).
 /// - Escrow session lifecycle (lock, complete, approve, refund).
 /// - Dispute opening and admin resolution.
-/// - Off-chain metadata references per session.
-/// - Linear vesting of a seller's payout.
-/// - Batched lock/complete/approve/refund.
-/// - Off-chain event relay configuration and payloads.
+/// - Admin-scheduled WASM upgrades.
+/// - Price oracle reads with an admin-published fallback.
+/// - Any SEP-41 token, one per session.
 #[contract]
 pub struct SkillSyncContract;
 
@@ -74,38 +78,246 @@ impl SkillSyncContract {
         fee::get_platform_fee(&env)
     }
 
-    /// Escrow `amount` between a buyer and seller, creating a `Locked`
-    /// session. Reverts if the ID is taken or the amount is not positive.
-    pub fn lock_funds(env: Env, session_id: Bytes, buyer: Address, seller: Address, amount: i128) {
-        session::lock_funds(&env, session_id, buyer, seller, amount);
+    /// Escrow `amount` of `token_address` between a buyer and seller,
+    /// creating a `Locked` session.
+    ///
+    /// The funds are pulled with the token's own `transfer_from`, so the
+    /// buyer must have approved this contract an allowance first. The token
+    /// is fixed for the life of the session: a session holds exactly one
+    /// token, so it can never be settled in a mixture.
+    ///
+    /// # Errors
+    /// - [`ContractError::InvalidAmount`] if `amount` is not positive.
+    /// - [`ContractError::DuplicateSessionId`] if the ID is taken.
+    /// - [`ContractError::TokenTransferFailed`] if the pull fails.
+    pub fn lock_funds(
+        env: Env,
+        session_id: Bytes,
+        buyer: Address,
+        seller: Address,
+        amount: i128,
+        token_address: Address,
+    ) -> Result<(), ContractError> {
+        session::lock_funds(&env, session_id, buyer, seller, amount, token_address)
     }
 
     /// Seller marks the session as complete, opening the dispute window.
-    pub fn complete_session(env: Env, session_id: Bytes) {
-        session::complete_session(&env, session_id);
+    ///
+    /// # Errors
+    /// - [`ContractError::SessionNotFound`] if the session does not exist.
+    /// - [`ContractError::NotSeller`] if `caller` is not the session's seller.
+    /// - [`ContractError::SessionAlreadyCompleted`] if already completed.
+    /// - [`ContractError::SessionInDispute`] if a dispute is open.
+    /// - [`ContractError::InvalidSessionState`] for any other state.
+    pub fn complete_session(
+        env: Env,
+        session_id: Bytes,
+        caller: Address,
+    ) -> Result<(), ContractError> {
+        session::complete_session(&env, session_id, caller)
     }
 
     /// Buyer approves a completed session, releasing funds to the seller
     /// minus the platform fee.
-    pub fn approve_session(env: Env, session_id: Bytes) {
-        session::approve_session(&env, session_id);
+    ///
+    /// # Errors
+    /// - [`ContractError::SessionNotFound`] if the session does not exist.
+    /// - [`ContractError::NotBuyer`] if `caller` is not the session's buyer.
+    /// - [`ContractError::SessionAlreadyApproved`] if already approved.
+    /// - [`ContractError::SessionInDispute`] if a dispute is open.
+    /// - [`ContractError::InvalidSessionState`] for any other state.
+    pub fn approve_session(
+        env: Env,
+        session_id: Bytes,
+        caller: Address,
+    ) -> Result<(), ContractError> {
+        session::approve_session(&env, session_id, caller)
     }
 
     /// Allows the buyer to request a refund before the session is
     /// completed. Full amount returned, no fee deducted.
-    pub fn refund_session(env: Env, session_id: Bytes) {
-        session::refund_session(&env, session_id);
+    ///
+    /// # Errors
+    /// - [`ContractError::SessionNotFound`] if the session does not exist.
+    /// - [`ContractError::NotBuyer`] if `caller` is not the session's buyer.
+    /// - [`ContractError::SessionAlreadyRefunded`] if already refunded.
+    /// - [`ContractError::SessionInDispute`] if a dispute is open.
+    /// - [`ContractError::InvalidSessionState`] for any other state.
+    pub fn refund_session(
+        env: Env,
+        session_id: Bytes,
+        caller: Address,
+    ) -> Result<(), ContractError> {
+        session::refund_session(&env, session_id, caller)
     }
 
     /// Opens a dispute on a Completed or Locked session. Callable by
     /// either the buyer or seller. See the `dispute` module.
-    pub fn open_dispute(env: Env, session_id: Bytes, caller: Address, reason: String) {
-        dispute::open_dispute(&env, session_id, caller, reason);
+    ///
+    /// # Errors
+    /// - [`ContractError::SessionNotFound`] if the session does not exist.
+    /// - [`ContractError::Unauthorized`] if `caller` is not a participant.
+    /// - [`ContractError::DisputeAlreadyOpen`] if a dispute is already open.
+    /// - [`ContractError::InvalidSessionState`] for any other state.
+    pub fn open_dispute(
+        env: Env,
+        session_id: Bytes,
+        caller: Address,
+        reason: String,
+    ) -> Result<(), ContractError> {
+        dispute::open_dispute(&env, session_id, caller, reason)
+    }
+
+    /// Stage `new_hash` as the WASM to upgrade to on the next
+    /// [`execute_upgrade`] call (admin only).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    /// - [`ContractError::InvalidWasmHash`] if `new_hash` is all zeroes.
+    pub fn stage_upgrade(
+        env: Env,
+        caller: Address,
+        new_hash: BytesN<32>,
+    ) -> Result<(), ContractError> {
+        upgrade::stage_upgrade(&env, caller, new_hash)
+    }
+
+    /// Apply the hash staged by [`stage_upgrade`] to the running contract
+    /// (admin only).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    /// - [`ContractError::InvalidWasmHash`] if no hash has been staged.
+    /// - [`ContractError::UpgradeFailed`] if the deployer rejects the upgrade.
+    pub fn execute_upgrade(env: Env, caller: Address) -> Result<(), ContractError> {
+        upgrade::execute_upgrade(&env, caller)
+    }
+
+    /// The WASM hash staged for the next upgrade, if any.
+    pub fn get_staged_wasm_hash(env: Env) -> Option<BytesN<32>> {
+        upgrade::get_staged_wasm_hash(&env)
+    }
+
+    /// Discard any staged WASM hash (admin only).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    pub fn cancel_upgrade(env: Env, caller: Address) -> Result<(), ContractError> {
+        upgrade::cancel_upgrade(&env, caller)
+    }
+
+    /// Point the contract at an oracle contract to read prices from
+    /// (admin only).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    pub fn set_oracle(env: Env, caller: Address, oracle_id: Address) -> Result<(), ContractError> {
+        oracle::set_oracle(&env, caller, oracle_id)
+    }
+
+    /// Stop reading prices from an oracle (admin only).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    pub fn clear_oracle(env: Env, caller: Address) -> Result<(), ContractError> {
+        oracle::clear_oracle(&env, caller)
+    }
+
+    /// The configured oracle, if any.
+    pub fn get_oracle(env: Env) -> Option<Address> {
+        oracle::get_oracle(&env)
+    }
+
+    /// Publish an admin fallback price for `asset`, used whenever the oracle
+    /// is unset, unreachable, or too stale to trust (admin only).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    /// - [`ContractError::InvalidAmount`] if `price` is not positive.
+    pub fn set_admin_price(
+        env: Env,
+        caller: Address,
+        asset: BytesN<32>,
+        price: i128,
+    ) -> Result<(), ContractError> {
+        oracle::set_admin_price(&env, caller, asset, price)
+    }
+
+    /// Remove the admin fallback price for `asset` (admin only).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    pub fn clear_admin_price(
+        env: Env,
+        caller: Address,
+        asset: BytesN<32>,
+    ) -> Result<(), ContractError> {
+        oracle::clear_admin_price(&env, caller, asset)
+    }
+
+    /// The admin fallback price for `asset`, if one is published.
+    pub fn get_admin_price(env: Env, asset: BytesN<32>) -> Option<oracle::AdminPrice> {
+        oracle::get_admin_price(&env, asset)
+    }
+
+    /// The price of one whole unit of `asset`, from the oracle when it is
+    /// reachable and fresh enough, otherwise from the admin fallback.
+    ///
+    /// # Errors
+    /// [`ContractError::PriceUnavailable`] when neither source has a usable
+    /// price.
+    pub fn get_price(env: Env, asset: BytesN<32>) -> Result<i128, ContractError> {
+        oracle::get_price(&env, asset)
+    }
+
+    /// Convert `base_amount` of the settlement asset into `asset` units at
+    /// the current price.
+    ///
+    /// # Errors
+    /// - [`ContractError::InvalidAmount`] for a non-positive amount or price.
+    /// - [`ContractError::PriceUnavailable`] when no usable price exists.
+    /// - [`ContractError::Overflow`] if the multiplication overflows.
+    pub fn quote(env: Env, asset: BytesN<32>, base_amount: i128) -> Result<i128, ContractError> {
+        oracle::quote(&env, asset, base_amount)
+    }
+
+    /// Pin the token the platform fee is settled in (admin only).
+    ///
+    /// The fee is always taken in the token a session escrows, because that is
+    /// the only token the contract holds. Pinning a token therefore sets the
+    /// currency for sessions escrowed in it; for a session in a different
+    /// token the fee stays where it is and a `FeeTokenMismatch` event says so.
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    pub fn set_fee_token(env: Env, caller: Address, fee_token: Address) -> Result<(), ContractError> {
+        token::set_fee_token(&env, caller, fee_token)
+    }
+
+    /// Go back to settling the fee in whatever the session escrows (admin only).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    pub fn clear_fee_token(env: Env, caller: Address) -> Result<(), ContractError> {
+        token::clear_fee_token(&env, caller)
+    }
+
+    /// The token the platform fee is settled in, if the admin has pinned one.
+    pub fn get_fee_token(env: Env) -> Option<Address> {
+        token::get_fee_token(&env)
     }
 
     /// Admin splits the escrowed amount between buyer and seller to settle
     /// an open dispute. Returns `(buyer_payout, seller_payout, total_fee)`,
     /// each net of the platform fee.
+    ///
+    /// # Errors
+    /// - [`ContractError::SessionNotFound`] if the session does not exist.
+    /// - [`ContractError::DisputeNotOpen`] if no dispute is open.
+    /// - [`ContractError::InvalidSplit`] if the shares are negative or do not
+    ///   sum to the session amount.
+    /// - [`ContractError::FeeTooHigh`] if `fee_bps` exceeds 1000.
+    /// - [`ContractError::Overflow`] if the split or fee arithmetic overflows.
     pub fn resolve_dispute(
         env: Env,
         session_id: Bytes,
@@ -113,7 +325,7 @@ impl SkillSyncContract {
         buyer_share: i128,
         seller_share: i128,
         fee_bps: u32,
-    ) -> (i128, i128, i128) {
+    ) -> Result<(i128, i128, i128), ContractError> {
         dispute::resolve_dispute(
             &env,
             session_id,
@@ -122,258 +334,5 @@ impl SkillSyncContract {
             seller_share,
             fee_bps,
         )
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Off-chain metadata
-    // ─────────────────────────────────────────────────────────────────────
-
-    /// Attach or replace the off-chain metadata URI for a session. Callable by
-    /// the buyer or the seller.
-    ///
-    /// The URI is a reference — an IPFS CID or an HTTPS URL — never the
-    /// document itself. Ledgers are not a document store: they are replicated
-    /// to every validator, priced by state footprint, and permanent.
-    ///
-    /// # Errors
-    /// - [`ContractError::SessionNotFound`] if the session does not exist.
-    /// - [`ContractError::NotParticipant`] if `caller` is neither party.
-    /// - [`ContractError::SessionNotSettled`] if the session is `Refunded`
-    ///   or `Resolved`.
-    /// - [`ContractError::InvalidMetadataUri`] if the URI is empty or over
-    ///   256 characters.
-    pub fn set_session_metadata(
-        env: Env,
-        session_id: Bytes,
-        caller: Address,
-        metadata_uri: String,
-    ) -> Result<(), ContractError> {
-        metadata::set_session_metadata(&env, session_id, caller, metadata_uri)
-    }
-
-    /// The metadata URI for a session, or `None` if none is set.
-    pub fn get_session_metadata(env: Env, session_id: Bytes) -> Option<String> {
-        metadata::get_session_metadata(&env, session_id)
-    }
-
-    /// Remove the metadata URI for a session. Callable by the buyer or seller.
-    ///
-    /// # Errors
-    /// - [`ContractError::SessionNotFound`] if the session does not exist.
-    /// - [`ContractError::NotParticipant`] if `caller` is neither party.
-    /// - [`ContractError::SessionNotSettled`] if the session is `Refunded`
-    ///   or `Resolved`.
-    /// - [`ContractError::NoMetadata`] if no URI is currently set.
-    pub fn clear_session_metadata(
-        env: Env,
-        session_id: Bytes,
-        caller: Address,
-    ) -> Result<(), ContractError> {
-        metadata::clear_session_metadata(&env, session_id, caller)
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Vesting
-    // ─────────────────────────────────────────────────────────────────────
-
-    /// Escrow `amount` between a buyer and seller with a linear release
-    /// schedule attached.
-    ///
-    /// Nothing is claimable during the cliff, then the seller's release
-    /// unlocks linearly until fully vested at `cliff_ledgers +
-    /// vesting_duration`.
-    ///
-    /// # Errors
-    /// - [`ContractError::InvalidVestingSchedule`] if `vesting_duration` is
-    ///   zero or `cliff_ledgers` exceeds it.
-    /// - [`ContractError::InvalidAmount`] / [`ContractError::DuplicateSessionId`]
-    ///   — as for a normal lock.
-    pub fn lock_funds_with_vesting(
-        env: Env,
-        session_id: Bytes,
-        buyer: Address,
-        seller: Address,
-        amount: i128,
-        cliff_ledgers: u64,
-        vesting_duration: u64,
-    ) -> Result<(), ContractError> {
-        vesting::lock_funds_with_vesting(
-            &env,
-            session_id,
-            buyer,
-            seller,
-            amount,
-            cliff_ledgers,
-            vesting_duration,
-        );
-    }
-
-    /// Claim everything vested so far on a session. Callable only by the
-    /// session's seller.
-    ///
-    /// Claims are all-or-nothing per call rather than a caller-chosen amount:
-    /// the only thing a caller can vary is *when*, and a partial-amount option
-    /// would only add a way to make a mistake.
-    ///
-    /// # Errors
-    /// - [`ContractError::NoVestingSchedule`] if the session has no schedule.
-    /// - [`ContractError::NotSeller`] if `caller` is not the session's seller.
-    /// - [`ContractError::NothingToClaim`] if the cliff has not passed, or
-    ///   everything vested has already been claimed.
-    /// - [`ContractError::SessionNotSettled`] if the session is `Refunded`
-    ///   or `Resolved`.
-    /// - [`ContractError::SessionInDispute`] if a dispute has already unwound
-    ///   the schedule.
-    pub fn claim_vested(
-        env: Env,
-        session_id: Bytes,
-        caller: Address,
-    ) -> Result<(), ContractError> {
-        vesting::claim_vested(&env, session_id, caller)
-    }
-
-    /// The vesting schedule attached to a session, if any.
-    pub fn get_vesting_schedule(env: Env, session_id: Bytes) -> Option<vesting::VestingSchedule> {
-        vesting::get_schedule(&env, &session_id)
-    }
-
-    /// The amount still claimable on a session right now.
-    ///
-    /// # Errors
-    /// [`ContractError::NoVestingSchedule`] if the session has no schedule,
-    /// which is a different answer from "zero is claimable".
-    pub fn claimable_vested(env: Env, session_id: Bytes) -> Result<i128, ContractError> {
-        vesting::claimable(&env, &session_id)
-    }
-
-    /// The part of a session's escrow that has not vested yet — the amount at
-    /// risk if the session is disputed.
-    pub fn unvested_amount(env: Env, session_id: Bytes) -> i128 {
-        match vesting::get_schedule(&env, &session_id) {
-            Some(schedule) => vesting::unvested_amount(&schedule, env.ledger().sequence()),
-            None => 0,
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Event relay
-    // ─────────────────────────────────────────────────────────────────────
-
-    /// Point the deployment at an off-chain relay endpoint (admin only).
-    ///
-    /// This is configuration, not delivery: the contract has no network access
-    /// and never makes the request. A relayer reads the event stream and posts
-    /// the payloads this contract emits.
-    ///
-    /// # Errors
-    /// - [`ContractError::NotAdmin`] if `caller` is not the admin.
-    /// - [`ContractError::InvalidWebhookUrl`] if the URL is empty, over 256
-    ///   characters, or does not start with `https://`.
-    pub fn set_webhook(
-        env: Env,
-        caller: Address,
-        url: String,
-    ) -> Result<(), ContractError> {
-        webhook::set_webhook(&env, caller, url)
-    }
-
-    /// Stop relaying to any endpoint (admin only). Escrows are unaffected.
-    ///
-    /// # Errors
-    /// - [`ContractError::NotAdmin`] if `caller` is not the admin.
-    pub fn clear_webhook(env: Env, caller: Address) -> Result<(), ContractError> {
-        webhook::clear_webhook(&env, caller)
-    }
-
-    /// The configured relay endpoint, if any.
-    pub fn get_webhook(env: Env) -> Option<String> {
-        webhook::get_webhook(&env)
-    }
-
-    /// Whether relaying is configured.
-    pub fn is_webhook_enabled(env: Env) -> bool {
-        webhook::is_webhook_enabled(&env)
-    }
-
-    /// Assemble the relayer-ready payload for a session: session ID, event
-    /// type, status, amount, both parties, and the metadata URI if one is set.
-    ///
-    /// Returns `None` for a session that does not exist, so a relayer can call
-    /// this for every event it sees without special-casing stragglers.
-    pub fn build_relay_payload(
-        env: Env,
-        session_id: Bytes,
-        event_type: String,
-    ) -> Option<webhook::RelayPayload> {
-        webhook::build_payload(&env, session_id, event_type)
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Batched operations
-    // ─────────────────────────────────────────────────────────────────────
-
-    /// Escrow funds for several sessions in one transaction.
-    ///
-    /// Each item is `(session_id, seller, amount)`; `caller` is the buyer for
-    /// all of them. The batch is atomic — if any session cannot be processed,
-    /// none are.
-    ///
-    /// # Errors
-    /// - [`ContractError::InvalidBatch`] if `sessions` is empty.
-    /// - [`ContractError::BatchTooLarge`] if it holds more than 20 items.
-    /// - [`ContractError::InvalidAmount`] if any amount is not positive.
-    /// - [`ContractError::DuplicateInBatch`] if an ID repeats in the batch.
-    /// - [`ContractError::DuplicateSessionId`] if an ID already exists.
-    pub fn batch_lock_funds(
-        env: Env,
-        caller: Address,
-        sessions: Vec<(Bytes, Address, i128)>,
-    ) -> Result<(), ContractError> {
-        batch::batch_lock_funds(&env, caller, sessions)
-    }
-
-    /// Approve several completed sessions in one transaction. `caller` must be
-    /// the buyer of every session listed.
-    ///
-    /// # Errors
-    /// - [`ContractError::InvalidBatch`] if `session_ids` is empty.
-    /// - [`ContractError::BatchTooLarge`] if it holds more than 20 items.
-    /// - [`ContractError::DuplicateInBatch`] if an ID repeats in the batch.
-    pub fn batch_approve(
-        env: Env,
-        caller: Address,
-        session_ids: Vec<Bytes>,
-    ) -> Result<(), ContractError> {
-        batch::batch_approve(&env, caller, session_ids)
-    }
-
-    /// Mark several sessions complete in one transaction. `caller` must be the
-    /// seller of every session listed.
-    ///
-    /// # Errors
-    /// - [`ContractError::InvalidBatch`] if `session_ids` is empty.
-    /// - [`ContractError::BatchTooLarge`] if it holds more than 20 items.
-    /// - [`ContractError::DuplicateInBatch`] if an ID repeats in the batch.
-    pub fn batch_complete(
-        env: Env,
-        caller: Address,
-        session_ids: Vec<Bytes>,
-    ) -> Result<(), ContractError> {
-        batch::batch_complete(&env, caller, session_ids)
-    }
-
-    /// Refund several locked sessions to the buyer in one transaction.
-    /// `caller` must be the buyer of every session listed.
-    ///
-    /// # Errors
-    /// - [`ContractError::InvalidBatch`] if `session_ids` is empty.
-    /// - [`ContractError::BatchTooLarge`] if it holds more than 20 items.
-    /// - [`ContractError::DuplicateInBatch`] if an ID repeats in the batch.
-    pub fn batch_refund(
-        env: Env,
-        caller: Address,
-        session_ids: Vec<Bytes>,
-    ) -> Result<(), ContractError> {
-        batch::batch_refund(&env, caller, session_ids)
     }
 }
