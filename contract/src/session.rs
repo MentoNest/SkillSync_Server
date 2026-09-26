@@ -2,6 +2,8 @@ use soroban_sdk::{contracttype, Address, Bytes, Env};
 
 use crate::events;
 
+use crate::{events, fee};
+
 /// Escrow session lifecycle (BE refund function).
 ///
 /// This module owns its own storage key space (`SessionDataKey`) and status
@@ -52,6 +54,7 @@ fn save_session(env: &Env, session_id: Bytes, session: &Session) {
 
 /// Minimal session creation: locks `amount` between `buyer` and `seller`.
 /// Reverts if a session already exists under `session_id`.
+/// Emits `FundsLocked` (see [`events::emit_funds_locked`]).
 pub fn lock_funds(env: &Env, session_id: Bytes, buyer: Address, seller: Address, amount: i128) {
     assert!(amount > 0, "amount must be > 0");
     assert!(
@@ -70,13 +73,48 @@ pub fn lock_funds(env: &Env, session_id: Bytes, buyer: Address, seller: Address,
         status: SessionStatus::Locked,
         created_at: env.ledger().sequence(),
     };
-    save_session(env, session_id, &session);
+    save_session(env, session_id.clone(), &session);
+
+    events::emit_funds_locked(env, &session_id, &session.buyer, &session.seller, amount);
 }
 
 /// Read-only accessor for a session, for callers/tests that need to inspect
 /// state without going through a mutating entry point.
 pub fn get(env: &Env, session_id: Bytes) -> Session {
     get_session(env, &session_id)
+}
+
+/// Buyer approves a completed session, releasing funds to the seller minus
+/// the platform fee (see [`fee::apply_platform_fee`]).
+///
+/// # Reverts
+/// - `"session not found"` if `session_id` doesn't exist.
+/// - `"InvalidSessionState"` unless the session is currently `Completed`.
+///
+/// # Events
+/// Emits `SessionApproved` (see [`events::emit_session_approved`]).
+pub fn approve_session(env: &Env, session_id: Bytes) {
+    let mut session = get_session(env, &session_id);
+
+    assert!(
+        session.status == SessionStatus::Completed,
+        "InvalidSessionState"
+    );
+
+    session.buyer.require_auth();
+
+    session.status = SessionStatus::Approved;
+    save_session(env, session_id.clone(), &session);
+
+    let (_net, fee) = fee::apply_platform_fee(env, session.amount);
+    events::emit_session_approved(
+        env,
+        &session_id,
+        &session.buyer,
+        &session.seller,
+        session.amount,
+        fee,
+    );
 }
 
 /// Allows the buyer to request an early refund before the session is
@@ -123,6 +161,51 @@ mod tests {
         let seller = Address::generate(&env);
         let session_id = Bytes::from_slice(&env, &[1u8; 32]);
         (env, buyer, seller, session_id)
+    }
+
+    #[test]
+    fn approve_session_emits_session_approved_event_with_fee() {
+        let (env, buyer, seller, session_id) = setup();
+        env.ledger().set_timestamp(1_700_000_000);
+        let contract_id = env.register(SkillSyncContract, ());
+        let client = SkillSyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin, &Address::generate(&env));
+        client.set_platform_fee(&admin, &250); // 2.5%
+        client.lock_funds(&session_id, &buyer, &seller, &1_000);
+        env.as_contract(&contract_id, || {
+            let mut session = get(&env, session_id.clone());
+            session.status = SessionStatus::Completed;
+            save_session(&env, session_id.clone(), &session);
+        });
+
+        client.approve_session(&session_id);
+
+        let events = env.events().all();
+        assert_eq!(events.len(), 1);
+        let (emitter, topics, data) = events.last().unwrap();
+        assert_eq!(emitter, contract_id);
+        assert_eq!(topics, (symbol_short!("sess_appr"),).into_val(&env));
+        let data = <(Bytes, Address, Address, i128, i128, u64)>::try_from_val(&env, &data).unwrap();
+        // gross 1_000, fee 25, so the seller nets 975.
+        assert_eq!(
+            data,
+            (session_id.clone(), buyer, seller, 1_000, 25, 1_700_000_000)
+        );
+
+        let session = env.as_contract(&contract_id, || get(&env, session_id));
+        assert_eq!(session.status, SessionStatus::Approved);
+    }
+
+    #[test]
+    #[should_panic]
+    fn approve_session_reverts_if_not_completed() {
+        let (env, buyer, seller, session_id) = setup();
+        let contract_id = env.register(SkillSyncContract, ());
+        let client = SkillSyncContractClient::new(&env, &contract_id);
+        client.lock_funds(&session_id, &buyer, &seller, &1_000);
+
+        client.approve_session(&session_id);
     }
 
     #[test]
