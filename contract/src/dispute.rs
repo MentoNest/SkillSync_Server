@@ -1,85 +1,29 @@
-use soroban_sdk::{contracttype, symbol_short, Address, Bytes, BytesN, Env, String};
+use soroban_sdk::{Address, Bytes, BytesN, Env, String};
 
-use crate::{events, fee};
+use crate::events;
+use crate::fee;
+use crate::session::{self, Session, SessionStatus};
 
-/// Dispute open/resolve logic (BE dispute open + resolve functions).
+/// Dispute open/resolve logic.
 ///
-/// This module owns its own storage key space (`DisputeDataKey`) and
-/// session-status type, independent of the broader escrow session module
-/// (lock_funds/refund_session), since that module lives in a separate,
-/// concurrently-developed file. `open_session_for_dispute` here is the
-/// minimal creation path needed to make `open_dispute`/`resolve_dispute`
-/// real and testable; once the escrow session module and this one are
-/// merged, they should converge on a single shared `Session` type.
+/// Disputes operate on the *canonical* [`session::Session`] record rather
+/// than a private copy: a session that is `Disputed` here is the same record
+/// that `lock_funds`/`complete_session`/`approve_session` created, so
+/// "is this session disputed?" is answerable from one source of truth.
 
-#[contracttype]
-#[derive(Clone, PartialEq, Debug)]
-pub enum DisputeSessionStatus {
-    Locked,
-    Completed,
-    Disputed,
-    Resolved,
-}
-
-#[contracttype]
-#[derive(Clone)]
-pub struct DisputeSession {
-    pub buyer: Address,
-    pub seller: Address,
-    pub amount: i128,
-    pub status: DisputeSessionStatus,
-    pub dispute_opened_at: u32,
-}
-
-#[contracttype]
-#[derive(Clone)]
-enum DisputeDataKey {
-    Session(Bytes),
-}
-
-fn get_session(env: &Env, session_id: &Bytes) -> DisputeSession {
-    env.storage()
-        .persistent()
-        .get(&DisputeDataKey::Session(session_id.clone()))
-        .expect("session not found")
-}
-
-fn save_session(env: &Env, session_id: Bytes, session: &DisputeSession) {
-    env.storage()
-        .persistent()
-        .set(&DisputeDataKey::Session(session_id), session);
-}
-
-/// Minimal session creation for testing open_dispute/resolve_dispute in
-/// isolation. Reverts if a session already exists under `session_id`.
-pub fn open_session_for_dispute(
-    env: &Env,
-    session_id: Bytes,
-    buyer: Address,
-    seller: Address,
-    amount: i128,
-    status: DisputeSessionStatus,
-) {
-    assert!(amount > 0, "amount must be > 0");
-    assert!(
-        !env.storage()
-            .persistent()
-            .has(&DisputeDataKey::Session(session_id.clone())),
-        "DuplicateSessionId"
-    );
-    save_session(
-        env,
-        session_id,
-        &DisputeSession { buyer, seller, amount, status, dispute_opened_at: 0 },
-    );
+/// Reinterpret an arbitrary-length session id as the 32-byte id used in event
+/// topics, or panic with `"InvalidSessionId"` if it is the wrong width.
+fn event_session_id(session_id: &Bytes) -> BytesN<32> {
+    session_id.clone().try_into().expect("InvalidSessionId")
 }
 
 /// Allows the buyer or seller to open a dispute on a `Completed` or
-/// `Locked` session (issue #1252). Only the admin may resolve it
-/// afterward (see [`resolve_dispute`]).
+/// `Locked` session. Only the admin may resolve it afterward
+/// (see [`resolve_dispute`]).
 ///
 /// # Reverts
 /// - `"session not found"` if `session_id` doesn't exist.
+/// - `"Unauthorized"` if `caller` is neither the buyer nor the seller.
 /// - `"InvalidSessionState"` unless the session is `Completed` or `Locked`.
 /// - `"InvalidSessionId"` if `session_id` is not 32 bytes.
 ///
@@ -90,29 +34,28 @@ pub fn open_session_for_dispute(
 /// `caller` must be either the session's buyer or seller, enforced by
 /// `caller.require_auth()`.
 pub fn open_dispute(env: &Env, session_id: Bytes, caller: Address, reason: String) {
-    let mut session = get_session(env, &session_id);
+    let mut s = session::get_session(env, &session_id);
 
     assert!(
-        session.buyer == caller || session.seller == caller,
+        s.buyer == caller || s.seller == caller,
         "Unauthorized"
     );
     caller.require_auth();
 
     assert!(
-        session.status == DisputeSessionStatus::Completed
-            || session.status == DisputeSessionStatus::Locked,
+        s.status == SessionStatus::Completed || s.status == SessionStatus::Locked,
         "InvalidSessionState"
     );
 
-    let event_session_id: BytesN<32> = session_id.clone().try_into().expect("InvalidSessionId");
+    let event_id: BytesN<32> = event_session_id(&session_id);
 
-    session.status = DisputeSessionStatus::Disputed;
-    session.dispute_opened_at = env.ledger().sequence();
-    save_session(env, session_id, &session);
+    s.status = SessionStatus::Disputed;
+    s.dispute_opened_at = Some(env.ledger().sequence());
+    session::save_session(env, session_id, &s);
 
     events::emit_dispute_opened(
         env,
-        &event_session_id,
+        &event_id,
         &caller,
         &reason,
         env.ledger().timestamp(),
@@ -120,18 +63,18 @@ pub fn open_dispute(env: &Env, session_id: Bytes, caller: Address, reason: Strin
 }
 
 /// Admin resolves a dispute by splitting the escrowed amount between buyer
-/// and seller (issue #1253). `buyer_share + seller_share` must equal the
-/// session's original `amount` exactly. The platform fee (see
-/// [`crate::fee::apply_fee`]) is deducted from each non-zero share before
-/// it's considered "paid out" — this function returns the post-fee amounts
-/// so a caller with token-transfer wiring can act on them; it does not
-/// move tokens itself (no token transfer exists anywhere in this contract
-/// yet).
+/// and seller. `buyer_share + seller_share` must equal the session's original
+/// `amount` exactly. The platform fee (see [`crate::fee::apply_fee`]) is
+/// deducted from each non-zero share before it's considered "paid out" —
+/// this function returns the post-fee amounts so a caller with token-transfer
+/// wiring can act on them; it does not move tokens itself (no token transfer
+/// exists anywhere in this contract yet).
 ///
 /// # Reverts
 /// - `"session not found"` if `session_id` doesn't exist.
 /// - `"InvalidSessionState"` unless the session is currently `Disputed`.
-/// - `"SharesMismatch"` unless `buyer_share + seller_share == session.amount`.
+/// - `"InvalidSplit"` if either share is negative, or unless
+///   `buyer_share + seller_share == session.amount`.
 /// - `"InvalidSessionId"` if `session_id` is not 32 bytes.
 ///
 /// # Events
@@ -152,24 +95,26 @@ pub fn resolve_dispute(
 ) -> (i128, i128, i128) {
     admin.require_auth();
 
-    let mut session = get_session(env, &session_id);
+    let mut s = session::get_session(env, &session_id);
 
-    assert!(session.status == DisputeSessionStatus::Disputed, "InvalidSessionState");
-    assert!(buyer_share >= 0 && seller_share >= 0, "InvalidShare");
-    assert!(buyer_share + seller_share == session.amount, "SharesMismatch");
+    assert!(s.status == SessionStatus::Disputed, "InvalidSessionState");
+    assert!(buyer_share >= 0 && seller_share >= 0, "InvalidSplit");
+    assert!(buyer_share + seller_share == s.amount, "InvalidSplit");
 
-    let event_session_id: BytesN<32> = session_id.clone().try_into().expect("InvalidSessionId");
+    let event_id: BytesN<32> = event_session_id(&session_id);
 
     let (buyer_payout, buyer_fee) = fee::apply_fee(buyer_share, fee_bps);
     let (seller_payout, seller_fee) = fee::apply_fee(seller_share, fee_bps);
     let total_fee = buyer_fee + seller_fee;
 
-    session.status = DisputeSessionStatus::Resolved;
-    save_session(env, session_id, &session);
+    s.status = SessionStatus::Resolved;
+    s.seller_payout = seller_payout;
+    s.platform_fee = total_fee;
+    session::save_session(env, session_id, &s);
 
     events::emit_dispute_resolved(
         env,
-        &event_session_id,
+        &event_id,
         &admin,
         buyer_payout,
         seller_payout,
@@ -181,15 +126,15 @@ pub fn resolve_dispute(
 }
 
 /// Read-only accessor, for callers/tests that need to inspect state.
-pub fn get(env: &Env, session_id: Bytes) -> DisputeSession {
-    get_session(env, &session_id)
+pub fn get(env: &Env, session_id: Bytes) -> Session {
+    session::get_session(env, &session_id)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use soroban_sdk::testutils::{Address as _, Events, Ledger};
-    use soroban_sdk::IntoVal;
+    use soroban_sdk::{symbol_short, IntoVal};
 
     fn setup() -> (Env, Address, Address, Address, Bytes) {
         let env = Env::default();
@@ -201,40 +146,57 @@ mod tests {
         (env, admin, buyer, seller, session_id)
     }
 
+    /// Create a session in `status` and dispute it, leaving it `Disputed`.
+    fn disputed_session(
+        env: &Env,
+        session_id: &Bytes,
+        buyer: &Address,
+        seller: &Address,
+        amount: i128,
+        status: SessionStatus,
+    ) {
+        session::lock_funds(env, session_id.clone(), buyer.clone(), seller.clone(), amount);
+        if status == SessionStatus::Completed {
+            session::complete_session(env, session_id.clone());
+        }
+        open_dispute(
+            env,
+            session_id.clone(),
+            buyer.clone(),
+            String::from_str(env, "reason"),
+        );
+    }
+
     #[test]
     fn buyer_can_open_dispute_on_completed_session() {
         let (env, _admin, buyer, seller, session_id) = setup();
-        open_session_for_dispute(
+        disputed_session(
             &env,
-            session_id.clone(),
-            buyer.clone(),
-            seller,
+            &session_id,
+            &buyer,
+            &seller,
             1_000,
-            DisputeSessionStatus::Completed,
+            SessionStatus::Completed,
         );
 
-        open_dispute(&env, session_id.clone(), buyer, String::from_str(&env, "not delivered"));
-
-        let session = get(&env, session_id);
-        assert_eq!(session.status, DisputeSessionStatus::Disputed);
+        let s = get(&env, session_id);
+        assert_eq!(s.status, SessionStatus::Disputed);
+        assert!(s.dispute_opened_at.is_some());
     }
 
     #[test]
     fn seller_can_open_dispute_on_locked_session() {
         let (env, _admin, buyer, seller, session_id) = setup();
-        open_session_for_dispute(
+        session::lock_funds(&env, session_id.clone(), buyer, seller.clone(), 1_000);
+
+        open_dispute(
             &env,
             session_id.clone(),
-            buyer,
-            seller.clone(),
-            1_000,
-            DisputeSessionStatus::Locked,
+            seller,
+            String::from_str(&env, "buyer unresponsive"),
         );
 
-        open_dispute(&env, session_id.clone(), seller, String::from_str(&env, "buyer unresponsive"));
-
-        let session = get(&env, session_id);
-        assert_eq!(session.status, DisputeSessionStatus::Disputed);
+        assert_eq!(get(&env, session_id).status, SessionStatus::Disputed);
     }
 
     #[test]
@@ -245,14 +207,14 @@ mod tests {
         let reason = String::from_str(&env, "not delivered");
 
         env.as_contract(&contract_id, || {
-            open_session_for_dispute(
+            session::lock_funds(
                 &env,
                 session_id.clone(),
                 buyer.clone(),
                 seller,
                 1_000,
-                DisputeSessionStatus::Completed,
             );
+            session::complete_session(&env, session_id.clone());
             open_dispute(&env, session_id.clone(), buyer.clone(), reason.clone());
         });
 
@@ -271,31 +233,39 @@ mod tests {
     #[should_panic(expected = "Unauthorized")]
     fn open_dispute_rejects_non_participant() {
         let (env, _admin, buyer, seller, session_id) = setup();
+        session::lock_funds(&env, session_id.clone(), buyer, seller, 1_000);
         let stranger = Address::generate(&env);
-        open_session_for_dispute(
-            &env,
-            session_id.clone(),
-            buyer,
-            seller,
-            1_000,
-            DisputeSessionStatus::Locked,
-        );
 
         open_dispute(&env, session_id, stranger, String::from_str(&env, "n/a"));
     }
 
     #[test]
+    #[should_panic(expected = "InvalidSessionState")]
+    fn open_dispute_rejects_already_settled_session() {
+        let (env, _admin, buyer, seller, session_id) = setup();
+        session::lock_funds(&env, session_id.clone(), buyer, seller, 1_000);
+        session::complete_session(&env, session_id.clone());
+        session::approve_session(&env, session_id.clone());
+
+        open_dispute(
+            &env,
+            session_id,
+            buyer,
+            String::from_str(&env, "too late"),
+        );
+    }
+
+    #[test]
     fn admin_resolves_split_dispute() {
         let (env, admin, buyer, seller, session_id) = setup();
-        open_session_for_dispute(
+        disputed_session(
             &env,
-            session_id.clone(),
-            buyer.clone(),
-            seller,
+            &session_id,
+            &buyer,
+            &seller,
             1_000,
-            DisputeSessionStatus::Locked,
+            SessionStatus::Locked,
         );
-        open_dispute(&env, session_id.clone(), buyer, String::from_str(&env, "reason"));
 
         let (buyer_payout, seller_payout, fee) =
             resolve_dispute(&env, session_id.clone(), admin, 600, 400, 0);
@@ -303,21 +273,22 @@ mod tests {
         assert_eq!(buyer_payout, 600);
         assert_eq!(seller_payout, 400);
         assert_eq!(fee, 0);
-        assert_eq!(get(&env, session_id).status, DisputeSessionStatus::Resolved);
+        let s = get(&env, session_id);
+        assert_eq!(s.status, SessionStatus::Resolved);
+        assert_eq!(s.seller_payout, 400);
     }
 
     #[test]
     fn admin_resolves_full_to_buyer() {
         let (env, admin, buyer, seller, session_id) = setup();
-        open_session_for_dispute(
+        disputed_session(
             &env,
-            session_id.clone(),
-            buyer.clone(),
-            seller,
+            &session_id,
+            &buyer,
+            &seller,
             1_000,
-            DisputeSessionStatus::Locked,
+            SessionStatus::Locked,
         );
-        open_dispute(&env, session_id.clone(), buyer, String::from_str(&env, "reason"));
 
         let (buyer_payout, seller_payout, _fee) =
             resolve_dispute(&env, session_id, admin, 1_000, 0, 0);
@@ -333,19 +304,13 @@ mod tests {
         env.ledger().set_timestamp(12_345);
 
         env.as_contract(&contract_id, || {
-            open_session_for_dispute(
+            disputed_session(
                 &env,
-                session_id.clone(),
-                buyer.clone(),
-                seller,
+                &session_id,
+                &buyer,
+                &seller,
                 1_000,
-                DisputeSessionStatus::Locked,
-            );
-            open_dispute(
-                &env,
-                session_id.clone(),
-                buyer,
-                String::from_str(&env, "reason"),
+                SessionStatus::Locked,
             );
             resolve_dispute(&env, session_id.clone(), admin.clone(), 600, 400, 1_000);
         });
@@ -362,34 +327,44 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "SharesMismatch")]
+    #[should_panic(expected = "InvalidSplit")]
     fn resolve_dispute_rejects_mismatched_shares() {
         let (env, admin, buyer, seller, session_id) = setup();
-        open_session_for_dispute(
+        disputed_session(
             &env,
-            session_id.clone(),
-            buyer.clone(),
-            seller,
+            &session_id,
+            &buyer,
+            &seller,
             1_000,
-            DisputeSessionStatus::Locked,
+            SessionStatus::Locked,
         );
-        open_dispute(&env, session_id.clone(), buyer, String::from_str(&env, "reason"));
 
         resolve_dispute(&env, session_id, admin, 500, 400, 0); // 900 != 1000
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidSplit")]
+    fn resolve_dispute_rejects_negative_share() {
+        let (env, admin, buyer, seller, session_id) = setup();
+        disputed_session(
+            &env,
+            &session_id,
+            &buyer,
+            &seller,
+            1_000,
+            SessionStatus::Locked,
+        );
+
+        // A negative share that still sums to the amount would otherwise let
+        // an admin mint a payout out of thin air.
+        resolve_dispute(&env, session_id, admin, 1_100, -100, 0);
     }
 
     #[test]
     #[should_panic(expected = "InvalidSessionState")]
     fn resolve_dispute_requires_disputed_status() {
         let (env, admin, buyer, seller, session_id) = setup();
-        open_session_for_dispute(
-            &env,
-            session_id.clone(),
-            buyer,
-            seller,
-            1_000,
-            DisputeSessionStatus::Locked,
-        );
+        session::lock_funds(&env, session_id.clone(), buyer, seller, 1_000);
 
         resolve_dispute(&env, session_id, admin, 1_000, 0, 0);
     }

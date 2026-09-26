@@ -83,27 +83,27 @@ mod tests {
 
         let err = client
             .try_set_platform_fee(&admin, &1001) // > 1000 — must fail
-            .expect_err("Expected InvalidFee error");
+            .expect_err("Expected FeeTooHigh error");
 
         assert_eq!(
             err.unwrap_or_else(|e| panic!("Unexpected error: {:?}", e)),
-            ContractError::InvalidFee
+            ContractError::FeeTooHigh
         );
     }
 
     #[test]
-    fn test_set_platform_fee_unauthorized() {
+    fn test_set_platform_fee_non_admin() {
         let (env, admin, treasury, client) = setup();
         client.initialize(&admin, &treasury);
 
         let attacker = Address::generate(&env);
         let err = client
             .try_set_platform_fee(&attacker, &100)
-            .expect_err("Expected Unauthorized error");
+            .expect_err("Expected NotAdmin error");
 
         assert_eq!(
             err.unwrap_or_else(|e| panic!("Unexpected error: {:?}", e)),
-            ContractError::Unauthorized
+            ContractError::NotAdmin
         );
     }
 
