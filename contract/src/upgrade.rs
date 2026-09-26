@@ -1,7 +1,7 @@
 use soroban_sdk::{contracttype, symbol_short, Address, BytesN, Env};
 
+use crate::admin::require_admin;
 use crate::errors::ContractError;
-use crate::storage;
 
 /// Admin-scheduled WASM upgrades.
 ///
@@ -40,7 +40,7 @@ fn is_zero_hash(hash: &BytesN<32>) -> bool {
 /// # Events
 /// Emits `UpgradeStaged` with the staged hash.
 pub fn stage_upgrade(env: &Env, caller: Address, new_hash: BytesN<32>) -> Result<(), ContractError> {
-    let admin = require_admin(env, &caller)?;
+    require_admin(env, &caller)?;
 
     if is_zero_hash(&new_hash) {
         return Err(ContractError::InvalidWasmHash);
@@ -119,26 +119,6 @@ pub fn cancel_upgrade(env: &Env, caller: Address) -> Result<(), ContractError> {
 
 fn remove_staged_hash(env: &Env) {
     env.storage().instance().remove(&UpgradeKey::StagedWasmHash);
-}
-
-/// Assert that `caller` is the stored admin and that they authorized this
-/// call, returning the admin address so callers can reuse it.
-///
-/// The `upgrade` band (600–699) is disjoint from the authorization band, so
-/// this only ever produces `NotAdmin`; a malformed upgrade (bad hash, failed
-/// deployer call) is what produces 600/601.
-fn require_admin(env: &Env, caller: &Address) -> Result<Address, ContractError> {
-    if !storage::is_initialized(env) {
-        return Err(ContractError::NotInitialized);
-    }
-
-    let admin = storage::get_admin(env).ok_or(ContractError::NotInitialized)?;
-    if caller != &admin {
-        return Err(ContractError::NotAdmin);
-    }
-
-    caller.require_auth();
-    Ok(admin)
 }
 
 #[cfg(test)]

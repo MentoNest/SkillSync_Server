@@ -1,5 +1,11 @@
 #![no_std]
 
+/// The `no_std` crate has no `String`/`format!` in scope, which the error
+/// `Display` tests need. `std` is only linked into test builds; the contract
+/// WASM itself stays `no_std`.
+#[cfg(test)]
+extern crate std;
+
 mod admin;
 mod dispute;
 mod errors;
@@ -67,32 +73,86 @@ impl SkillSyncContract {
     }
 
     /// Escrow `amount` between a buyer and seller, creating a `Locked`
-    /// session. Reverts if the ID is taken or the amount is not positive.
-    pub fn lock_funds(env: Env, session_id: Bytes, buyer: Address, seller: Address, amount: i128) {
-        session::lock_funds(&env, session_id, buyer, seller, amount);
+    /// session.
+    ///
+    /// # Errors
+    /// - [`ContractError::InvalidAmount`] if `amount` is not positive.
+    /// - [`ContractError::DuplicateSessionId`] if the ID is taken.
+    pub fn lock_funds(
+        env: Env,
+        session_id: Bytes,
+        buyer: Address,
+        seller: Address,
+        amount: i128,
+    ) -> Result<(), ContractError> {
+        session::lock_funds(&env, session_id, buyer, seller, amount)
     }
 
     /// Seller marks the session as complete, opening the dispute window.
-    pub fn complete_session(env: Env, session_id: Bytes) {
-        session::complete_session(&env, session_id);
+    ///
+    /// # Errors
+    /// - [`ContractError::SessionNotFound`] if the session does not exist.
+    /// - [`ContractError::NotSeller`] if `caller` is not the session's seller.
+    /// - [`ContractError::SessionAlreadyCompleted`] if already completed.
+    /// - [`ContractError::SessionInDispute`] if a dispute is open.
+    /// - [`ContractError::InvalidSessionState`] for any other state.
+    pub fn complete_session(
+        env: Env,
+        session_id: Bytes,
+        caller: Address,
+    ) -> Result<(), ContractError> {
+        session::complete_session(&env, session_id, caller)
     }
 
     /// Buyer approves a completed session, releasing funds to the seller
     /// minus the platform fee.
-    pub fn approve_session(env: Env, session_id: Bytes) {
-        session::approve_session(&env, session_id);
+    ///
+    /// # Errors
+    /// - [`ContractError::SessionNotFound`] if the session does not exist.
+    /// - [`ContractError::NotBuyer`] if `caller` is not the session's buyer.
+    /// - [`ContractError::SessionAlreadyApproved`] if already approved.
+    /// - [`ContractError::SessionInDispute`] if a dispute is open.
+    /// - [`ContractError::InvalidSessionState`] for any other state.
+    pub fn approve_session(
+        env: Env,
+        session_id: Bytes,
+        caller: Address,
+    ) -> Result<(), ContractError> {
+        session::approve_session(&env, session_id, caller)
     }
 
     /// Allows the buyer to request a refund before the session is
     /// completed. Full amount returned, no fee deducted.
-    pub fn refund_session(env: Env, session_id: Bytes) {
-        session::refund_session(&env, session_id);
+    ///
+    /// # Errors
+    /// - [`ContractError::SessionNotFound`] if the session does not exist.
+    /// - [`ContractError::NotBuyer`] if `caller` is not the session's buyer.
+    /// - [`ContractError::SessionAlreadyRefunded`] if already refunded.
+    /// - [`ContractError::SessionInDispute`] if a dispute is open.
+    /// - [`ContractError::InvalidSessionState`] for any other state.
+    pub fn refund_session(
+        env: Env,
+        session_id: Bytes,
+        caller: Address,
+    ) -> Result<(), ContractError> {
+        session::refund_session(&env, session_id, caller)
     }
 
     /// Opens a dispute on a Completed or Locked session. Callable by
     /// either the buyer or seller. See the `dispute` module.
-    pub fn open_dispute(env: Env, session_id: Bytes, caller: Address, reason: String) {
-        dispute::open_dispute(&env, session_id, caller, reason);
+    ///
+    /// # Errors
+    /// - [`ContractError::SessionNotFound`] if the session does not exist.
+    /// - [`ContractError::Unauthorized`] if `caller` is not a participant.
+    /// - [`ContractError::DisputeAlreadyOpen`] if a dispute is already open.
+    /// - [`ContractError::InvalidSessionState`] for any other state.
+    pub fn open_dispute(
+        env: Env,
+        session_id: Bytes,
+        caller: Address,
+        reason: String,
+    ) -> Result<(), ContractError> {
+        dispute::open_dispute(&env, session_id, caller, reason)
     }
 
     /// Stage `new_hash` as the WASM to upgrade to on the next
@@ -136,6 +196,14 @@ impl SkillSyncContract {
     /// Admin splits the escrowed amount between buyer and seller to settle
     /// an open dispute. Returns `(buyer_payout, seller_payout, total_fee)`,
     /// each net of the platform fee.
+    ///
+    /// # Errors
+    /// - [`ContractError::SessionNotFound`] if the session does not exist.
+    /// - [`ContractError::DisputeNotOpen`] if no dispute is open.
+    /// - [`ContractError::InvalidSplit`] if the shares are negative or do not
+    ///   sum to the session amount.
+    /// - [`ContractError::FeeTooHigh`] if `fee_bps` exceeds 1000.
+    /// - [`ContractError::Overflow`] if the split or fee arithmetic overflows.
     pub fn resolve_dispute(
         env: Env,
         session_id: Bytes,
@@ -143,7 +211,7 @@ impl SkillSyncContract {
         buyer_share: i128,
         seller_share: i128,
         fee_bps: u32,
-    ) -> (i128, i128, i128) {
+    ) -> Result<(i128, i128, i128), ContractError> {
         dispute::resolve_dispute(
             &env,
             session_id,

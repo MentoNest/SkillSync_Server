@@ -106,6 +106,92 @@ impl ContractError {
     }
 }
 
+/// A human-readable rendering of an error, for logs and off-chain tooling.
+///
+/// The wire format is the numeric code; this is the string form. It is
+/// written as `"<code>: <name> - <description>"` so that a log line carries
+/// all three things a person needs to act on it: which code to look up, what
+/// the variant is called, and what went wrong. Off-chain clients that switch
+/// on the string get the variant name, which is stable, rather than prose
+/// that can be reworded.
+impl core::fmt::Display for ContractError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let (name, description) = match self {
+            ContractError::AlreadyInitialized => (
+                "AlreadyInitialized",
+                "contract has already been initialized",
+            ),
+            ContractError::NotInitialized => ("NotInitialized", "contract is not initialized"),
+            ContractError::Unauthorized => (
+                "Unauthorized",
+                "caller is not authorized to perform this action",
+            ),
+            ContractError::NotAdmin => ("NotAdmin", "caller is not the contract admin"),
+            ContractError::NotBuyer => ("NotBuyer", "caller is not the session buyer"),
+            ContractError::NotSeller => ("NotSeller", "caller is not the session seller"),
+            ContractError::SessionNotFound => ("SessionNotFound", "session id does not exist"),
+            ContractError::DuplicateSessionId => ("DuplicateSessionId", "session id already exists"),
+            ContractError::InvalidSessionState => (
+                "InvalidSessionState",
+                "operation is not allowed in the session's current state",
+            ),
+            ContractError::SessionAlreadyCompleted => (
+                "SessionAlreadyCompleted",
+                "session is already completed",
+            ),
+            ContractError::SessionAlreadyApproved => (
+                "SessionAlreadyApproved",
+                "session is already approved",
+            ),
+            ContractError::SessionAlreadyRefunded => (
+                "SessionAlreadyRefunded",
+                "session is already refunded",
+            ),
+            ContractError::SessionInDispute => (
+                "SessionInDispute",
+                "session is under dispute and cannot be acted on",
+            ),
+            ContractError::InvalidAmount => ("InvalidAmount", "amount is zero or negative"),
+            ContractError::InsufficientBalance => (
+                "InsufficientBalance",
+                "buyer does not have enough funds",
+            ),
+            ContractError::FeeTooHigh => ("FeeTooHigh", "fee exceeds the maximum of 1000 bps"),
+            ContractError::InvalidSplit => (
+                "InvalidSplit",
+                "dispute split does not sum to the session amount",
+            ),
+            ContractError::Overflow => ("Overflow", "arithmetic overflow detected"),
+            ContractError::DisputeWindowNotElapsed => (
+                "DisputeWindowNotElapsed",
+                "the dispute window has not elapsed yet",
+            ),
+            ContractError::DisputeAlreadyOpen => (
+                "DisputeAlreadyOpen",
+                "a dispute is already open for this session",
+            ),
+            ContractError::DisputeNotOpen => (
+                "DisputeNotOpen",
+                "no dispute is open for this session",
+            ),
+            ContractError::ResolutionNotAllowed => (
+                "ResolutionNotAllowed",
+                "session is not eligible for dispute resolution",
+            ),
+            ContractError::InvalidWasmHash => (
+                "InvalidWasmHash",
+                "the provided wasm hash is zero or invalid",
+            ),
+            ContractError::UpgradeFailed => (
+                "UpgradeFailed",
+                "the low-level contract upgrade call failed",
+            ),
+        };
+
+        write!(f, "{}: {} - {}", self.code(), name, description)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::ContractError::{self, *};
@@ -196,5 +282,47 @@ mod tests {
     fn code_helper_matches_the_repr() {
         assert_eq!(InvalidSplit.code(), 403);
         assert_eq!(SessionInDispute.code(), 306);
+    }
+
+    /// The `Display` tests need `String` and `format!`, which a `no_std`
+    /// crate does not have in scope. `lib.rs` pulls `std` in under
+    /// `cfg(test)` for exactly this purpose.
+    use std::format;
+    use std::string::String;
+
+    fn render(error: ContractError) -> String {
+        use core::fmt::Write;
+        let mut out = String::new();
+        write!(out, "{}", error).expect("writing to a String cannot fail");
+        out
+    }
+
+    #[test]
+    fn display_starts_with_the_numeric_code_and_variant_name() {
+        for (variant, code) in ALL.iter() {
+            let rendered = render(*variant);
+            assert!(
+                rendered.starts_with(&format!("{}: {:?} - ", code, variant)),
+                "{:?} rendered as {:?}",
+                variant,
+                rendered
+            );
+        }
+    }
+
+    #[test]
+    fn display_descriptions_are_non_empty() {
+        for (variant, _) in ALL.iter() {
+            let rendered = render(*variant);
+            let description = rendered
+                .split(" - ")
+                .nth(1)
+                .unwrap_or_else(|| panic!("{:?} has no description: {:?}", variant, rendered));
+            assert!(
+                !description.is_empty(),
+                "{:?} has an empty description",
+                variant
+            );
+        }
     }
 }
