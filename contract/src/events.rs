@@ -1,4 +1,4 @@
-use soroban_sdk::{symbol_short, Address, Env};
+use soroban_sdk::{symbol_short, Address, BytesN, Env, String};
 
 /// Emitted when the contract is successfully initialized.
 ///
@@ -41,6 +41,23 @@ pub fn emit_initialized_with_dispute_window(
 pub fn emit_platform_fee_updated(env: &Env, new_fee_bps: u32) {
     env.events()
         .publish((symbol_short!("fee_upd"), new_fee_bps), ());
+}
+
+/// Emitted when a buyer or seller opens a dispute on a session.
+///
+/// Topics: ["dis_open", session_id]
+/// Data: (opened_by, reason, timestamp)
+pub fn emit_dispute_opened(
+    env: &Env,
+    session_id: &BytesN<32>,
+    opened_by: &Address,
+    reason: &String,
+    timestamp: u64,
+) {
+    env.events().publish(
+        (symbol_short!("dis_open"), session_id.clone()),
+        (opened_by.clone(), reason.clone(), timestamp),
+    );
 }
 
 #[cfg(test)]
