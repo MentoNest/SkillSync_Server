@@ -52,6 +52,7 @@ fn save_session(env: &Env, session_id: Bytes, session: &Session) {
 
 /// Minimal session creation: locks `amount` between `buyer` and `seller`.
 /// Reverts if a session already exists under `session_id`.
+/// Emits `FundsLocked` (see [`events::emit_funds_locked`]).
 pub fn lock_funds(env: &Env, session_id: Bytes, buyer: Address, seller: Address, amount: i128) {
     assert!(amount > 0, "amount must be > 0");
     assert!(
@@ -70,7 +71,9 @@ pub fn lock_funds(env: &Env, session_id: Bytes, buyer: Address, seller: Address,
         status: SessionStatus::Locked,
         created_at: env.ledger().sequence(),
     };
-    save_session(env, session_id, &session);
+    save_session(env, session_id.clone(), &session);
+
+    events::emit_funds_locked(env, &session_id, &session.buyer, &session.seller, amount);
 }
 
 /// Read-only accessor for a session, for callers/tests that need to inspect
