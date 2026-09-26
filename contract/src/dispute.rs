@@ -132,6 +132,10 @@ pub fn open_dispute(env: &Env, session_id: Bytes, caller: Address, reason: Strin
 /// - `"session not found"` if `session_id` doesn't exist.
 /// - `"InvalidSessionState"` unless the session is currently `Disputed`.
 /// - `"SharesMismatch"` unless `buyer_share + seller_share == session.amount`.
+/// - `"InvalidSessionId"` if `session_id` is not 32 bytes.
+///
+/// # Events
+/// Emits `DisputeResolved` (see [`events::emit_dispute_resolved`]).
 ///
 /// # Authorization
 /// Only `admin` may call this — enforced by `admin.require_auth()`.
@@ -154,18 +158,26 @@ pub fn resolve_dispute(
     assert!(buyer_share >= 0 && seller_share >= 0, "InvalidShare");
     assert!(buyer_share + seller_share == session.amount, "SharesMismatch");
 
+    let event_session_id: BytesN<32> = session_id.clone().try_into().expect("InvalidSessionId");
+
     let (buyer_payout, buyer_fee) = fee::apply_fee(buyer_share, fee_bps);
     let (seller_payout, seller_fee) = fee::apply_fee(seller_share, fee_bps);
+    let total_fee = buyer_fee + seller_fee;
 
     session.status = DisputeSessionStatus::Resolved;
-    save_session(env, session_id.clone(), &session);
+    save_session(env, session_id, &session);
 
-    env.events().publish(
-        (symbol_short!("dis_res"),),
-        (session_id, buyer_payout, seller_payout),
+    events::emit_dispute_resolved(
+        env,
+        &event_session_id,
+        &admin,
+        buyer_payout,
+        seller_payout,
+        total_fee,
+        env.ledger().timestamp(),
     );
 
-    (buyer_payout, seller_payout, buyer_fee + seller_fee)
+    (buyer_payout, seller_payout, total_fee)
 }
 
 /// Read-only accessor, for callers/tests that need to inspect state.
@@ -312,6 +324,41 @@ mod tests {
 
         assert_eq!(buyer_payout, 1_000);
         assert_eq!(seller_payout, 0);
+    }
+
+    #[test]
+    fn resolve_dispute_emits_dispute_resolved_event() {
+        let (env, admin, buyer, seller, session_id) = setup();
+        let contract_id = env.register(crate::SkillSyncContract, ());
+        env.ledger().set_timestamp(12_345);
+
+        env.as_contract(&contract_id, || {
+            open_session_for_dispute(
+                &env,
+                session_id.clone(),
+                buyer.clone(),
+                seller,
+                1_000,
+                DisputeSessionStatus::Locked,
+            );
+            open_dispute(
+                &env,
+                session_id.clone(),
+                buyer,
+                String::from_str(&env, "reason"),
+            );
+            resolve_dispute(&env, session_id.clone(), admin.clone(), 600, 400, 1_000);
+        });
+
+        let (emitter, topics, data) = env.events().all().last().unwrap();
+        assert_eq!(emitter, contract_id);
+        let expected_id: BytesN<32> = session_id.try_into().unwrap();
+        assert_eq!(
+            topics,
+            (symbol_short!("dis_res"), expected_id).into_val(&env)
+        );
+        let data: (Address, i128, i128, i128, u64) = data.into_val(&env);
+        assert_eq!(data, (admin, 540, 360, 100, 12_345));
     }
 
     #[test]

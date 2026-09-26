@@ -1,4 +1,4 @@
-use soroban_sdk::{symbol_short, Address, BytesN, Env, String};
+use soroban_sdk::{symbol_short, Address, BytesN, Env};
 
 /// Emitted when the contract is successfully initialized.
 ///
@@ -43,20 +43,23 @@ pub fn emit_platform_fee_updated(env: &Env, new_fee_bps: u32) {
         .publish((symbol_short!("fee_upd"), new_fee_bps), ());
 }
 
-/// Emitted when a buyer or seller opens a dispute on a session.
+/// Emitted when the admin resolves a dispute, carrying the final
+/// distribution: post-fee payouts to buyer and seller plus the total fee.
 ///
-/// Topics: ["dis_open", session_id]
-/// Data: (opened_by, reason, timestamp)
-pub fn emit_dispute_opened(
+/// Topics: ["dis_res", session_id]
+/// Data: (resolver, buyer_share, seller_share, fee, timestamp)
+pub fn emit_dispute_resolved(
     env: &Env,
     session_id: &BytesN<32>,
-    opened_by: &Address,
-    reason: &String,
+    resolver: &Address,
+    buyer_share: i128,
+    seller_share: i128,
+    fee: i128,
     timestamp: u64,
 ) {
     env.events().publish(
-        (symbol_short!("dis_open"), session_id.clone()),
-        (opened_by.clone(), reason.clone(), timestamp),
+        (symbol_short!("dis_res"), session_id.clone()),
+        (resolver.clone(), buyer_share, seller_share, fee, timestamp),
     );
 }
 
