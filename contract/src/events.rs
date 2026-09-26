@@ -1,4 +1,4 @@
-use soroban_sdk::{symbol_short, Address, BytesN, Env};
+use soroban_sdk::{symbol_short, Address, BytesN, Env, String};
 
 /// Emitted when the contract is successfully initialized.
 ///
@@ -43,24 +43,20 @@ pub fn emit_platform_fee_updated(env: &Env, new_fee_bps: u32) {
         .publish((symbol_short!("fee_upd"), new_fee_bps), ());
 }
 
-/// Emitted when a session is auto-refunded to the buyer because it was not
-/// approved within the timeout window (distinct from a buyer-requested
-/// refund), so failed completions can be tracked.
+/// Emitted when a buyer or seller opens a dispute on a session.
 ///
-/// Topics: ["auto_ref", session_id]
-/// Data: (buyer, amount, completed_at, refunded_at)
-#[allow(dead_code)] // no timeout-based auto-refund entry point exists yet
-pub fn emit_auto_refund_executed(
+/// Topics: ["dis_open", session_id]
+/// Data: (opened_by, reason, timestamp)
+pub fn emit_dispute_opened(
     env: &Env,
     session_id: &BytesN<32>,
-    buyer: &Address,
-    amount: i128,
-    completed_at: u64,
-    refunded_at: u64,
+    opened_by: &Address,
+    reason: &String,
+    timestamp: u64,
 ) {
     env.events().publish(
-        (symbol_short!("auto_ref"), session_id.clone()),
-        (buyer.clone(), amount, completed_at, refunded_at),
+        (symbol_short!("dis_open"), session_id.clone()),
+        (opened_by.clone(), reason.clone(), timestamp),
     );
 }
 
