@@ -84,4 +84,25 @@ mod tests {
         );
         assert_eq!(data, 1_000u32.into_val(&env));
     }
+
+    #[test]
+    fn auto_refund_executed_emits_expected_topics_and_data() {
+        let env = Env::default();
+        let contract_id = env.register(crate::SkillSyncContract, ());
+        let session_id = BytesN::from_array(&env, &[7u8; 32]);
+        let buyer = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            emit_auto_refund_executed(&env, &session_id, &buyer, 1_000, 100, 200);
+        });
+
+        let (emitter, topics, data) = env.events().all().last().unwrap();
+        assert_eq!(emitter, contract_id);
+        assert_eq!(
+            topics,
+            (symbol_short!("auto_ref"), session_id).into_val(&env)
+        );
+        let data: (Address, i128, u64, u64) = data.into_val(&env);
+        assert_eq!(data, (buyer, 1_000, 100, 200));
+    }
 }
