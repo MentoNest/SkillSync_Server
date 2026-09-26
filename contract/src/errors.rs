@@ -72,6 +72,9 @@ pub enum ContractError {
     InvalidSplit = 403,
     /// Arithmetic overflow detected.
     Overflow = 404,
+    /// No usable price is available for the asset: the oracle is unset,
+    /// unreachable, or too stale to trust, and no admin fallback is set.
+    PriceUnavailable = 405,
 
     // ── Timeouts and disputes (500–599) ────────────────────────────────
     /// The dispute window has not elapsed yet; auto-refund is not available.
@@ -162,6 +165,10 @@ impl core::fmt::Display for ContractError {
                 "dispute split does not sum to the session amount",
             ),
             ContractError::Overflow => ("Overflow", "arithmetic overflow detected"),
+            ContractError::PriceUnavailable => (
+                "PriceUnavailable",
+                "no usable price is available for the asset",
+            ),
             ContractError::DisputeWindowNotElapsed => (
                 "DisputeWindowNotElapsed",
                 "the dispute window has not elapsed yet",
@@ -198,7 +205,7 @@ mod tests {
 
     /// Every variant the contract can return, with the code each one is
     /// specified to carry.
-    const ALL: [(ContractError, u32); 26] = [
+    const ALL: [(ContractError, u32); 27] = [
         // Initialization.
         (AlreadyInitialized, 1),
         (NotInitialized, 2),
@@ -221,6 +228,7 @@ mod tests {
         (FeeTooHigh, 402),
         (InvalidSplit, 403),
         (Overflow, 404),
+        (PriceUnavailable, 405),
         // Timeouts and disputes.
         (DisputeWindowNotElapsed, 500),
         (DisputeAlreadyOpen, 501),

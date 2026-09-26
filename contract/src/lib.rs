@@ -11,6 +11,7 @@ mod dispute;
 mod errors;
 mod events;
 mod fee;
+mod oracle;
 mod session;
 mod storage;
 mod upgrade;
@@ -33,6 +34,7 @@ use errors::ContractError;
 /// - Escrow session lifecycle (lock, complete, approve, refund).
 /// - Dispute opening and admin resolution.
 /// - Admin-scheduled WASM upgrades.
+/// - Price oracle reads with an admin-published fallback.
 #[contract]
 pub struct SkillSyncContract;
 
@@ -191,6 +193,81 @@ impl SkillSyncContract {
     /// - [`ContractError::NotAdmin`] if caller is not the admin.
     pub fn cancel_upgrade(env: Env, caller: Address) -> Result<(), ContractError> {
         upgrade::cancel_upgrade(&env, caller)
+    }
+
+    /// Point the contract at an oracle contract to read prices from
+    /// (admin only).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    pub fn set_oracle(env: Env, caller: Address, oracle_id: Address) -> Result<(), ContractError> {
+        oracle::set_oracle(&env, caller, oracle_id)
+    }
+
+    /// Stop reading prices from an oracle (admin only).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    pub fn clear_oracle(env: Env, caller: Address) -> Result<(), ContractError> {
+        oracle::clear_oracle(&env, caller)
+    }
+
+    /// The configured oracle, if any.
+    pub fn get_oracle(env: Env) -> Option<Address> {
+        oracle::get_oracle(&env)
+    }
+
+    /// Publish an admin fallback price for `asset`, used whenever the oracle
+    /// is unset, unreachable, or too stale to trust (admin only).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    /// - [`ContractError::InvalidAmount`] if `price` is not positive.
+    pub fn set_admin_price(
+        env: Env,
+        caller: Address,
+        asset: BytesN<32>,
+        price: i128,
+    ) -> Result<(), ContractError> {
+        oracle::set_admin_price(&env, caller, asset, price)
+    }
+
+    /// Remove the admin fallback price for `asset` (admin only).
+    ///
+    /// # Errors
+    /// - [`ContractError::NotAdmin`] if caller is not the admin.
+    pub fn clear_admin_price(
+        env: Env,
+        caller: Address,
+        asset: BytesN<32>,
+    ) -> Result<(), ContractError> {
+        oracle::clear_admin_price(&env, caller, asset)
+    }
+
+    /// The admin fallback price for `asset`, if one is published.
+    pub fn get_admin_price(env: Env, asset: BytesN<32>) -> Option<oracle::AdminPrice> {
+        oracle::get_admin_price(&env, asset)
+    }
+
+    /// The price of one whole unit of `asset`, from the oracle when it is
+    /// reachable and fresh enough, otherwise from the admin fallback.
+    ///
+    /// # Errors
+    /// [`ContractError::PriceUnavailable`] when neither source has a usable
+    /// price.
+    pub fn get_price(env: Env, asset: BytesN<32>) -> Result<i128, ContractError> {
+        oracle::get_price(&env, asset)
+    }
+
+    /// Convert `base_amount` of the settlement asset into `asset` units at
+    /// the current price.
+    ///
+    /// # Errors
+    /// - [`ContractError::InvalidAmount`] for a non-positive amount or price.
+    /// - [`ContractError::PriceUnavailable`] when no usable price exists.
+    /// - [`ContractError::Overflow`] if the multiplication overflows.
+    pub fn quote(env: Env, asset: BytesN<32>, base_amount: i128) -> Result<i128, ContractError> {
+        oracle::quote(&env, asset, base_amount)
     }
 
     /// Admin splits the escrowed amount between buyer and seller to settle
