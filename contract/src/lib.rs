@@ -67,17 +67,20 @@ impl SkillSyncContract {
         dispute::open_dispute(&env, session_id, caller, reason)
     }
 
-    /// Admin resolves a dispute, splitting the escrowed amount between
-    /// buyer and seller. Returns (buyer_payout, seller_payout, total_fee).
-    /// See the `dispute` module.
-    pub fn resolve_dispute(
-        env: Env,
-        session_id: Bytes,
-        admin: Address,
-        buyer_share: i128,
-        seller_share: i128,
-    ) -> (i128, i128, i128) {
-        let fee_bps = fee::get_platform_fee(&env);
-        dispute::resolve_dispute(&env, session_id, admin, buyer_share, seller_share, fee_bps)
+    /// Seller marks the session as complete.
+    pub fn complete_session(env: Env, session_id: Bytes) {
+        session::complete_session(&env, session_id)
+    }
+
+    /// Buyer approves a completed session, releasing funds to the seller
+    /// minus the platform fee.
+    pub fn approve_session(env: Env, session_id: Bytes) {
+        session::approve_session(&env, session_id)
+    }
+
+    /// Allows the buyer to request a refund before the session is
+    /// completed. Full amount returned, no fee deducted.
+    pub fn refund_session(env: Env, session_id: Bytes) {
+        session::refund_session(&env, session_id)
     }
 }
