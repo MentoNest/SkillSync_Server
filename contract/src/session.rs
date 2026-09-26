@@ -1,4 +1,6 @@
-use soroban_sdk::{contracttype, symbol_short, Address, Bytes, Env};
+use soroban_sdk::{contracttype, Address, Bytes, Env};
+
+use crate::events;
 
 use crate::{events, fee};
 
@@ -125,6 +127,9 @@ pub fn approve_session(env: &Env, session_id: Bytes) {
 /// - `"InvalidSessionState"` unless the session is currently `Locked`
 ///   (i.e. it reverts if already `Completed`, `Approved`, or `Refunded`).
 ///
+/// # Events
+/// Emits `SessionRefunded` (see [`events::emit_session_refunded`]).
+///
 /// # Authorization
 /// Only the session's stored `buyer` can call this — enforced by
 /// `buyer.require_auth()`, which fails unless the transaction carries a
@@ -139,10 +144,7 @@ pub fn refund_session(env: &Env, session_id: Bytes) {
     session.status = SessionStatus::Refunded;
     save_session(env, session_id.clone(), &session);
 
-    env.events().publish(
-        (symbol_short!("sess_ref"),),
-        (session_id, session.buyer, session.amount),
-    );
+    events::emit_session_refunded(env, &session_id, &session.buyer, session.amount);
 }
 
 #[cfg(test)]
@@ -150,7 +152,7 @@ mod tests {
     use super::*;
     use crate::{SkillSyncContract, SkillSyncContractClient};
     use soroban_sdk::testutils::{Address as _, Events, Ledger};
-    use soroban_sdk::{IntoVal, TryFromVal};
+    use soroban_sdk::{symbol_short, IntoVal, TryFromVal};
 
     fn setup() -> (Env, Address, Address, Bytes) {
         let env = Env::default();
@@ -216,6 +218,25 @@ mod tests {
         let session = get(&env, session_id);
         assert_eq!(session.status, SessionStatus::Refunded);
         assert_eq!(session.amount, 1_000); // full amount, no fee deducted
+    }
+
+    #[test]
+    fn refund_emits_session_refunded_event() {
+        let (env, buyer, seller, session_id) = setup();
+        env.ledger().set_timestamp(1_700_000_000);
+        let contract_id = env.register(SkillSyncContract, ());
+        let client = SkillSyncContractClient::new(&env, &contract_id);
+        client.lock_funds(&session_id, &buyer, &seller, &1_000);
+
+        client.refund_session(&session_id);
+
+        let events = env.events().all();
+        assert_eq!(events.len(), 1);
+        let (emitter, topics, data) = events.last().unwrap();
+        assert_eq!(emitter, contract_id);
+        assert_eq!(topics, (symbol_short!("sess_ref"),).into_val(&env));
+        let data = <(Bytes, Address, i128, u64)>::try_from_val(&env, &data).unwrap();
+        assert_eq!(data, (session_id, buyer, 1_000, 1_700_000_000));
     }
 
     #[test]

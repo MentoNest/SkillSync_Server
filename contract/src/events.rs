@@ -43,29 +43,20 @@ pub fn emit_platform_fee_updated(env: &Env, new_fee_bps: u32) {
         .publish((symbol_short!("fee_upd"), new_fee_bps), ());
 }
 
-/// Emitted when the buyer approves a session and funds are released.
+/// Emitted when a session's escrowed funds are refunded to the buyer.
 ///
-/// `amount` is the gross escrowed amount and `fee` the platform fee taken
-/// from it, so the seller's net payout is `amount - fee`.
+/// Shared by every refund path (manual `refund_session` and auto-refund),
+/// so indexers see a single `SessionRefunded` shape.
 ///
-/// Topics: ["sess_appr"]
-/// Data: (session_id, buyer, seller, amount, fee, timestamp)
-pub fn emit_session_approved(
-    env: &Env,
-    session_id: &Bytes,
-    buyer: &Address,
-    seller: &Address,
-    amount: i128,
-    fee: i128,
-) {
+/// Topics: ["sess_ref"]
+/// Data: (session_id, buyer, amount, timestamp)
+pub fn emit_session_refunded(env: &Env, session_id: &Bytes, buyer: &Address, amount: i128) {
     env.events().publish(
-        (symbol_short!("sess_appr"),),
+        (symbol_short!("sess_ref"),),
         (
             session_id.clone(),
             buyer.clone(),
-            seller.clone(),
             amount,
-            fee,
             env.ledger().timestamp(),
         ),
     );
