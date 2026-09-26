@@ -1,4 +1,4 @@
-use soroban_sdk::{symbol_short, Address, BytesN, Env};
+use soroban_sdk::{symbol_short, Address, Bytes, BytesN, Env};
 
 /// Emitted when the contract is successfully initialized.
 ///
@@ -60,6 +60,106 @@ pub fn emit_dispute_resolved(
     env.events().publish(
         (symbol_short!("dis_res"), session_id.clone()),
         (resolver.clone(), buyer_share, seller_share, fee, timestamp),
+    );
+}
+
+/// Emitted when funds are escrowed for a newly created session.
+///
+/// Topics: ["fnd_lock", session_id]
+/// Data: (buyer, seller, amount, timestamp)
+pub fn emit_funds_locked(
+    env: &Env,
+    session_id: &Bytes,
+    buyer: &Address,
+    seller: &Address,
+    amount: i128,
+) {
+    env.events().publish(
+        (symbol_short!("fnd_lock"), session_id.clone()),
+        (buyer.clone(), seller.clone(), amount, env.ledger().timestamp()),
+    );
+}
+
+/// Emitted when the seller marks a session complete, opening the dispute
+/// window.
+///
+/// Topics: ["sess_done", session_id]
+/// Data: (seller, completed_at)
+pub fn emit_session_completed(env: &Env, session_id: &Bytes, seller: &Address, completed_at: u64) {
+    env.events().publish(
+        (symbol_short!("sess_done"), session_id.clone()),
+        (seller.clone(), completed_at),
+    );
+}
+
+/// Emitted when the buyer approves a completed session and the escrow is
+/// settled into a seller payout plus a platform fee.
+///
+/// Topics: ["sess_appr", session_id]
+/// Data: (seller, payout, fee, treasury)
+pub fn emit_session_approved(
+    env: &Env,
+    session_id: &Bytes,
+    seller: &Address,
+    payout: i128,
+    fee: i128,
+    treasury: Option<Address>,
+) {
+    env.events().publish(
+        (symbol_short!("sess_appr"), session_id.clone()),
+        (seller.clone(), payout, fee, treasury),
+    );
+}
+
+/// Emitted when a session is refunded to the buyer in full.
+///
+/// Topics: ["sess_ref", session_id]
+/// Data: (buyer, amount, timestamp)
+pub fn emit_session_refunded(
+    env: &Env,
+    session_id: &Bytes,
+    buyer: &Address,
+    amount: i128,
+) {
+    env.events().publish(
+        (symbol_short!("sess_ref"), session_id.clone()),
+        (buyer.clone(), amount, env.ledger().timestamp()),
+    );
+}
+
+/// Emitted when either party opens a dispute on a session.
+///
+/// Topics: ["dis_open", session_id]
+/// Data: (opener, reason, timestamp)
+pub fn emit_dispute_opened(
+    env: &Env,
+    session_id: &BytesN<32>,
+    opener: &Address,
+    reason: &soroban_sdk::String,
+    timestamp: u64,
+) {
+    env.events().publish(
+        (symbol_short!("dis_open"), session_id.clone()),
+        (opener.clone(), reason.clone(), timestamp),
+    );
+}
+
+/// Emitted when the dispute window lapses and the escrow is auto-refunded to
+/// the buyer without any human intervention.
+///
+/// Topics: ["auto_ref", session_id]
+/// Data: (buyer, amount, ledgers_waited, window)
+pub fn emit_auto_refund_executed(
+    env: &Env,
+    session_id: &BytesN<32>,
+    buyer: &Address,
+    amount: i128,
+    ledgers_waited: u64,
+    window: u64,
+) {
+    env.events().publish(
+        (symbol_short!("auto_ref"), session_id.clone()),
+        (buyer.clone(), amount, ledgers_waited, window),
     );
 }
 
