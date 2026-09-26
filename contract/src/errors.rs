@@ -34,6 +34,11 @@ pub enum ContractError {
     AlreadyInitialized = 1,
     /// Contract has not been initialized yet.
     NotInitialized = 2,
+    /// A configured off-chain endpoint (webhook URL) is empty, over the
+    /// length limit, or not an https URL the relayer will accept.
+    InvalidWebhookUrl = 3,
+    /// A metadata URI is empty or over the length limit.
+    InvalidMetadataUri = 4,
 
     // ── Authorization (200–299) ───────────────────────────────────────
     /// Caller is not authorized to perform this action.

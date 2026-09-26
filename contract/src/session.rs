@@ -362,6 +362,36 @@ pub fn refund_session(
     Ok(())
 }
 
+/// Allows the buyer to request an early refund before the session is
+/// completed. The full escrowed amount is returned to the buyer with no
+/// fee deducted, per this issue's "no fee for early refund" requirement
+/// (see `crate::fee::apply_fee`, which this simply never calls).
+///
+/// # Reverts
+/// - `"session not found"` if `session_id` doesn't exist.
+/// - `"InvalidSessionState"` unless the session is currently `Locked`
+///   (i.e. it reverts if already `Completed`, `Approved`, or `Refunded`).
+///
+/// # Events
+/// Emits `SessionRefunded` (see [`events::emit_session_refunded`]).
+///
+/// # Authorization
+/// Only the session's stored `buyer` can call this — enforced by
+/// `buyer.require_auth()`, which fails unless the transaction carries a
+/// valid auth entry for that specific address.
+pub fn refund_session(env: &Env, session_id: Bytes) {
+    let mut session = get_session(env, &session_id);
+
+    assert!(session.status == SessionStatus::Locked, "InvalidSessionState");
+
+    session.buyer.require_auth();
+
+    session.status = SessionStatus::Refunded;
+    save_session(env, session_id.clone(), &session);
+
+    events::emit_session_refunded(env, &session_id, &session.buyer, session.amount);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -720,5 +750,36 @@ mod tests {
         assert_eq!(testutil::balance(&env, &usdc, &seller), 900);
         assert_eq!(testutil::balance(&env, &usdc, &treasury), 100);
         assert_eq!(testutil::balance(&env, &xlm, &treasury), 0);
+    }
+
+    #[test]
+    fn approve_session_splits_payout_and_fee() {
+        let (env, buyer, seller, session_id) = setup();
+        let contract_id = env.register(SkillSyncContract, ());
+        let client = SkillSyncContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin, &Address::generate(&env));
+        client.set_platform_fee(&admin, &250); // 2.5%
+
+        client.lock_funds(&session_id, &buyer, &seller, &1_000);
+        client.complete_session(&session_id);
+        client.approve_session(&session_id);
+
+        let session = get(&env, session_id);
+        assert_eq!(session.status, SessionStatus::Approved);
+        // gross 1_000, fee 25, so the seller nets 975.
+        assert_eq!(session.seller_payout, 975);
+        assert_eq!(session.platform_fee, 25);
+    }
+
+    #[test]
+    #[should_panic]
+    fn approve_session_reverts_if_not_completed() {
+        let (env, buyer, seller, session_id) = setup();
+        let contract_id = env.register(SkillSyncContract, ());
+        let client = SkillSyncContractClient::new(&env, &contract_id);
+        client.lock_funds(&session_id, &buyer, &seller, &1_000);
+
+        client.approve_session(&session_id);
     }
 }
