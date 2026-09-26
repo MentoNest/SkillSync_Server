@@ -1,5 +1,7 @@
 use soroban_sdk::{contracttype, symbol_short, Address, Bytes, Env};
 
+use crate::events;
+
 /// Escrow session lifecycle (BE refund function).
 ///
 /// This module owns its own storage key space (`SessionDataKey`) and status
@@ -50,6 +52,7 @@ fn save_session(env: &Env, session_id: Bytes, session: &Session) {
 
 /// Minimal session creation: locks `amount` between `buyer` and `seller`.
 /// Reverts if a session already exists under `session_id`.
+/// Emits `FundsLocked` (see [`events::emit_funds_locked`]).
 pub fn lock_funds(env: &Env, session_id: Bytes, buyer: Address, seller: Address, amount: i128) {
     assert!(amount > 0, "amount must be > 0");
     assert!(
@@ -68,7 +71,9 @@ pub fn lock_funds(env: &Env, session_id: Bytes, buyer: Address, seller: Address,
         status: SessionStatus::Locked,
         created_at: env.ledger().sequence(),
     };
-    save_session(env, session_id, &session);
+    save_session(env, session_id.clone(), &session);
+
+    events::emit_funds_locked(env, &session_id, &session.buyer, &session.seller, amount);
 }
 
 /// Read-only accessor for a session, for callers/tests that need to inspect
@@ -110,7 +115,9 @@ pub fn refund_session(env: &Env, session_id: Bytes) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::Address as _;
+    use crate::{SkillSyncContract, SkillSyncContractClient};
+    use soroban_sdk::testutils::{Address as _, Events, Ledger};
+    use soroban_sdk::{IntoVal, TryFromVal};
 
     fn setup() -> (Env, Address, Address, Bytes) {
         let env = Env::default();
@@ -119,6 +126,24 @@ mod tests {
         let seller = Address::generate(&env);
         let session_id = Bytes::from_slice(&env, &[1u8; 32]);
         (env, buyer, seller, session_id)
+    }
+
+    #[test]
+    fn lock_funds_emits_funds_locked_event() {
+        let (env, buyer, seller, session_id) = setup();
+        env.ledger().set_timestamp(1_700_000_000);
+        let contract_id = env.register(SkillSyncContract, ());
+        let client = SkillSyncContractClient::new(&env, &contract_id);
+
+        client.lock_funds(&session_id, &buyer, &seller, &1_000);
+
+        let events = env.events().all();
+        assert_eq!(events.len(), 1);
+        let (emitter, topics, data) = events.last().unwrap();
+        assert_eq!(emitter, contract_id);
+        assert_eq!(topics, (symbol_short!("fund_lock"),).into_val(&env));
+        let data = <(Bytes, Address, Address, i128, u64)>::try_from_val(&env, &data).unwrap();
+        assert_eq!(data, (session_id, buyer, seller, 1_000, 1_700_000_000));
     }
 
     #[test]
