@@ -73,8 +73,8 @@ pub fn open_dispute(env: &Env, session_id: Bytes, caller: Address, reason: Strin
 /// # Reverts
 /// - `"session not found"` if `session_id` doesn't exist.
 /// - `"InvalidSessionState"` unless the session is currently `Disputed`.
-/// - `"InvalidShare"` if either share is negative.
-/// - `"SharesMismatch"` unless `buyer_share + seller_share == session.amount`.
+/// - `"InvalidSplit"` if either share is negative, or unless
+///   `buyer_share + seller_share == session.amount`.
 /// - `"InvalidSessionId"` if `session_id` is not 32 bytes.
 ///
 /// # Events
@@ -98,8 +98,8 @@ pub fn resolve_dispute(
     let mut s = session::get_session(env, &session_id);
 
     assert!(s.status == SessionStatus::Disputed, "InvalidSessionState");
-    assert!(buyer_share >= 0 && seller_share >= 0, "InvalidShare");
-    assert!(buyer_share + seller_share == s.amount, "SharesMismatch");
+    assert!(buyer_share >= 0 && seller_share >= 0, "InvalidSplit");
+    assert!(buyer_share + seller_share == s.amount, "InvalidSplit");
 
     let event_id: BytesN<32> = event_session_id(&session_id);
 
@@ -327,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "SharesMismatch")]
+    #[should_panic(expected = "InvalidSplit")]
     fn resolve_dispute_rejects_mismatched_shares() {
         let (env, admin, buyer, seller, session_id) = setup();
         disputed_session(
@@ -340,6 +340,24 @@ mod tests {
         );
 
         resolve_dispute(&env, session_id, admin, 500, 400, 0); // 900 != 1000
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidSplit")]
+    fn resolve_dispute_rejects_negative_share() {
+        let (env, admin, buyer, seller, session_id) = setup();
+        disputed_session(
+            &env,
+            &session_id,
+            &buyer,
+            &seller,
+            1_000,
+            SessionStatus::Locked,
+        );
+
+        // A negative share that still sums to the amount would otherwise let
+        // an admin mint a payout out of thin air.
+        resolve_dispute(&env, session_id, admin, 1_100, -100, 0);
     }
 
     #[test]

@@ -28,7 +28,7 @@ fn require_admin(env: &Env, caller: &Address) -> Result<(), ContractError> {
 
     let admin = storage::get_admin(env).ok_or(ContractError::NotInitialized)?;
     if caller != &admin {
-        return Err(ContractError::Unauthorized);
+        return Err(ContractError::NotAdmin);
     }
 
     caller.require_auth();
@@ -77,7 +77,7 @@ pub fn initialize(env: &Env, admin: Address, treasury: Address) -> Result<(), Co
 ///
 /// # Errors
 /// - [`ContractError::NotInitialized`] if the contract is not initialized.
-/// - [`ContractError::Unauthorized`] if `caller` is not the admin.
+/// - [`ContractError::NotAdmin`] if `caller` is not the admin.
 pub fn set_treasury(
     env: &Env,
     caller: Address,
@@ -109,7 +109,7 @@ pub fn get_treasury(env: &Env) -> Option<Address> {
 ///
 /// # Errors
 /// - [`ContractError::NotInitialized`] if the contract is not initialized.
-/// - [`ContractError::Unauthorized`] if `caller` is not the admin.
+/// - [`ContractError::NotAdmin`] if `caller` is not the admin.
 pub fn set_dispute_window(
     env: &Env,
     caller: Address,
