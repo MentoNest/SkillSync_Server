@@ -81,6 +81,10 @@ pub fn open_session_for_dispute(
 /// # Reverts
 /// - `"session not found"` if `session_id` doesn't exist.
 /// - `"InvalidSessionState"` unless the session is `Completed` or `Locked`.
+/// - `"InvalidSessionId"` if `session_id` is not 32 bytes.
+///
+/// # Events
+/// Emits `DisputeOpened` (see [`events::emit_dispute_opened`]).
 ///
 /// # Authorization
 /// `caller` must be either the session's buyer or seller, enforced by
@@ -100,12 +104,19 @@ pub fn open_dispute(env: &Env, session_id: Bytes, caller: Address, reason: Strin
         "InvalidSessionState"
     );
 
+    let event_session_id: BytesN<32> = session_id.clone().try_into().expect("InvalidSessionId");
+
     session.status = DisputeSessionStatus::Disputed;
     session.dispute_opened_at = env.ledger().sequence();
-    save_session(env, session_id.clone(), &session);
+    save_session(env, session_id, &session);
 
-    env.events()
-        .publish((symbol_short!("dis_open"),), (session_id, caller, reason));
+    events::emit_dispute_opened(
+        env,
+        &event_session_id,
+        &caller,
+        &reason,
+        env.ledger().timestamp(),
+    );
 }
 
 /// Admin resolves a dispute by splitting the escrowed amount between buyer
@@ -224,6 +235,36 @@ mod tests {
 
         let session = get(&env, session_id);
         assert_eq!(session.status, DisputeSessionStatus::Disputed);
+    }
+
+    #[test]
+    fn open_dispute_emits_dispute_opened_event() {
+        let (env, _admin, buyer, seller, session_id) = setup();
+        let contract_id = env.register(crate::SkillSyncContract, ());
+        env.ledger().set_timestamp(12_345);
+        let reason = String::from_str(&env, "not delivered");
+
+        env.as_contract(&contract_id, || {
+            open_session_for_dispute(
+                &env,
+                session_id.clone(),
+                buyer.clone(),
+                seller,
+                1_000,
+                DisputeSessionStatus::Completed,
+            );
+            open_dispute(&env, session_id.clone(), buyer.clone(), reason.clone());
+        });
+
+        let (emitter, topics, data) = env.events().all().last().unwrap();
+        assert_eq!(emitter, contract_id);
+        let expected_id: BytesN<32> = session_id.try_into().unwrap();
+        assert_eq!(
+            topics,
+            (symbol_short!("dis_open"), expected_id).into_val(&env)
+        );
+        let data: (Address, String, u64) = data.into_val(&env);
+        assert_eq!(data, (buyer, reason, 12_345));
     }
 
     #[test]
