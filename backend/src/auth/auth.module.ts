@@ -40,6 +40,11 @@ import { JwtAuthGuard } from '../guards/jwt-auth.guard.js';
     RedisService,
     NotificationService,
     SuspiciousDetectionService,
+    // #1313: wallet challenge lifecycle.
+    NonceService,
+    // #1315, #1316: token contract and refresh rotation.
+    AccessTokenService,
+    RefreshTokenService,
     JwtStrategy,
     WalletStrategy,
     JwtAuthGuard,
@@ -53,6 +58,9 @@ import { JwtAuthGuard } from '../guards/jwt-auth.guard.js';
     RedisService,
     NotificationService,
     SuspiciousDetectionService,
+    NonceService,
+    AccessTokenService,
+    RefreshTokenService,
     WalletStrategy,
     JwtAuthGuard,
     RolesGuard,
