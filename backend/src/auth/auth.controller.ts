@@ -27,6 +27,7 @@ import { AuthService } from './auth.service';
 import { SuspiciousDetectionService } from './services/suspicious-detection.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { RefreshResponseDto } from './dto/refresh-response.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { NonceResponseDto } from './dto/nonce-response.dto';
 import { RevokeAllResponseDto } from './dto/revoke-all-response.dto';
@@ -126,24 +127,15 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Refresh access token using a valid refresh token',
+    summary: 'Exchange a refresh token for a new token pair (rotation)',
     description:
-      'Validates the provided refresh token against active sessions database and issues a fresh JWT access token.',
+      'Validates the refresh token, revokes it and returns a freshly signed access token together with a new refresh token (#1316 rotation). Presenting a token that was already rotated is treated as a compromise: the whole token family and every other session of the account are revoked and a security audit event is written.',
   })
   @ApiBody({ type: RefreshTokenDto })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'New access token issued successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        accessToken: {
-          type: 'string',
-          example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-        },
-        expiresIn: { type: 'number', example: 86400 },
-      },
-    },
+    description: 'New token pair issued; the presented refresh token is revoked',
+    type: RefreshResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
@@ -151,15 +143,20 @@ export class AuthController {
   })
   @ApiResponse({
     status: HttpStatus.UNAUTHORIZED,
-    description: 'Invalid, revoked, or expired refresh token',
+    description:
+      'Invalid, expired, revoked or already rotated refresh token (the same message in every case)',
   })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'User account is locked or disabled',
   })
   @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Internal server error' })
-  async refresh(@Body() refreshTokenDto: RefreshTokenDto) {
-    return this.authService.refresh(refreshTokenDto.refreshToken);
+  async refresh(
+    @Body() refreshTokenDto: RefreshTokenDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<RefreshResponseDto> {
+    return this.authService.refresh(refreshTokenDto.refreshToken, ip, userAgent);
   }
 
   @ApiTags('Session Management')
