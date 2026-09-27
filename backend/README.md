@@ -132,3 +132,10 @@ Configured with robust CORS policies to allow secure cross-origin requests from 
 ​Integrates standardized HTTP status codes and uniform error payload structures across all endpoints.
 ​Provides detailed API documentation endpoints for easy integration testing with Postman or Swagger.
 ​Follow the instructions in SECURITY.md to report potential server-side security vulnerabilities responsibly.
+Implements response compression middleware to optimize network bandwidth and load times.
+​Features modular database seeders for rapidly generating development and testing datasets.
+​Provides fine-grained role-based access control (RBAC) across protected administrative routes.
+​Utilizes automated health check endpoints to monitor server status and service dependencies.
+​Supports standardized microservice communication via lightweight gRPC protocols.
+​Includes grace-period connection closing logic to facilitate zero-downtime server deployments.
+​Employs structured request logging using Winston to generate centralized application traces.
