@@ -9,6 +9,9 @@ import { AuditLog } from './entities/audit-log.entity';
 import { RedisService } from './services/redis.service';
 import { NotificationService } from './services/notification.service';
 import { SuspiciousDetectionService } from './services/suspicious-detection.service';
+import { NonceService } from './services/nonce.service';
+import { AccessTokenService } from './services/access-token.service';
+import { RefreshTokenService } from './services/refresh-token.service';
 import { RevokeAllRateLimitGuard } from './guards/revoke-all-rate-limit.guard';
 import { NonceRateLimitGuard } from './guards/nonce-rate-limit.guard';
 import { WalletLoginRateLimitGuard } from './guards/wallet-login-rate-limit.guard';
@@ -40,6 +43,11 @@ import { JwtAuthGuard } from '../guards/jwt-auth.guard';
     RedisService,
     NotificationService,
     SuspiciousDetectionService,
+    // #1313: wallet challenge lifecycle.
+    NonceService,
+    // #1315, #1316: token contract and refresh rotation.
+    AccessTokenService,
+    RefreshTokenService,
     JwtStrategy,
     WalletStrategy,
     JwtAuthGuard,
@@ -53,6 +61,9 @@ import { JwtAuthGuard } from '../guards/jwt-auth.guard';
     RedisService,
     NotificationService,
     SuspiciousDetectionService,
+    NonceService,
+    AccessTokenService,
+    RefreshTokenService,
     WalletStrategy,
     JwtAuthGuard,
     RolesGuard,

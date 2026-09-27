@@ -6,21 +6,24 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { RedisService } from '../services/redis.service';
+import { getAuthTokenConfig } from '../config/auth-token.config';
 
 /**
- * #1146: Rate limit for nonce requests.
- * Allows a maximum of 5 requests per minute per wallet address.
+ * #1313: rate limit for nonce requests - 5 per minute per wallet address.
+ *
+ * The limit and the window are configurable (`NONCE_RATE_LIMIT_MAX`), because a
+ * wallet behind a shared NAT should not be able to lock every other user out of
+ * the challenge endpoint.
  */
 @Injectable()
 export class NonceRateLimitGuard implements CanActivate {
-  private readonly MAX_REQUESTS = 5;
   private readonly WINDOW_SECONDS = 60; // 1 minute
 
   constructor(private readonly redisService: RedisService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const walletAddress = request.params?.walletAddress || request.ip;
+    const walletAddress = String(request.params?.walletAddress ?? request.ip ?? 'unknown');
     const key = `ratelimit:nonce:${walletAddress.toLowerCase()}`;
 
     const count = await this.redisService.incr(key);
@@ -28,11 +31,13 @@ export class NonceRateLimitGuard implements CanActivate {
       await this.redisService.expire(key, this.WINDOW_SECONDS);
     }
 
-    if (count > this.MAX_REQUESTS) {
+    const maxRequests = getAuthTokenConfig().nonceRateLimitMax;
+
+    if (count > maxRequests) {
       throw new HttpException(
         {
           statusCode: HttpStatus.TOO_MANY_REQUESTS,
-          message: 'Rate limit exceeded: maximum 5 nonce requests per minute per wallet',
+          message: `Rate limit exceeded: maximum ${maxRequests} nonce requests per minute per wallet`,
           error: 'Too Many Requests',
         },
         HttpStatus.TOO_MANY_REQUESTS,

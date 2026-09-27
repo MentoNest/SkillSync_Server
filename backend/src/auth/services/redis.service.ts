@@ -127,6 +127,33 @@ export class RedisService implements OnModuleDestroy {
     this.inMemoryStore.delete(key);
   }
 
+  /**
+   * #1313: reads a key and deletes it in a single, atomic operation (Redis
+   * `GETDEL`, available since 6.2).
+   *
+   * Consuming a wallet challenge with a separate GET followed by DEL leaves a
+   * window in which two concurrent requests read the same nonce and both pass
+   * verification - exactly the replay the nonce is meant to prevent.
+   */
+  async getdel(key: string): Promise<string | null> {
+    if (this.isConnected && this.client) {
+      try {
+        return await this.client.getdel(key);
+      } catch (err) {
+        this.logger.warn(`Redis error in getdel, falling back to memory: ${err}`);
+      }
+    }
+
+    const item = this.inMemoryStore.get(key);
+    if (!item) return null;
+    if (item.expiresAt && item.expiresAt < Date.now()) {
+      this.inMemoryStore.delete(key);
+      return null;
+    }
+    this.inMemoryStore.delete(key);
+    return item.value;
+  }
+
   async onModuleDestroy() {
     if (this.client) {
       try {
