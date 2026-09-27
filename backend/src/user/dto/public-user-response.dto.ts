@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { MentorProfile } from '../../entities/mentor-profile.entity';
-import { User } from '../entities/user.entity';
+import { MentorProfile } from '../../entities/mentor-profile.entity.js';
+import { User } from '../entities/user.entity.js';
 
 /**
  * #1173: Public user profile returned by GET /users.

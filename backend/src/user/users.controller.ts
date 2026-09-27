@@ -9,9 +9,9 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { Request } from 'express';
-import { UserService } from './user.service';
-import { UserSearchQueryDto } from './dto/user-search-query.dto';
-import { User } from './entities/user.entity';
+import { UserService } from './user.service.js';
+import { UserSearchQueryDto } from './dto/user-search-query.dto.js';
+import { User } from './entities/user.entity.js';
 
 /**
  * #1173: Public user directory endpoints.

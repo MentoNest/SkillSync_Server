@@ -11,7 +11,7 @@ import {
   MaxLength,
   ArrayMaxSize,
 } from 'class-validator';
-import { SkillLevel } from '../entities/mentee-profile.entity';
+import { SkillLevel } from '../entities/mentee-profile.entity.js';
 
 export enum ProfileType {
   MENTOR = 'mentor',

@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus } from '@nestjs/common';
-import { ErrorCode } from './error-codes.enum';
+import { ErrorCode } from './error-codes.enum.js';
 
 /**
  * Base class for domain-specific exceptions (#1144) that need to carry a

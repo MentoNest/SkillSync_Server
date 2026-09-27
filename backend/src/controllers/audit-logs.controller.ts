@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Query, Param, Body, UseGuards, NotFoundException } from '@nestjs/common';
-import { AuditLogsService, QueryAuditLogsDto } from '../services/audit-logs.service';
-import { RolesGuard } from '../guards/roles.guard';
-import { Roles } from '../decorators/roles.decorator';
+import { AuditLogsService, QueryAuditLogsDto } from '../services/audit-logs.service.js';
+import { RolesGuard } from '../guards/roles.guard.js';
+import { Roles } from '../decorators/roles.decorator.js';
 
 @Controller('audit-logs')
 @UseGuards(RolesGuard)

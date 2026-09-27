@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { RedisService } from './redis.service';
+import { RedisService } from './redis.service.js';
 
 const mockClient = {
   connect: jest.fn().mockResolvedValue(undefined),

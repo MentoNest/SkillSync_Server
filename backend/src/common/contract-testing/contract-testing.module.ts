@@ -1,5 +1,5 @@
 import { Module, Global } from '@nestjs/common';
-import { ContractTestingService } from './contract-testing.service';
+import { ContractTestingService } from './contract-testing.service.js';
 
 @Global()
 @Module({

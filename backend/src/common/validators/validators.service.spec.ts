@@ -1,7 +1,7 @@
 import { validate } from 'class-validator';
-import { IsValidWalletAddress } from './is-valid-wallet-address.validator';
-import { IsValidTimezone } from './is-valid-timezone.validator';
-import { IsValidAvailabilitySlot } from './is-valid-availability-slot.validator';
+import { IsValidWalletAddress } from './is-valid-wallet-address.validator.js';
+import { IsValidTimezone } from './is-valid-timezone.validator.js';
+import { IsValidAvailabilitySlot } from './is-valid-availability-slot.validator.js';
 
 class TestWalletDto {
   @IsValidWalletAddress()

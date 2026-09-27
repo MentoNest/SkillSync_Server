@@ -1,10 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { SuspiciousDetectionService } from './suspicious-detection.service';
-import { AuditLog } from '../entities/audit-log.entity';
-import { User, ProfileType } from '../../user/entities/user.entity';
-import { RedisService } from './redis.service';
-import { NotificationService } from './notification.service';
+import { SuspiciousDetectionService } from './suspicious-detection.service.js';
+import { AuditLog } from '../entities/audit-log.entity.js';
+import { User, ProfileType } from '../../user/entities/user.entity.js';
+import { RedisService } from './redis.service.js';
+import { NotificationService } from './notification.service.js';
 
 describe('SuspiciousDetectionService', () => {
   let service: SuspiciousDetectionService;

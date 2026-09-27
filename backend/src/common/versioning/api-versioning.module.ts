@@ -1,6 +1,6 @@
 import { Module, Global, MiddlewareConsumer, NestModule } from '@nestjs/common';
-import { ApiVersioningService } from './api-versioning.service';
-import { ApiVersioningMiddleware } from './api-versioning.middleware';
+import { ApiVersioningService } from './api-versioning.service.js';
+import { ApiVersioningMiddleware } from './api-versioning.middleware.js';
 
 @Global()
 @Module({

@@ -21,17 +21,17 @@ import {
   ApiBearerAuth,
   ApiParam,
 } from '@nestjs/swagger';
-import { UserService } from './user.service';
-import { ProfileCompletenessService, CompletenessResult } from './services/profile-completeness.service';
-import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
-import { UpdateUsernameDto } from './dto/update-username.dto';
-import { UserQueryDto } from './dto/user-query.dto';
-import { UserResponseDto } from './dto/user-response.dto';
-import { CurrentUser } from './decorators/current-user.decorator';
-import { User } from './entities/user.entity';
-import { RolesGuard } from '../guards/roles.guard';
-import { AllowInactiveStatus } from '../decorators/allow-inactive-status.decorator';
+import { UserService } from './user.service.js';
+import { ProfileCompletenessService, CompletenessResult } from './services/profile-completeness.service.js';
+import { CreateUserDto } from './dto/create-user.dto.js';
+import { UpdateUserDto } from './dto/update-user.dto.js';
+import { UpdateUsernameDto } from './dto/update-username.dto.js';
+import { UserQueryDto } from './dto/user-query.dto.js';
+import { UserResponseDto } from './dto/user-response.dto.js';
+import { CurrentUser } from './decorators/current-user.decorator.js';
+import { User } from './entities/user.entity.js';
+import { RolesGuard } from '../guards/roles.guard.js';
+import { AllowInactiveStatus } from '../decorators/allow-inactive-status.decorator.js';
 
 @ApiTags('User')
 @Controller('user')

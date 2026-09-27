@@ -7,8 +7,8 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { THROTTLE_KEY, ThrottleOptions } from '../decorators/throttle.decorator';
-import { RedisService } from '../services/redis.service';
+import { THROTTLE_KEY, ThrottleOptions } from '../decorators/throttle.decorator.js';
+import { RedisService } from '../services/redis.service.js';
 
 @Injectable()
 export class ThrottlerGuard implements CanActivate {

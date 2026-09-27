@@ -5,12 +5,12 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { GlobalExceptionFilter } from './global-exception.filter';
-import { ValidationException } from '../exceptions/validation.exception';
+import { GlobalExceptionFilter } from './global-exception.filter.js';
+import { ValidationException } from '../exceptions/validation.exception.js';
 import {
   BusinessException,
   ResourceNotFoundException,
-} from '../exceptions/business.exception';
+} from '../exceptions/business.exception.js';
 
 function createHost(overrides: Partial<any> = {}) {
   const json = jest.fn();

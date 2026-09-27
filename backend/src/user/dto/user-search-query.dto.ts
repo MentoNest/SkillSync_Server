@@ -1,6 +1,6 @@
 import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { BasePaginationQueryDto } from '../../common/dtos/base-pagination-query.dto';
+import { BasePaginationQueryDto } from '../../common/dtos/base-pagination-query.dto.js';
 
 export const USER_SEARCH_ROLES = ['mentor', 'mentee', 'admin'] as const;
 export const USER_SORT_FIELDS = ['name', 'createdAt', 'rating'] as const;

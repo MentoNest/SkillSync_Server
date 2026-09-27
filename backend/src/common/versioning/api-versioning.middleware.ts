@@ -1,6 +1,6 @@
 import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
-import { ApiVersioningService } from './api-versioning.service';
+import { ApiVersioningService } from './api-versioning.service.js';
 
 @Injectable()
 export class ApiVersioningMiddleware implements NestMiddleware {

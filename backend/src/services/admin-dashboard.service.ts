@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThan, MoreThan } from 'typeorm';
-import { User, UserStatus } from '../user/entities/user.entity';
-import { AuditLog } from '../auth/entities/audit-log.entity';
-import { Role } from '../entities/role.entity';
-import { UserService } from '../user/user.service';
-import { UserResponseDto } from '../user/dto/user-response.dto';
+import { User, UserStatus } from '../user/entities/user.entity.js';
+import { AuditLog } from '../auth/entities/audit-log.entity.js';
+import { Role } from '../entities/role.entity.js';
+import { UserService } from '../user/user.service.js';
+import { UserResponseDto } from '../user/dto/user-response.dto.js';
 
 export interface DashboardStats {
   totalUsers: number;

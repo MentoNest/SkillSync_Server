@@ -1,4 +1,4 @@
-import { getDatabaseConfig, getDatabaseRetryConfig } from './database.config';
+import { getDatabaseConfig, getDatabaseRetryConfig } from './database.config.js';
 
 describe('database.config', () => {
   const originalEnv = process.env;

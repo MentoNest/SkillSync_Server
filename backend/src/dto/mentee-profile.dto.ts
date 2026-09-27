@@ -7,7 +7,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { SkillLevel } from '../entities/mentee-profile.entity';
+import { SkillLevel } from '../entities/mentee-profile.entity.js';
 
 export class CreateMenteeProfileDto {
   @IsArray()

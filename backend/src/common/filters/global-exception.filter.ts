@@ -7,12 +7,12 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { ErrorCode, errorCodeFromStatus } from '../exceptions/error-codes.enum';
+import { ErrorCode, errorCodeFromStatus } from '../exceptions/error-codes.enum.js';
 import {
   FieldError,
   ValidationException,
-} from '../exceptions/validation.exception';
-import { RequestWithLoggingContext } from '../middleware/logging.middleware';
+} from '../exceptions/validation.exception.js';
+import { RequestWithLoggingContext } from '../middleware/logging.middleware.js';
 
 export interface ErrorResponseBody {
   statusCode: number;

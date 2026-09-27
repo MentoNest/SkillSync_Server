@@ -1,1 +1,1 @@
-export { BasePaginationQueryDto } from './base-pagination-query.dto';
+export { BasePaginationQueryDto } from './base-pagination-query.dto.js';

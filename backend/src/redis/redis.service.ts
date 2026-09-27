@@ -4,8 +4,8 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import Redis from 'ioredis';
-import { getRedisConfig, RedisConfig } from './redis.config';
+import { Redis } from 'ioredis';
+import { getRedisConfig, RedisConfig } from './redis.config.js';
 
 /**
  * Central, injectable Redis service (#1142).

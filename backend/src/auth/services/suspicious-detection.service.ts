@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan, LessThanOrEqual } from 'typeorm';
-import { AuditLog } from '../entities/audit-log.entity';
-import { User } from '../../user/entities/user.entity';
-import { RedisService } from './redis.service';
-import { NotificationService } from './notification.service';
+import { AuditLog } from '../entities/audit-log.entity.js';
+import { User } from '../../user/entities/user.entity.js';
+import { RedisService } from './redis.service.js';
+import { NotificationService } from './notification.service.js';
 import * as geoip from 'geoip-lite';
 
 export interface SuspiciousCheckResult {

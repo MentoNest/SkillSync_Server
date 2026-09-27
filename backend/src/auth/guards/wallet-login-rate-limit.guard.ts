@@ -5,8 +5,7 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { RedisService } from '../services/redis.service';
-import { getAuthTokenConfig } from '../config/auth-token.config';
+import { RedisService } from '../services/redis.service.js';
 
 /**
  * #1314: rate limit for wallet signature login attempts - 10 per 15 minutes per

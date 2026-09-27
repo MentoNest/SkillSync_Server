@@ -12,9 +12,9 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { SessionService } from './session.service';
-import { BookSessionDto, RescheduleSessionDto, CancelSessionDto, RateSessionDto } from './dto/session.dto';
-import { RolesGuard } from '../guards/roles.guard';
+import { SessionService } from './session.service.js';
+import { BookSessionDto, RescheduleSessionDto, CancelSessionDto, RateSessionDto } from './dto/session.dto.js';
+import { RolesGuard } from '../guards/roles.guard.js';
 
 @ApiTags('Sessions')
 @Controller('sessions')

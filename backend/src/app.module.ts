@@ -15,6 +15,7 @@ import {
 
 import { DatabaseModule } from './database/database.module.js';
 import { HealthModule } from './modules/health/health.module.js';
+import { ThrottlerModule } from './guards/throttler.module.js';
 
 import {
   HttpExceptionFilter,
@@ -47,6 +48,11 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
     // ─── Feature Modules ───────────────────────────────────────────────────
     HealthModule,
+
+    // ─── Rate Limiting ─────────────────────────────────────────────────────
+    // Publishes ThrottlerGuard as a global guard so every route is throttled
+    // by default, with per-route @Throttle() overrides where declared.
+    ThrottlerModule,
     // Add further feature modules here, e.g.:
     // UsersModule,
     // AuthModule,

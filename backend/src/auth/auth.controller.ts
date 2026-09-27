@@ -23,21 +23,21 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
-import { AuthService } from './auth.service';
-import { SuspiciousDetectionService } from './services/suspicious-detection.service';
-import { LoginDto } from './dto/login.dto';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { RefreshResponseDto } from './dto/refresh-response.dto';
-import { AuthResponseDto } from './dto/auth-response.dto';
-import { NonceResponseDto } from './dto/nonce-response.dto';
-import { RevokeAllResponseDto } from './dto/revoke-all-response.dto';
-import { RolesGuard } from '../guards/roles.guard';
-import { Roles } from '../decorators/roles.decorator';
-import { CurrentUser } from '../user/decorators/current-user.decorator';
-import { User } from '../user/entities/user.entity';
-import { RevokeAllRateLimitGuard } from './guards/revoke-all-rate-limit.guard';
-import { NonceRateLimitGuard } from './guards/nonce-rate-limit.guard';
-import { WalletLoginRateLimitGuard } from './guards/wallet-login-rate-limit.guard';
+import { AuthService } from './auth.service.js';
+import { SuspiciousDetectionService } from './services/suspicious-detection.service.js';
+import { LoginDto } from './dto/login.dto.js';
+import { RefreshTokenDto } from './dto/refresh-token.dto.js';
+import { AuthResponseDto } from './dto/auth-response.dto.js';
+import { NonceResponseDto } from './dto/nonce-response.dto.js';
+import { RevokeAllResponseDto } from './dto/revoke-all-response.dto.js';
+import { RolesGuard } from '../guards/roles.guard.js';
+import { Roles } from '../decorators/roles.decorator.js';
+import { Throttle } from '../decorators/throttle.decorator.js';
+import { CurrentUser } from '../user/decorators/current-user.decorator.js';
+import { User } from '../user/entities/user.entity.js';
+import { RevokeAllRateLimitGuard } from './guards/revoke-all-rate-limit.guard.js';
+import { NonceRateLimitGuard } from './guards/nonce-rate-limit.guard.js';
+import { WalletLoginRateLimitGuard } from './guards/wallet-login-rate-limit.guard.js';
 
 @Controller('auth')
 export class AuthController {
@@ -51,6 +51,7 @@ export class AuthController {
   // ---------------------------------------------------------------------------
   @ApiTags('Wallet')
   @Get('nonce/:walletAddress')
+  @Throttle(30, 60)
   @UseGuards(NonceRateLimitGuard)
   @ApiOperation({
     summary: 'Request cryptographic nonce challenge for Stellar wallet signature (#1146)',
@@ -85,6 +86,7 @@ export class AuthController {
   // ---------------------------------------------------------------------------
   @ApiTags('Authentication')
   @Post('login')
+  @Throttle(5, 60)
   @UseGuards(WalletLoginRateLimitGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -125,6 +127,7 @@ export class AuthController {
 
   @ApiTags('Authentication')
   @Post('refresh')
+  @Throttle(10, 60)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Exchange a refresh token for a new token pair (rotation)',
@@ -195,6 +198,7 @@ export class AuthController {
   // ---------------------------------------------------------------------------
   @ApiTags('Session Management')
   @Post('revoke-all')
+  @Throttle(3, 3600)
   @UseGuards(RolesGuard, RevokeAllRateLimitGuard)
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth('Bearer Auth')

@@ -1,8 +1,8 @@
 import { Controller, Get, UseGuards, Res, HttpCode, HttpStatus } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiProduces } from '@nestjs/swagger';
-import { MetricsService } from './metrics.service';
-import { RolesGuard } from '../guards/roles.guard';
+import { MetricsService } from './metrics.service.js';
+import { RolesGuard } from '../guards/roles.guard.js';
 
 @ApiTags('Metrics')
 @Controller('metrics')

@@ -5,8 +5,7 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { RedisService } from '../services/redis.service';
-import { getAuthTokenConfig } from '../config/auth-token.config';
+import { RedisService } from '../services/redis.service.js';
 
 /**
  * #1313: rate limit for nonce requests - 5 per minute per wallet address.

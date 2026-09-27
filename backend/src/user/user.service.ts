@@ -7,23 +7,24 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { User, ProfileType, UserStatus } from './entities/user.entity';
-import { UserSuspension } from './entities/user-suspension.entity';
-import { Role } from '../entities/role.entity';
-import { MentorProfile } from '../entities/mentor-profile.entity';
-import { MenteeProfile } from '../entities/mentee-profile.entity';
-import { AvailabilitySlot } from '../entities/availability-slot.entity';
-import { RedisService } from '../auth/services/redis.service';
-import { ProfileCompletenessService } from './services/profile-completeness.service';
-import { RefreshToken } from '../auth/entities/refresh-token.entity';
-import { AuditLog } from '../auth/entities/audit-log.entity';
-import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
-import { UserQueryDto } from './dto/user-query.dto';
-import { UserSearchQueryDto } from './dto/user-search-query.dto';
-import { UserResponseDto } from './dto/user-response.dto';
-import { PublicUserResponseDto } from './dto/public-user-response.dto';
-import { USERNAME_PATTERN } from './dto/update-username.dto';
+import { User, ProfileType, UserStatus } from './entities/user.entity.js';
+import { UserSuspension } from './entities/user-suspension.entity.js';
+import { Role } from '../entities/role.entity.js';
+import { MentorProfile } from '../entities/mentor-profile.entity.js';
+import { MenteeProfile } from '../entities/mentee-profile.entity.js';
+import { AvailabilitySlot } from '../entities/availability-slot.entity.js';
+import { RedisService } from '../auth/services/redis.service.js';
+import { ProfileCompletenessService } from './services/profile-completeness.service.js';
+import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
+import { AuditLog } from '../auth/entities/audit-log.entity.js';
+import { CreateUserDto } from './dto/create-user.dto.js';
+import { UpdateUserDto } from './dto/update-user.dto.js';
+import { UserQueryDto } from './dto/user-query.dto.js';
+import { UserSearchQueryDto } from './dto/user-search-query.dto.js';
+import { UserResponseDto } from './dto/user-response.dto.js';
+import { PublicUserResponseDto } from './dto/public-user-response.dto.js';
+import { USERNAME_PATTERN } from './dto/update-username.dto.js';
+import { normalizeWalletAddress } from '../common/utils/wallet.utils.js';
 
 @Injectable()
 export class UserService {
@@ -80,9 +81,16 @@ export class UserService {
       throw new BadRequestException('Either walletAddress or email must be provided');
     }
 
-    if (createUserDto.walletAddress) {
+    // Normalise once so the uniqueness lookup, the default display name and the
+    // persisted row all agree on a single canonical (trimmed, lowercase,
+    // checksum-validated) representation of the wallet address.
+    const normalizedWalletAddress = createUserDto.walletAddress
+      ? normalizeWalletAddress(createUserDto.walletAddress)
+      : undefined;
+
+    if (normalizedWalletAddress) {
       const existingWallet = await this.userRepository.findOne({
-        where: { walletAddress: createUserDto.walletAddress.toLowerCase() },
+        where: { walletAddress: normalizedWalletAddress },
       });
       if (existingWallet) {
         throw new ConflictException('User with this wallet address already exists');
@@ -107,15 +115,15 @@ export class UserService {
 
     // #1177: displayName defaults to a wallet-address-derived handle when
     // not supplied and no email-derived alternative is available either.
-    const defaultDisplayName = createUserDto.walletAddress
-      ? `User_${createUserDto.walletAddress.slice(-6)}`
+    const defaultDisplayName = normalizedWalletAddress
+      ? `User_${normalizedWalletAddress.slice(-6)}`
       : createUserDto.email
         ? createUserDto.email.split('@')[0]
         : undefined;
 
     const user = this.userRepository.create({
       ...createUserDto,
-      walletAddress: createUserDto.walletAddress?.toLowerCase(),
+      walletAddress: normalizedWalletAddress,
       email: createUserDto.email?.toLowerCase(),
       displayName: createUserDto.displayName || defaultDisplayName,
       roles: defaultRole ? [defaultRole] : [],
@@ -317,7 +325,7 @@ export class UserService {
 
   async findByWalletAddress(walletAddress: string): Promise<User | null> {
     return this.userRepository.findOne({
-      where: { walletAddress: walletAddress.toLowerCase() },
+      where: { walletAddress: normalizeWalletAddress(walletAddress) },
       relations: { roles: true },
     });
   }

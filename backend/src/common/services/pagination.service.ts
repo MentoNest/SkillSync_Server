@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { SelectQueryBuilder, Repository } from 'typeorm';
+import { ObjectLiteral, SelectQueryBuilder, Repository } from 'typeorm';
 
 export interface PaginatedResponse<T> {
   data: T[];
@@ -28,7 +28,7 @@ export interface PaginationOptions {
 export class PaginationService {
   private readonly DEFAULT_MAX_LIMIT = 100;
 
-  async paginate<T>(
+  async paginate<T extends ObjectLiteral>(
     queryBuilderOrRepository: SelectQueryBuilder<T> | Repository<T>,
     page: number = 1,
     limit: number = 20,
@@ -40,9 +40,10 @@ export class PaginationService {
     const skip = (safePage - 1) * safeLimit;
 
     // Get query builder if repository was provided
-    const queryBuilder = 'createQueryBuilder' in queryBuilderOrRepository
-      ? queryBuilderOrRepository.createQueryBuilder('entity')
-      : queryBuilderOrRepository;
+    const queryBuilder =
+      queryBuilderOrRepository instanceof Repository
+        ? queryBuilderOrRepository.createQueryBuilder('entity')
+        : queryBuilderOrRepository;
 
     // Apply pagination
     queryBuilder.skip(skip).take(safeLimit);
@@ -78,7 +79,7 @@ export class PaginationService {
   }
 
   // Cursor-based pagination for large datasets
-  async paginateWithCursor<T>(
+  async paginateWithCursor<T extends ObjectLiteral>(
     queryBuilder: SelectQueryBuilder<T>,
     cursorField: string,
     limit: number = 100,

@@ -1,12 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ProfileCompletenessService } from './profile-completeness.service';
-import { User, ProfileType, UserStatus } from '../entities/user.entity';
-import { MentorProfile } from '../../entities/mentor-profile.entity';
-import { MenteeProfile } from '../../entities/mentee-profile.entity';
-import { AvailabilitySlot } from '../../entities/availability-slot.entity';
-import { RedisService } from '../../auth/services/redis.service';
+import { ProfileCompletenessService } from './profile-completeness.service.js';
+import { User, ProfileType, UserStatus } from '../entities/user.entity.js';
+import { MentorProfile } from '../../entities/mentor-profile.entity.js';
+import { MenteeProfile } from '../../entities/mentee-profile.entity.js';
+import { AvailabilitySlot } from '../../entities/availability-slot.entity.js';
+import { RedisService } from '../../auth/services/redis.service.js';
 
 // Mock RedisService
 const mockRedisService = {

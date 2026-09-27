@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
-import { HealthService } from './health.service';
-import { RedisService } from '../services/redis.service';
+import { HealthService } from './health.service.js';
+import { RedisService } from '../services/redis.service.js';
 
 describe('HealthService', () => {
   let service: HealthService;

@@ -1,11 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { UserController } from './user.controller';
-import { UserService } from './user.service';
+import { UserController } from './user.controller.js';
+import { UserService } from './user.service.js';
 import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { User, ProfileType } from './entities/user.entity';
-import { UserSuspension } from './entities/user-suspension.entity';
-import { Role } from '../entities/role.entity';
+import { User, ProfileType } from './entities/user.entity.js';
+import { UserSuspension } from './entities/user-suspension.entity.js';
+import { Role } from '../entities/role.entity.js';
 
 describe('UserController', () => {
   let controller: UserController;

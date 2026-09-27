@@ -8,7 +8,7 @@ import {
   Matches,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ProfileType } from '../entities/user.entity';
+import { ProfileType } from '../entities/user.entity.js';
 
 export class CreateUserDto {
   @ApiPropertyOptional({

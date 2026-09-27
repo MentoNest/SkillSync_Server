@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
-import { GracefulShutdownService } from './graceful-shutdown.service';
+import { GracefulShutdownService } from './graceful-shutdown.service.js';
 
 @Injectable()
 export class ShutdownInterceptor implements NestInterceptor {

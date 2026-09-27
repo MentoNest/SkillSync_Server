@@ -1,13 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
-import { SuspiciousDetectionService } from './services/suspicious-detection.service';
+import { AuthController } from './auth.controller.js';
+import { AuthService } from './auth.service.js';
+import { SuspiciousDetectionService } from './services/suspicious-detection.service.js';
 import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { User } from '../user/entities/user.entity';
-import { UserSuspension } from '../user/entities/user-suspension.entity';
-import { Role } from '../entities/role.entity';
-import { RedisService } from './services/redis.service';
+import { User } from '../user/entities/user.entity.js';
+import { UserSuspension } from '../user/entities/user-suspension.entity.js';
+import { Role } from '../entities/role.entity.js';
+import { RedisService } from './services/redis.service.js';
 
 describe('AuthController', () => {
   let controller: AuthController;

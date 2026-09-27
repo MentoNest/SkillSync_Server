@@ -15,12 +15,12 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../guards/jwt-auth.guard';
-import { RolesGuard } from '../guards/roles.guard';
-import { Roles } from '../decorators/roles.decorator';
-import { AdminDashboardService } from '../services/admin-dashboard.service';
-import { ProfileCompletenessService } from '../user/services/profile-completeness.service';
-import { UserStatus } from '../user/entities/user.entity';
+import { JwtAuthGuard } from '../guards/jwt-auth.guard.js';
+import { RolesGuard } from '../guards/roles.guard.js';
+import { Roles } from '../decorators/roles.decorator.js';
+import { AdminDashboardService } from '../services/admin-dashboard.service.js';
+import { ProfileCompletenessService } from '../user/services/profile-completeness.service.js';
+import { UserStatus } from '../user/entities/user.entity.js';
 
 @ApiTags('Admin')
 @ApiBearerAuth('Bearer Auth')

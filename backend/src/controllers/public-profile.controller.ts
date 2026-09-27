@@ -1,5 +1,5 @@
 import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
-import { UserService } from '../services/user.service';
+import { UserService } from '../services/user.service.js';
 
 // Issue #1166: GET /profiles/:userId - public, unauthenticated, safe fields only.
 // No @UseGuards here on purpose: this route must be reachable without a token.

@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { User } from '../user/entities/user.entity';
-import { AuditLog } from '../auth/entities/audit-log.entity';
-import { Role } from '../entities/role.entity';
-import { AdminDashboardService } from '../services/admin-dashboard.service';
-import { AdminController } from '../controllers/admin.controller';
-import { UserModule } from '../user/user.module';
+import { User } from '../user/entities/user.entity.js';
+import { AuditLog } from '../auth/entities/audit-log.entity.js';
+import { Role } from '../entities/role.entity.js';
+import { AdminDashboardService } from '../services/admin-dashboard.service.js';
+import { AdminController } from '../controllers/admin.controller.js';
+import { UserModule } from '../user/user.module.js';
 
 @Module({
   // UserModule exports UserService, which AdminDashboardService delegates

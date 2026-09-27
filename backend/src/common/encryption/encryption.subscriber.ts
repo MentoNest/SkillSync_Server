@@ -5,7 +5,7 @@ import {
   RemoveEvent,
   EventSubscriber,
 } from 'typeorm';
-import { EncryptionService } from './encryption.service';
+import { EncryptionService } from './encryption.service.js';
 
 const ENCRYPTED_FIELDS = ['email', 'displayName', 'bio', 'walletAddress'];
 const SEARCH_HASH_FIELDS = ['email'];
