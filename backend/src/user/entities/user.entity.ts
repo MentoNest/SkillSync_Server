@@ -6,6 +6,7 @@ import {
   JoinTable,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   Index,
 } from 'typeorm';
 import { Role } from '../../entities/role.entity.js';
@@ -97,7 +98,7 @@ export class User {
   // to compute the restore grace period and eligibility for permanent
   // (hard) deletion.
   @Index('IDX_users_deletedAt')
-  @Column({ type: 'timestamp', nullable: true })
+  @DeleteDateColumn({ type: 'timestamp', nullable: true })
   deletedAt: Date | null;
 
   @Column({ type: 'boolean', default: false })
