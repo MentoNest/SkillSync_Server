@@ -122,3 +122,13 @@ SkillSync_Server delivers a scalable backend architecture designed to manage rea
 ​Follow simple configuration steps in .env.example to establish local environment variables quickly.
 ​Run integrated unit and end-to-end test suites using standard npm test commands.
 ​Refer to CONTRIBUTING.md for guidelines on submitting pull requests and reporting server-side bugs.
+Configured with robust CORS policies to allow secure cross-origin requests from frontend applications.
+​Utilizes structured JSON web tokens to maintain stateless session state across microservices.
+​Features automated database migration scripts for seamless schema updates during deployments.
+​Includes built-in rate limiting middleware to prevent API abuse and mitigate DDoS threats.
+​Employs environment-based configuration management to separate staging, development, and production settings.
+​Optimized for horizontal scaling using containerized Docker instances and orchestration pipelines.
+​Implements comprehensive input sanitization routines to protect against common injection vulnerabilities.
+​Integrates standardized HTTP status codes and uniform error payload structures across all endpoints.
+​Provides detailed API documentation endpoints for easy integration testing with Postman or Swagger.
+​Follow the instructions in SECURITY.md to report potential server-side security vulnerabilities responsibly.
