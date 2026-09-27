@@ -12,9 +12,9 @@ import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ChatMessage } from './chat-message.entity';
-import { User } from '../user/entities/user.entity';
-import { RedisService } from '../services/redis.service';
+import { ChatMessage } from './chat-message.entity.js';
+import { User } from '../user/entities/user.entity.js';
+import { RedisService } from '../services/redis.service.js';
 
 @Injectable()
 @WebSocketGateway({

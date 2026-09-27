@@ -1,13 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { UserService } from './user.service';
-import { User, ProfileType, UserStatus } from './entities/user.entity';
-import { Role } from '../entities/role.entity';
-import { MentorProfile } from '../entities/mentor-profile.entity';
-import { RedisService } from '../auth/services/redis.service';
-import { RefreshToken } from '../auth/entities/refresh-token.entity';
-import { AuditLog } from '../auth/entities/audit-log.entity';
-import { UserSuspension } from './entities/user-suspension.entity';
+import { UserService } from './user.service.js';
+import { User, ProfileType, UserStatus } from './entities/user.entity.js';
+import { Role } from '../entities/role.entity.js';
+import { MentorProfile } from '../entities/mentor-profile.entity.js';
+import { RedisService } from '../auth/services/redis.service.js';
+import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
+import { AuditLog } from '../auth/entities/audit-log.entity.js';
+import { UserSuspension } from './entities/user-suspension.entity.js';
 import { NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 
 describe('UserService', () => {

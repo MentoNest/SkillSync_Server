@@ -1,10 +1,11 @@
-import { Injectable, InjectRepository } from '@nestjs/typeorm';
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User, ProfileType } from '../entities/user.entity';
-import { MentorProfile } from '../../entities/mentor-profile.entity';
-import { MenteeProfile } from '../../entities/mentee-profile.entity';
-import { AvailabilitySlot } from '../../entities/availability-slot.entity';
-import { RedisService } from '../../auth/services/redis.service';
+import { User, ProfileType, UserStatus } from '../entities/user.entity.js';
+import { MentorProfile } from '../../entities/mentor-profile.entity.js';
+import { MenteeProfile } from '../../entities/mentee-profile.entity.js';
+import { AvailabilitySlot } from '../../entities/availability-slot.entity.js';
+import { RedisService } from '../../auth/services/redis.service.js';
 
 export interface CompletenessResult {
   score: number;
@@ -245,7 +246,7 @@ export class ProfileCompletenessService {
     }
 
     // Get all active users
-    const users = await this.userRepository.find({ where: { status: 'active' } });
+    const users = await this.userRepository.find({ where: { status: UserStatus.ACTIVE } });
     
     const results: UserCompleteness[] = [];
     

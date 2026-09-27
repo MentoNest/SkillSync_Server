@@ -8,9 +8,9 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThanOrEqual, LessThanOrEqual, Not } from 'typeorm';
-import { Session, SessionStatus } from './session.entity';
-import { User } from '../user/entities/user.entity';
-import { BookSessionDto, RescheduleSessionDto, RateSessionDto } from './dto/session.dto';
+import { Session, SessionStatus } from './session.entity.js';
+import { User } from '../user/entities/user.entity.js';
+import { BookSessionDto, RescheduleSessionDto, RateSessionDto } from './dto/session.dto.js';
 
 @Injectable()
 export class SessionService {

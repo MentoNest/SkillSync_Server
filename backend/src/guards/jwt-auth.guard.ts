@@ -7,8 +7,8 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { IS_OPTIONAL_AUTH_KEY, IS_PUBLIC_KEY } from '../decorators/optional-auth.decorator';
-import { RedisService } from '../services/redis.service';
+import { IS_OPTIONAL_AUTH_KEY, IS_PUBLIC_KEY } from '../decorators/optional-auth.decorator.js';
+import { RedisService } from '../services/redis.service.js';
 
 export interface JwtAuthGuardOptions {
   optional?: boolean;

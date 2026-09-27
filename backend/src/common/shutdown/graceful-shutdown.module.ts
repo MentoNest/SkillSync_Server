@@ -1,5 +1,5 @@
 import { Module, Global } from '@nestjs/common';
-import { GracefulShutdownService } from './graceful-shutdown.service';
+import { GracefulShutdownService } from './graceful-shutdown.service.js';
 
 @Global()
 @Module({

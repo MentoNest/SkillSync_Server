@@ -1,9 +1,9 @@
 import { DataSource } from 'typeorm';
 import { faker } from '@faker-js/faker';
-import { User, ProfileType } from '../user/entities/user.entity';
-import { Role } from '../entities/role.entity';
-import { MentorProfile } from '../entities/mentor-profile.entity';
-import { MenteeProfile, SkillLevel } from '../entities/mentee-profile.entity';
+import { User, ProfileType } from '../user/entities/user.entity.js';
+import { Role } from '../entities/role.entity.js';
+import { MentorProfile } from '../entities/mentor-profile.entity.js';
+import { MenteeProfile, SkillLevel } from '../entities/mentee-profile.entity.js';
 
 faker.seed(42);
 

@@ -1,1 +1,2 @@
-export { PaginationService, PaginatedResponse } from './pagination.service';
+export { PaginationService } from './pagination.service.js';
+export type { PaginatedResponse, PaginationOptions } from './pagination.service.js';

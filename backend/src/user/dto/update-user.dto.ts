@@ -7,7 +7,7 @@ import {
   Length,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { ProfileType } from '../entities/user.entity';
+import { ProfileType } from '../entities/user.entity.js';
 
 export class UpdateUserDto {
   @ApiPropertyOptional({

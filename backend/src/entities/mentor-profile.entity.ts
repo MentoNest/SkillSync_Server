@@ -20,7 +20,7 @@ import {
   MaxLength,
   ArrayMaxSize,
 } from 'class-validator';
-import { User } from './user.entity';
+import { User } from './user.entity.js';
 
 @Entity('mentor_profiles')
 @Index('IDX_mentor_profiles_skills', ['skills'])

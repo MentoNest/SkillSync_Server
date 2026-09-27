@@ -1,10 +1,10 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Role } from '../entities/role.entity';
-import { User } from '../entities/user.entity';
-import { AuditLogsService } from './audit-logs.service';
-import { AuditEventType } from '../entities/audit-log.entity';
+import { Role } from '../entities/role.entity.js';
+import { User } from '../entities/user.entity.js';
+import { AuditLogsService } from './audit-logs.service.js';
+import { AuditEventType } from '../entities/audit-log.entity.js';
 
 @Injectable()
 export class RolesService {

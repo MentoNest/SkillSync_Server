@@ -9,5 +9,6 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['**/*.spec.ts'],
+    setupFiles: ['./test/jest-vitest-compat.ts'],
   },
 });

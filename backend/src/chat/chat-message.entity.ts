@@ -7,7 +7,7 @@ import {
   JoinColumn,
   Index,
 } from 'typeorm';
-import { User } from '../user/entities/user.entity';
+import { User } from '../user/entities/user.entity.js';
 
 @Entity('chat_messages')
 @Index('IDX_chat_messages_sender', ['senderId'])

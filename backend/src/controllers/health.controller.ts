@@ -1,7 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { GracefulShutdownService } from '../common/shutdown/graceful-shutdown.service';
-import { BackupService } from '../common/backup/backup.service';
+import { GracefulShutdownService } from '../common/shutdown/graceful-shutdown.service.js';
+import { BackupService } from '../common/backup/backup.service.js';
 
 @ApiTags('Health')
 @Controller('health')

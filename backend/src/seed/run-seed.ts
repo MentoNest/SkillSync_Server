@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../app.module';
+import { AppModule } from '../app.module.js';
 import { DataSource } from 'typeorm';
-import { seedDemoData } from './seed.service';
+import { seedDemoData } from './seed.service.js';
 
 async function runSeed() {
   const shouldSeed = process.argv.includes('--seed') || process.env.SEED_DEMO_DATA === 'true';

@@ -1,5 +1,5 @@
 import { Global, Module } from '@nestjs/common';
-import { RedisService } from './redis.service';
+import { RedisService } from './redis.service.js';
 
 /**
  * Reusable Redis module (#1142).

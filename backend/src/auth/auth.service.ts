@@ -10,19 +10,20 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as crypto from 'crypto';
-import { RefreshToken } from './entities/refresh-token.entity';
-import { AuditLog } from './entities/audit-log.entity';
-import { UserService } from '../user/user.service';
-import { User, ProfileType, UserStatus } from '../user/entities/user.entity';
-import { RedisService } from './services/redis.service';
-import { NotificationService } from './services/notification.service';
-import { SuspiciousDetectionService } from './services/suspicious-detection.service';
-import { WalletStrategy } from './strategies/wallet.strategy';
-import { LoginDto, StellarNetwork } from './dto/login.dto';
-import { AuthResponseDto } from './dto/auth-response.dto';
-import { NonceResponseDto } from './dto/nonce-response.dto';
-import { RevokeAllResponseDto } from './dto/revoke-all-response.dto';
-import { UserResponseDto } from '../user/dto/user-response.dto';
+import { RefreshToken } from './entities/refresh-token.entity.js';
+import { AuditLog } from './entities/audit-log.entity.js';
+import { UserService } from '../user/user.service.js';
+import { User, ProfileType, UserStatus } from '../user/entities/user.entity.js';
+import { RedisService } from './services/redis.service.js';
+import { NotificationService } from './services/notification.service.js';
+import { SuspiciousDetectionService } from './services/suspicious-detection.service.js';
+import { WalletStrategy } from './strategies/wallet.strategy.js';
+import { LoginDto, StellarNetwork } from './dto/login.dto.js';
+import { AuthResponseDto } from './dto/auth-response.dto.js';
+import { NonceResponseDto } from './dto/nonce-response.dto.js';
+import { RevokeAllResponseDto } from './dto/revoke-all-response.dto.js';
+import { UserResponseDto } from '../user/dto/user-response.dto.js';
+import { normalizeWalletAddress } from '../common/utils/wallet.utils.js';
 
 @Injectable()
 export class AuthService {
@@ -50,11 +51,10 @@ export class AuthService {
    * same wallet overwrites (invalidates) any previously issued unused nonce.
    */
   async generateNonce(walletAddress: string): Promise<NonceResponseDto> {
-    if (!this.walletStrategy.isValidAddress(walletAddress)) {
-      throw new BadRequestException('Valid Stellar wallet address (56-character G-address) is required');
-    }
-
-    const normalizedAddress = walletAddress.trim().toLowerCase();
+    // normalizeWalletAddress() trims, validates the StrKey checksum and
+    // canonicalises to lowercase, so the Redis nonce key is always identical
+    // for the same wallet regardless of how the caller cased it.
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
     const nonce = crypto.randomBytes(32).toString('hex'); // 256 bits of entropy
     const expiresAt = new Date(Date.now() + AuthService.NONCE_TTL_SECONDS * 1000);
 
@@ -197,7 +197,7 @@ export class AuthService {
     ipAddress?: string,
     userAgent?: string,
   ): Promise<User> {
-    const normalizedWallet = loginDto.walletAddress!.trim().toLowerCase();
+    const normalizedWallet = normalizeWalletAddress(loginDto.walletAddress!);
     const redisKey = `nonce:${normalizedWallet}`;
     const network = loginDto.network || StellarNetwork.MAINNET;
 

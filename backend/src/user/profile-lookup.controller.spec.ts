@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
-import { ProfileLookupController } from './profile-lookup.controller';
-import { UserStatus } from './entities/user.entity';
+import { ProfileLookupController } from './profile-lookup.controller.js';
+import { UserStatus } from './entities/user.entity.js';
 
 describe('ProfileLookupController (#1177)', () => {
   let controller: ProfileLookupController;

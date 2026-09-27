@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { HttpServer } from '@nestjs/common/interfaces';
+import { HttpServer } from '@nestjs/common';
 import { NestApplication } from '@nestjs/core';
 
 export interface ShutdownConfig {
@@ -127,14 +127,13 @@ export class GracefulShutdownService implements OnModuleDestroy {
    * Stop accepting new connections
    */
   private async stopAcceptingConnections(): Promise<void> {
-    if (!this.server) return;
+    const server = this.server;
+    if (!server) return;
 
-    return new Promise((resolve) => {
-      this.server!.close(() => {
-        this.logger.log('HTTP server stopped accepting connections');
-        resolve();
-      });
-    });
+    // Nest 12's HttpServer#close() no longer accepts a completion callback;
+    // it stops the server and may return a promise, so await it directly.
+    await server.close();
+    this.logger.log('HTTP server stopped accepting connections');
   }
 
   /**

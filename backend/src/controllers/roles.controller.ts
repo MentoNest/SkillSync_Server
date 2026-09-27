@@ -1,8 +1,8 @@
 import { Controller, Get, Post, Body, Param, UseGuards, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { RolesService } from '../services/roles.service';
-import { Roles } from '../decorators/roles.decorator';
-import { RolesGuard } from '../guards/roles.guard';
+import { RolesService } from '../services/roles.service.js';
+import { Roles } from '../decorators/roles.decorator.js';
+import { RolesGuard } from '../guards/roles.guard.js';
 import type { Request } from 'express';
 
 interface CreateRoleDto {

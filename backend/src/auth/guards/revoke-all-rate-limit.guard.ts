@@ -5,7 +5,7 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { RedisService } from '../services/redis.service';
+import { RedisService } from '../services/redis.service.js';
 
 @Injectable()
 export class RevokeAllRateLimitGuard implements CanActivate {

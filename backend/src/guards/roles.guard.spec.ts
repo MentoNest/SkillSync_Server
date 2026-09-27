@@ -1,8 +1,8 @@
 import { ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { RolesGuard } from './roles.guard';
-import { UserStatus } from '../entities/user.entity';
+import { RolesGuard } from './roles.guard.js';
+import { UserStatus } from '../entities/user.entity.js';
 
 describe('RolesGuard (#1176 status-based access control)', () => {
   let guard: RolesGuard;

@@ -7,14 +7,14 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User } from '../entities/user.entity';
-import { Role } from '../entities/role.entity';
-import { MentorProfile } from '../entities/mentor-profile.entity';
-import { MenteeProfile } from '../entities/mentee-profile.entity';
-import { AuditLogService } from './audit-log.service';
-import { CreateProfileDto, ProfileType } from '../dto/create-profile.dto';
-import { CreateMentorProfileDto, UpdateMentorProfileDto } from '../dto/mentor-profile.dto';
-import { CreateMenteeProfileDto, UpdateMenteeProfileDto } from '../dto/mentee-profile.dto';
+import { User } from '../entities/user.entity.js';
+import { Role } from '../entities/role.entity.js';
+import { MentorProfile } from '../entities/mentor-profile.entity.js';
+import { MenteeProfile } from '../entities/mentee-profile.entity.js';
+import { AuditLogService } from './audit-log.service.js';
+import { CreateProfileDto, ProfileType } from '../dto/create-profile.dto.js';
+import { CreateMentorProfileDto, UpdateMentorProfileDto } from '../dto/mentor-profile.dto.js';
+import { CreateMenteeProfileDto, UpdateMenteeProfileDto } from '../dto/mentee-profile.dto.js';
 
 @Injectable()
 export class UserService {

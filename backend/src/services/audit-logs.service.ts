@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, MoreThanOrEqual } from 'typeorm';
-import { AuditLog, AuditEventType } from '../entities/audit-log.entity';
+import { AuditLog, AuditEventType } from '../entities/audit-log.entity.js';
 
 export interface CreateAuditLogDto {
   userId?: string | null;

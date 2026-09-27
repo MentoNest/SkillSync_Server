@@ -17,13 +17,13 @@ import type { Request } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
-import { UserService } from '../services/user.service';
-import { RolesGuard } from '../guards/roles.guard';
-import { Roles } from '../decorators/roles.decorator';
-import { CreateProfileDto } from '../dto/create-profile.dto';
-import { UpdateMentorProfileDto } from '../dto/mentor-profile.dto';
-import { UpdateMenteeProfileDto } from '../dto/mentee-profile.dto';
-import { User } from '../entities/user.entity';
+import { UserService } from '../services/user.service.js';
+import { RolesGuard } from '../guards/roles.guard.js';
+import { Roles } from '../decorators/roles.decorator.js';
+import { CreateProfileDto } from '../dto/create-profile.dto.js';
+import { UpdateMentorProfileDto } from '../dto/mentor-profile.dto.js';
+import { UpdateMenteeProfileDto } from '../dto/mentee-profile.dto.js';
+import { User } from '../entities/user.entity.js';
 
 @Controller('user')
 @UseGuards(RolesGuard)

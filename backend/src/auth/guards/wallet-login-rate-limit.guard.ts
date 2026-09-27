@@ -5,7 +5,7 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { RedisService } from '../services/redis.service';
+import { RedisService } from '../services/redis.service.js';
 
 /**
  * #1147: Rate limit for wallet signature login attempts.

@@ -1,8 +1,8 @@
 import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiParam, ApiResponse } from '@nestjs/swagger';
-import { UserService } from './user.service';
-import { UserStatus } from './entities/user.entity';
-import { PublicUserResponseDto } from './dto/public-user-response.dto';
+import { UserService } from './user.service.js';
+import { UserStatus } from './entities/user.entity.js';
+import { PublicUserResponseDto } from './dto/public-user-response.dto.js';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

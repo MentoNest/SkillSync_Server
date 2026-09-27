@@ -3,15 +3,15 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { UnauthorizedException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Keypair } from '@stellar/stellar-sdk';
-import { AuthService } from './auth.service';
-import { UserService } from '../user/user.service';
-import { UserStatus } from '../user/entities/user.entity';
-import { RefreshToken } from './entities/refresh-token.entity';
-import { AuditLog } from './entities/audit-log.entity';
-import { RedisService } from './services/redis.service';
-import { NotificationService } from './services/notification.service';
-import { SuspiciousDetectionService } from './services/suspicious-detection.service';
-import { WalletStrategy } from './strategies/wallet.strategy';
+import { AuthService } from './auth.service.js';
+import { UserService } from '../user/user.service.js';
+import { UserStatus } from '../user/entities/user.entity.js';
+import { RefreshToken } from './entities/refresh-token.entity.js';
+import { AuditLog } from './entities/audit-log.entity.js';
+import { RedisService } from './services/redis.service.js';
+import { NotificationService } from './services/notification.service.js';
+import { SuspiciousDetectionService } from './services/suspicious-detection.service.js';
+import { WalletStrategy } from './strategies/wallet.strategy.js';
 
 describe('AuthService', () => {
   let service: AuthService;

@@ -1,4 +1,4 @@
-import { redactSensitiveData } from './redact.util';
+import { redactSensitiveData } from './redact.util.js';
 
 describe('redactSensitiveData', () => {
   it('redacts password fields', () => {

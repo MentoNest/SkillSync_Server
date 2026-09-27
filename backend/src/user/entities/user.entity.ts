@@ -8,7 +8,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { Role } from '../../entities/role.entity';
+import { Role } from '../../entities/role.entity.js';
 
 export enum ProfileType {
   MENTOR = 'mentor',

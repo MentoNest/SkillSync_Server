@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
-import { getDatabaseConfig } from './config/database.config';
+import { databaseConfig } from './config/database.config.js';
 
 /**
  * TypeORM CLI entry point (#1141).
@@ -18,7 +18,9 @@ import { getDatabaseConfig } from './config/database.config';
  * migrations, never through auto-sync.
  */
 export const AppDataSource = new DataSource({
-  ...getDatabaseConfig(),
+  // `databaseConfig` is a Nest `registerAs` factory; invoking it returns the
+  // plain connection options the running application uses.
+  ...(databaseConfig() as ConstructorParameters<typeof DataSource>[0]),
   synchronize: false,
 });
 

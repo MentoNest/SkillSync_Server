@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { MentorProfile } from '../entities/mentor-profile.entity';
+import { MentorProfile } from '../entities/mentor-profile.entity.js';
 
 /**
  * Fix #1171: minimal admin verification/revocation for mentor profiles.

@@ -13,9 +13,13 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../guards/jwt-auth.guard';
-import { NotificationService, CreateNotificationDto, NotificationFilter } from '../services/notification.service';
-import { NotificationType, NotificationPriority } from '../entities/notification.entity';
+import { JwtAuthGuard } from '../guards/jwt-auth.guard.js';
+import { NotificationService } from '../services/notification.service.js';
+import type {
+  CreateNotificationDto,
+  NotificationFilter,
+} from '../services/notification.service.js';
+import { NotificationType, NotificationPriority } from '../entities/notification.entity.js';
 
 @ApiTags('Notifications')
 @ApiBearerAuth('Bearer Auth')

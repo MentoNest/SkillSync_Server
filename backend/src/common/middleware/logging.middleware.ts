@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 import * as crypto from 'crypto';
-import { redactSensitiveData } from '../utils/redact.util';
+import { redactSensitiveData } from '../utils/redact.util.js';
 
 const logger = new Logger('HTTP');
 

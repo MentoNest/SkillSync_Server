@@ -1,13 +1,13 @@
 import { CanActivate, ExecutionContext, Injectable, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { ROLES_KEY } from '../decorators/roles.decorator';
-import { ALLOW_INACTIVE_STATUS_KEY } from '../decorators/allow-inactive-status.decorator';
+import { ROLES_KEY } from '../decorators/roles.decorator.js';
+import { ALLOW_INACTIVE_STATUS_KEY } from '../decorators/allow-inactive-status.decorator.js';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User, UserStatus } from '../entities/user.entity';
-import { Role } from '../entities/role.entity';
-import { UserSuspension } from '../user/entities/user-suspension.entity';
+import { User, UserStatus } from '../entities/user.entity.js';
+import { Role } from '../entities/role.entity.js';
+import { UserSuspension } from '../user/entities/user-suspension.entity.js';
 
 // Hierarchical role permissions - admin inherits all permissions from mentor and mentee
 const roleHierarchy: Record<string, string[]> = {

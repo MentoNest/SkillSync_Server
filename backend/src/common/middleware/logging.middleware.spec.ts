@@ -1,4 +1,4 @@
-import { requestLoggingMiddleware } from './logging.middleware';
+import { requestLoggingMiddleware } from './logging.middleware.js';
 
 function createMockReq(overrides: Partial<any> = {}): any {
   return {

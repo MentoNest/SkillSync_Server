@@ -1,7 +1,7 @@
 import { IsEnum, IsOptional, IsString } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { ProfileType } from '../entities/user.entity';
-import { BasePaginationQueryDto } from '../../common/dtos/base-pagination-query.dto';
+import { ProfileType } from '../entities/user.entity.js';
+import { BasePaginationQueryDto } from '../../common/dtos/base-pagination-query.dto.js';
 
 export class UserQueryDto extends BasePaginationQueryDto {
   constructor() {

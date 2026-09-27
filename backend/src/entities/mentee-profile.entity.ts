@@ -18,7 +18,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { User } from './user.entity';
+import { User } from './user.entity.js';
 
 export enum SkillLevel {
   BEGINNER = 'beginner',

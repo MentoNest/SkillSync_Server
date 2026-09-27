@@ -1,5 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
-import { User } from '../../user/entities/user.entity';
+import { User } from '../user/entities/user.entity.js';
 
 export enum NotificationType {
   SYSTEM = 'system',

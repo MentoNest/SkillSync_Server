@@ -9,8 +9,8 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { ChatGateway } from './chat.gateway';
-import { RolesGuard } from '../guards/roles.guard';
+import { ChatGateway } from './chat.gateway.js';
+import { RolesGuard } from '../guards/roles.guard.js';
 
 @ApiTags('Chat')
 @Controller('chat')
