@@ -305,6 +305,9 @@ export class UserService {
     const user = await this.userRepository.findOne({
       where: { id },
       relations: { roles: true },
+      // Soft-deleted users must remain visible here: restoreAccount() and the
+      // admin status transitions both operate on deleted rows.
+      withDeleted: true,
     });
 
     if (!user) {
@@ -327,6 +330,10 @@ export class UserService {
     return this.userRepository.findOne({
       where: { walletAddress: normalizeWalletAddress(walletAddress) },
       relations: { roles: true },
+      // `deletedAt` is a @DeleteDateColumn, so TypeORM would hide soft-deleted
+      // rows by default. Login deliberately needs them so it can enforce the
+      // restore grace period instead of provisioning a fresh account.
+      withDeleted: true,
     });
   }
 
@@ -480,6 +487,7 @@ export class UserService {
       where: { status: UserStatus.DELETED },
       relations: { roles: true },
       order: { deletedAt: 'DESC' },
+      withDeleted: true,
     });
     return users.map((u) => UserResponseDto.fromEntity(u));
   }
