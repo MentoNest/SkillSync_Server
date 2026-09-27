@@ -162,36 +162,13 @@ export class AuthController {
     return this.authService.refresh(refreshTokenDto.refreshToken, ip, userAgent);
   }
 
-  @ApiTags('Session Management')
-  @Post('logout')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Logout and invalidate current session',
-    description: 'Invalidates the supplied refresh token, ending the active session.',
-  })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        refreshToken: { type: 'string', example: 'd8e4f1a2-7b3c-4d5e-9f0a-1b2c3d4e5f6a' },
-      },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Logged out successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-        message: { type: 'string', example: 'Logged out successfully' },
-      },
-    },
-  })
-  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Internal server error' })
-  async logout(@Body('refreshToken') refreshToken?: string) {
-    return this.authService.logout(refreshToken);
-  }
+  // ---------------------------------------------------------------------------
+  // #1317: there is deliberately no `POST /auth/logout` here. Logout needs the
+  // raw access token from the Authorization header in order to blacklist it, so
+  // it lives in `src/logout/logout.controller.ts`. The route that used to live
+  // here only deleted a refresh token taken from the request body and therefore
+  // never invalidated the session credential.
+  // ---------------------------------------------------------------------------
 
   // ---------------------------------------------------------------------------
   // Session Management Endpoints (#1158)

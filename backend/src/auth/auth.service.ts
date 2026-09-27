@@ -418,22 +418,6 @@ export class AuthService {
   }
 
   /**
-   * Revoke a single refresh token on logout
-   */
-  async logout(refreshTokenStr?: string, userId?: string): Promise<{ success: boolean; message: string }> {
-    if (refreshTokenStr) {
-      await this.refreshTokenRepository.delete({ token: refreshTokenStr });
-    } else if (userId) {
-      await this.refreshTokenRepository.delete({ userId });
-    }
-
-    return {
-      success: true,
-      message: 'Logged out successfully',
-    };
-  }
-
-  /**
    * #1158: Revoke all active sessions for authenticated user
    */
   async revokeAll(
