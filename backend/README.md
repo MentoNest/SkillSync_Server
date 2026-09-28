@@ -57,6 +57,28 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## Docker development
+
+Copy `.env.example` to `.env`, then start the backend, PostgreSQL, and Redis:
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+The backend is available at `http://localhost:3000`; its container health check uses `GET /api/v1/health`. Source files are mounted for hot reload. Stop the stack with `docker compose down` and remove its data volumes with `docker compose down -v` when a clean database is needed.
+
+To build and run the production image:
+
+```bash
+docker build --target production -t skillsync-backend .
+docker run --env-file .env -p 3000:3000 skillsync-backend
+```
+
+## Demo data
+
+Set `SEED_DEMO_DATA=true` for development startup, or run `npm run seed:demo` after configuring the database. The command creates five mentors and five mentees with deterministic demo emails such as `demo_mentor_1@example.com` and `demo_mentee_1@example.com`. It is idempotent and never removes existing users.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.

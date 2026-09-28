@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { AdminSeedService } from './admin-seed.service';
-import { User } from '../user/entities/user.entity';
-import { Role } from '../entities/role.entity';
+import { AdminSeedService } from './admin-seed.service.js';
+import { DemoSeedService } from './demo-seed.service.js';
+import { User } from '../user/entities/user.entity.js';
+import { Role } from '../entities/role.entity.js';
 
 /**
  * #1319: bootstrap seeding.
@@ -13,7 +14,7 @@ import { Role } from '../entities/role.entity';
  */
 @Module({
   imports: [TypeOrmModule.forFeature([User, Role])],
-  providers: [AdminSeedService],
-  exports: [AdminSeedService],
+  providers: [AdminSeedService, DemoSeedService],
+  exports: [AdminSeedService, DemoSeedService],
 })
 export class SeedModule {}

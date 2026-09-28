@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule, ObserveInstrument } from './app.module.js';
 import { requestLoggingMiddleware } from './common/middleware/logging.middleware.js';
+import { configureSecurityHeaders } from './security/security-headers.js';
 
 const logger = new Logger('Bootstrap');
 
@@ -15,6 +16,7 @@ async function bootstrap(): Promise<void> {
   });
 
   app.use(requestLoggingMiddleware);
+  configureSecurityHeaders(app, process.env.NODE_ENV);
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>('app.port') ?? 3000;
@@ -23,9 +25,9 @@ async function bootstrap(): Promise<void> {
   // ─── Global Pipes ──────────────────────────────────────────────────────
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true,       // Strip unknown properties
+      whitelist: true, // Strip unknown properties
       forbidNonWhitelisted: true,
-      transform: true,       // Auto-transform payloads to DTO instances
+      transform: true, // Auto-transform payloads to DTO instances
       transformOptions: {
         enableImplicitConversion: true,
       },
@@ -70,7 +72,9 @@ async function bootstrap(): Promise<void> {
     SwaggerModule.setup('api/docs', app, openApiDocument, {
       swaggerOptions: { persistAuthorization: true },
     });
-    logger.log('📖 OpenAPI docs available at http://localhost:' + port + '/api/docs');
+    logger.log(
+      '📖 OpenAPI docs available at http://localhost:' + port + '/api/docs',
+    );
   }
 
   await app.listen(port);
