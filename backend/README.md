@@ -72,6 +72,8 @@ With Mau, you can deploy your application in just a few clicks, allowing you to 
 
 ## Observability
 
+The public readiness/liveness endpoints and Kubernetes probe configuration are documented in [docs/health-checks.md](docs/health-checks.md).
+
 In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
 
 [NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
