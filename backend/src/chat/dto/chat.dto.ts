@@ -1,56 +1,28 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, IsNumber, Min, Max, IsArray, IsBoolean } from 'class-validator';
+import { IsUUID, IsString, MaxLength, IsOptional, IsUrl } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class SendMessageDto {
+  @ApiProperty({ description: 'Receiver user ID' })
   @IsUUID()
-  @IsNotEmpty()
-  sessionId!: string;
+  receiverId: string;
 
-  @IsString()
-  @IsNotEmpty()
-  content!: string;
-
+  @ApiPropertyOptional({ description: 'Related session ID' })
+  @IsUUID()
   @IsOptional()
+  sessionId?: string;
+
+  @ApiProperty({ description: 'Message content' })
   @IsString()
+  @MaxLength(5000)
+  content: string;
+
+  @ApiPropertyOptional({ description: 'File attachment URL' })
+  @IsUrl()
+  @IsOptional()
   fileUrl?: string;
 
-  @IsOptional()
+  @ApiPropertyOptional({ description: 'File type (image/png, application/pdf, etc.)' })
   @IsString()
-  fileName?: string;
-
   @IsOptional()
-  @IsString()
   fileType?: string;
-}
-
-export class TypingIndicatorDto {
-  @IsUUID()
-  @IsNotEmpty()
-  sessionId!: string;
-
-  @IsBoolean()
-  @IsNotEmpty()
-  isTyping!: boolean;
-}
-
-export class ReadReceiptDto {
-  @IsUUID()
-  @IsNotEmpty()
-  messageId!: string;
-}
-
-export class GetMessagesDto {
-  @IsUUID()
-  @IsNotEmpty()
-  sessionId!: string;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(1)
-  @Max(100)
-  limit?: number = 50;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  offset?: number = 0;
 }

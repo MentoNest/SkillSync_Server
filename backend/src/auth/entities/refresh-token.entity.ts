@@ -1,67 +1,83 @@
 import {
-  BeforeInsert,
-  Column,
-  CreateDateColumn,
   Entity,
-  Index,
-  PrimaryColumn,
+  PrimaryGeneratedColumn,
+  Column,
+  ManyToOne,
+  CreateDateColumn,
   UpdateDateColumn,
+  JoinColumn,
+  Index,
 } from 'typeorm';
-import { randomUUID } from 'crypto';
+import { User } from '../../user/entities/user.entity.js';
 
-@Entity({ name: 'refresh_tokens' })
-@Index(['userId'])
-@Index(['familyId'])
-@Index(['tokenHash'], { unique: true })
+@Entity('refresh_tokens')
 export class RefreshToken {
-  @PrimaryColumn('uuid')
-  id!: string;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column({ name: 'token_hash', type: 'varchar', length: 128 })
-  tokenHash!: string;
+  @Index()
+  @Column({ type: 'varchar', length: 1024 })
+  token: string;
 
-  @Column({ name: 'user_id', type: 'varchar', length: 128 })
-  userId!: string;
+  /**
+   * #1316: `jti` of the refresh JWT. Kept as a column so an audit entry or a
+   * support query can be correlated with a token without storing it again.
+   */
+  @Index({ unique: true })
+  @Column({ type: 'uuid', nullable: true })
+  jti: string | null;
 
-  @Column({ name: 'wallet_address', type: 'varchar', length: 128, nullable: true })
-  walletAddress!: string | null;
+  /**
+   * #1316: all refresh tokens descending from one login share a family id.
+   * Reuse of an already rotated token revokes the whole family.
+   */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  familyId: string | null;
 
-  @Column({ name: 'family_id', type: 'uuid' })
-  familyId!: string;
+  /** #1316: the token that replaced this one, i.e. the next link in the chain. */
+  @Column({ type: 'uuid', nullable: true })
+  replacedById: string | null;
 
-  @Column({ name: 'expires_at', type: 'timestamptz' })
-  expiresAt!: Date;
+  /** #1316: when the token was exchanged, i.e. the end of its useful life. */
+  @Column({ type: 'timestamp', nullable: true })
+  usedAt: Date | null;
 
-  @Column({ name: 'revoked_at', type: 'timestamptz', nullable: true })
-  revokedAt!: Date | null;
+  /** #1316: why the token stopped being valid (rotated, logout, reuse, ...). */
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  revocationReason: string | null;
 
-  @Column({ name: 'replaced_by_token_id', type: 'uuid', nullable: true })
-  replacedByTokenId!: string | null;
+  @Index()
+  @Column({ type: 'uuid' })
+  userId: string;
 
-  @Column({ name: 'user_agent', type: 'text', nullable: true })
-  userAgent!: string | null;
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'userId' })
+  user: User;
 
-  @Column({ name: 'ip_address', type: 'varchar', length: 64, nullable: true })
-  ipAddress!: string | null;
+  /**
+   * #1316: hash of the user agent plus the client IP prefix. Compared on every
+   * refresh so a session used from an unexpected device is visible, without
+   * storing anything reversible.
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  deviceInfo: string | null;
 
-  @Column({ name: 'device_fingerprint', type: 'varchar', length: 128, nullable: true })
-  deviceFingerprint!: string | null;
+  @Column({ type: 'varchar', length: 45, nullable: true })
+  ipAddress: string | null;
 
-  @Column({ name: 'last_used_at', type: 'timestamptz', nullable: true })
-  lastUsedAt!: Date | null;
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  userAgent: string | null;
 
-  @Column({ name: 'concurrent_reuse_detected_at', type: 'timestamptz', nullable: true })
-  concurrentReuseDetectedAt!: Date | null;
+  @Column({ type: 'boolean', default: false })
+  isRevoked: boolean;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
-  createdAt!: Date;
+  @Column({ type: 'timestamp' })
+  expiresAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
-  updatedAt!: Date;
+  @CreateDateColumn()
+  createdAt: Date;
 
-  @BeforeInsert()
-  setIds(): void {
-    this.id ??= randomUUID();
-    this.familyId ??= randomUUID();
-  }
+  @UpdateDateColumn()
+  updatedAt: Date;
 }

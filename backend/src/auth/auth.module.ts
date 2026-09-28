@@ -1,40 +1,70 @@
-import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-
-import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
-import { AuditLogsController } from './audit-logs.controller';
-import { AuditLogService } from './audit-log.service';
-import { AdminAccessGuard } from './admin-access.guard';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { RolesGuard } from './guards/roles.guard';
-import { NonceProvider } from './providers/nonce.provider';
-import { SuspensionService } from './suspension.service';
-import { RedisModule } from '../redis/redis.module';
-
-import { AuditLog } from './entities/audit-log.entity';
-import { RefreshToken } from './entities/refresh-token.entity';
-import { User } from '../users/entities/user.entity';
-import { Role } from '../users/entities/role.entity';
-import { UserSuspension } from '../users/entities/user-suspension.entity';
+import { JwtModule } from '@nestjs/jwt';
+import { PassportModule } from '@nestjs/passport';
+import { AuthController } from './auth.controller.js';
+import { AuthService } from './auth.service.js';
+import { RefreshToken } from './entities/refresh-token.entity.js';
+import { AuditLog } from './entities/audit-log.entity.js';
+import { RedisService } from './services/redis.service.js';
+import { NotificationService } from './services/notification.service.js';
+import { SuspiciousDetectionService } from './services/suspicious-detection.service.js';
+import { RevokeAllRateLimitGuard } from './guards/revoke-all-rate-limit.guard.js';
+import { NonceRateLimitGuard } from './guards/nonce-rate-limit.guard.js';
+import { WalletLoginRateLimitGuard } from './guards/wallet-login-rate-limit.guard.js';
+import { JwtStrategy } from './strategies/jwt.strategy.js';
+import { WalletStrategy } from './strategies/wallet.strategy.js';
+import { UserModule } from '../user/user.module.js';
+import { User } from '../user/entities/user.entity.js';
+import { UserSuspension } from '../user/entities/user-suspension.entity.js';
+import { Role } from '../entities/role.entity.js';
+import { RolesGuard } from '../guards/roles.guard.js';
+import { JwtAuthGuard } from '../guards/jwt-auth.guard.js';
 
 @Module({
   imports: [
-    ConfigModule,
-    TypeOrmModule.forFeature([AuditLog, RefreshToken, User, Role, UserSuspension]),
-    RedisModule,
+    // #1175: UserSuspension registered here too since RolesGuard is
+    // provided both here and in UserModule (each module resolves its own
+    // instance's dependencies from its own imports).
+    TypeOrmModule.forFeature([RefreshToken, AuditLog, User, Role, UserSuspension]),
+    JwtModule.register({
+      secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+      signOptions: { expiresIn: '1d' },
+    }),
+    PassportModule.register({ defaultStrategy: 'jwt' }),
+    forwardRef(() => UserModule),
   ],
-  controllers: [AuthController, AuditLogsController],
+  controllers: [AuthController],
   providers: [
     AuthService,
-    AuditLogService,
-    AdminAccessGuard,
+    RedisService,
+    NotificationService,
+    SuspiciousDetectionService,
+    // #1313: wallet challenge lifecycle.
+    NonceService,
+    // #1315, #1316: token contract and refresh rotation.
+    AccessTokenService,
+    RefreshTokenService,
+    JwtStrategy,
+    WalletStrategy,
     JwtAuthGuard,
     RolesGuard,
-    NonceProvider,
-    SuspensionService,
+    RevokeAllRateLimitGuard,
+    NonceRateLimitGuard,
+    WalletLoginRateLimitGuard,
   ],
-  exports: [AuthService, AuditLogService, JwtAuthGuard, RolesGuard, SuspensionService],
+  exports: [
+    AuthService,
+    RedisService,
+    NotificationService,
+    SuspiciousDetectionService,
+    NonceService,
+    AccessTokenService,
+    RefreshTokenService,
+    WalletStrategy,
+    JwtAuthGuard,
+    RolesGuard,
+    TypeOrmModule,
+  ],
 })
 export class AuthModule {}
