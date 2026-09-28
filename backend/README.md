@@ -105,3 +105,4 @@ Optimized backend database queries to enhance data retrieval performance.
 ​Reinforced authentication middleware guidelines to strengthen session management.
 ​Resolved markdown syntax inconsistencies throughout technical project documentation.
 ​Outlined detailed steps for deploying server build artifacts to remote environments.
+relevant pr open 
