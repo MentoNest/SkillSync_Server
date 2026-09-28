@@ -30,6 +30,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
     const status = exception.getStatus();
     const exceptionResponse = exception.getResponse();
+    const isProduction = process.env.NODE_ENV === 'production';
 
     const message =
       typeof exceptionResponse === 'string'
@@ -48,7 +49,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(
         `HTTP ${status} on ${request.method} ${request.url}`,
-        exception.stack,
+        isProduction ? undefined : exception.stack,
       );
     } else {
       this.logger.warn(`HTTP ${status} on ${request.method} ${request.url}`);

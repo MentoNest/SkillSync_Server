@@ -22,13 +22,6 @@ export interface RequestWithLoggingContext extends Request {
   user?: { id?: string; sub?: string };
 }
 
-const SENSITIVE_HEADER_KEYS = [
-  'authorization',
-  'cookie',
-  'set-cookie',
-  'x-api-key',
-];
-
 /**
  * Global request logging middleware (#1143).
  *
@@ -46,7 +39,7 @@ const SENSITIVE_HEADER_KEYS = [
  *   otherwise info).
  * - Emits structured JSON in production (ELK/Datadog friendly); a compact,
  *   readable line in development.
- * - Redacts sensitive headers (Authorization, Cookie, ...) before logging.
+ * - Redacts sensitive headers and body fields before logging.
  */
 export function requestLoggingMiddleware(
   req: Request,
@@ -82,18 +75,17 @@ export function requestLoggingMiddleware(
       method: context.method,
       path: context.path,
       statusCode,
-      durationMs: Math.round(durationMs * 100) / 100,
+      durationMs: Math.round(durationMs * 1000) / 1000,
       ip: context.ip,
       userAgent: context.userAgent,
       ...(userId ? { userId } : {}),
-      headers: redactSensitiveData(
-        pickHeaders(typedReq.headers, SENSITIVE_HEADER_KEYS),
-      ),
+      headers: redactSensitiveData(typedReq.headers),
+      body: redactSensitiveData(typedReq.body),
     };
 
     const line = isProduction
       ? JSON.stringify(entry)
-      : `${entry.method} ${entry.path} ${statusCode} ${entry.durationMs}ms [${requestId}] ip=${entry.ip}`;
+      : `${entry.method} ${entry.path} ${statusCode} ${entry.durationMs}ms [${requestId}] ip=${entry.ip} ua=${JSON.stringify(entry.userAgent)}`;
 
     if (statusCode >= 500) {
       logger.error(line);
@@ -105,17 +97,4 @@ export function requestLoggingMiddleware(
   });
 
   next();
-}
-
-function pickHeaders(
-  headers: Record<string, unknown>,
-  keys: string[],
-): Record<string, unknown> {
-  const picked: Record<string, unknown> = {};
-  for (const key of keys) {
-    if (headers[key] !== undefined) {
-      picked[key] = headers[key];
-    }
-  }
-  return picked;
 }

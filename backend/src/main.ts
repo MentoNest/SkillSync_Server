@@ -3,6 +3,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule, ObserveInstrument } from './app.module.js';
+import { requestLoggingMiddleware } from './common/middleware/logging.middleware.js';
 
 const logger = new Logger('Bootstrap');
 
@@ -12,6 +13,8 @@ async function bootstrap(): Promise<void> {
     // Source maps enabled for debugging — configured in tsconfig
     bufferLogs: true,
   });
+
+  app.use(requestLoggingMiddleware);
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>('app.port') ?? 3000;
