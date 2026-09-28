@@ -124,7 +124,12 @@ describe('requestLoggingMiddleware', () => {
   it('emits structured JSON in production and redacts sensitive headers', () => {
     process.env.NODE_ENV = 'production';
     const req = createMockReq({
-      headers: { 'user-agent': 'jest', authorization: 'Bearer secret-token' },
+      headers: {
+        'user-agent': 'jest',
+        authorization: 'Bearer secret-token',
+        'x-auth-token': 'header-secret',
+      },
+      body: { email: 'a@b.com', password: 'body-secret' },
     });
     const res = createMockRes();
     const logSpy = jest
@@ -137,9 +142,17 @@ describe('requestLoggingMiddleware', () => {
 
     const loggedLine = logSpy.mock.calls[0][0] as string;
     const parsed = JSON.parse(loggedLine);
+    expect(parsed.method).toBe('GET');
+    expect(parsed.path).toBe('/api/v1/things');
     expect(parsed.statusCode).toBe(200);
+    expect(parsed.ip).toBe('127.0.0.1');
+    expect(parsed.userAgent).toBe('jest');
     expect(parsed.requestId).toBe(req.requestId);
     expect(parsed.headers.authorization).toBe('[REDACTED]');
+    expect(parsed.headers['x-auth-token']).toBe('[REDACTED]');
+    expect(parsed.body).toEqual({ email: 'a@b.com', password: '[REDACTED]' });
+    expect(typeof parsed.durationMs).toBe('number');
+    expect(Math.round(parsed.durationMs * 1000) / 1000).toBe(parsed.durationMs);
 
     logSpy.mockRestore();
   });
