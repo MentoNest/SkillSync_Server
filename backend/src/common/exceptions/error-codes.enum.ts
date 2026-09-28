@@ -16,6 +16,16 @@ export enum ErrorCode {
   SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
 }
 
+/**
+ * Numeric error codes for contract initialization failures (#1277).
+ */
+export enum InitializationErrorCode {
+  AlreadyInitialized = 100,
+  NotInitialized = 101,
+  InvalidAdmin = 102,
+  InvalidTreasury = 103,
+}
+
 const STATUS_TO_ERROR_CODE: Record<number, ErrorCode> = {
   400: ErrorCode.BAD_REQUEST,
   401: ErrorCode.UNAUTHORIZED,
