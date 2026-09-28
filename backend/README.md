@@ -96,3 +96,13 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Refactored server configuration guides to simplify environment variable setup.
+​Updated API endpoint documentation to reflect current payload structures.
+​Enhanced inline comments within backend controllers for better clarity.
+​Corrected outdated package dependencies and build flags in configuration files.
+​Clarified testing procedures to ensure thorough test suite coverage.
+​Standardized logging formats and system response structures for debugging.
+​Improved security guidelines covering access tokens and authentication flows.
+​Fixed formatting issues across backend markdown documentation files.
+​Added deployment instructions for containerized server build environments.
+​Updated system maintenance routines and diagnostic health check procedures.
