@@ -72,6 +72,8 @@ With Mau, you can deploy your application in just a few clicks, allowing you to 
 
 ## Observability
 
+CORS origins, credentials, and preflight behavior are documented in [docs/cors.md](docs/cors.md).
+
 In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
 
 [NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:

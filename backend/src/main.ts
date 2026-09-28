@@ -4,6 +4,11 @@ import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule, ObserveInstrument } from './app.module.js';
 import { requestLoggingMiddleware } from './common/middleware/logging.middleware.js';
+import {
+  createCorsOptions,
+  createCorsOriginGuard,
+  parseCorsOrigins,
+} from './config/cors.util.js';
 
 const logger = new Logger('Bootstrap');
 
@@ -19,6 +24,7 @@ async function bootstrap(): Promise<void> {
   const configService = app.get(ConfigService);
   const port = configService.get<number>('app.port') ?? 3000;
   const env = configService.get<string>('app.env') ?? 'development';
+  const allowedCorsOrigins = parseCorsOrigins(process.env.CORS_ORIGINS);
 
   // ─── Global Pipes ──────────────────────────────────────────────────────
   app.useGlobalPipes(
@@ -33,9 +39,8 @@ async function bootstrap(): Promise<void> {
   );
 
   // ─── CORS ──────────────────────────────────────────────────────────────
-  if (env !== 'production') {
-    app.enableCors();
-  }
+  app.use(createCorsOriginGuard(allowedCorsOrigins, env));
+  app.enableCors(createCorsOptions(allowedCorsOrigins, env));
 
   // ─── Graceful Shutdown ─────────────────────────────────────────────────
   app.enableShutdownHooks();

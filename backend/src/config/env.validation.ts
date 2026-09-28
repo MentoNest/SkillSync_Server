@@ -11,6 +11,7 @@ export const envValidationSchema = Joi.object({
     .default('development'),
   PORT: Joi.number().default(3000),
   APP_NAME: Joi.string().default('SkillSync'),
+  CORS_ORIGINS: Joi.string().allow('').default(''),
 
   // Database
   DB_HOST: Joi.string().required(),
