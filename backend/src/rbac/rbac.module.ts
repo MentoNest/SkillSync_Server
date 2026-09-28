@@ -9,6 +9,7 @@ import { UserSuspension } from '../user/entities/user-suspension.entity';
 import { AuditModule } from '../audit/audit.module';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { RolesGuard } from '../guards/roles.guard';
+import { getJwtSecret } from '../config/production-security.config.js';
 
 /**
  * #1318: role-based access control feature module.
@@ -23,7 +24,7 @@ import { RolesGuard } from '../guards/roles.guard';
     AuditModule,
     // RolesGuard verifies the bearer token before reading roles from the DB.
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+      secret: getJwtSecret(),
       signOptions: { expiresIn: '1d' },
     }),
   ],

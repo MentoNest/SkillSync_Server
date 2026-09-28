@@ -49,6 +49,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "geoip-lite": "^2.0.3",
+    "helmet": "^8.3.0",
     "ioredis": "^5.11.1",
     "joi": "^18.2.9",
     "passport": "^0.7.0",

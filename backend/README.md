@@ -73,6 +73,7 @@ With Mau, you can deploy your application in just a few clicks, allowing you to 
 ## Observability
 
 CORS origins, credentials, and preflight behavior are documented in [docs/cors.md](docs/cors.md).
+Production secrets, proxy trust, Helmet, secure cookies, and rate limits are covered in [docs/production-hardening.md](docs/production-hardening.md).
 
 In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
 

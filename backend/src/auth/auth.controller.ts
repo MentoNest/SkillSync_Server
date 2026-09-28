@@ -12,6 +12,7 @@ import {
   HttpStatus,
   Query,
   ParseUUIDPipe,
+  Res,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -23,6 +24,8 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
+import type { Response } from 'express';
+import { getAuthCookieOptions } from '../config/production-security.config.js';
 import { AuthService } from './auth.service.js';
 import { SuspiciousDetectionService } from './services/suspicious-detection.service.js';
 import { LoginDto } from './dto/login.dto.js';
@@ -120,9 +123,12 @@ export class AuthController {
   async login(
     @Body() loginDto: LoginDto,
     @Ip() ip: string,
+    @Res({ passthrough: true }) response: Response,
     @Headers('user-agent') userAgent?: string,
   ): Promise<AuthResponseDto> {
-    return this.authService.login(loginDto, ip, userAgent);
+    const result = await this.authService.login(loginDto, ip, userAgent);
+    this.setAuthCookies(response, result);
+    return result;
   }
 
   @ApiTags('Authentication')
@@ -157,9 +163,36 @@ export class AuthController {
   async refresh(
     @Body() refreshTokenDto: RefreshTokenDto,
     @Ip() ip: string,
+    @Res({ passthrough: true }) response: Response,
     @Headers('user-agent') userAgent?: string,
   ): Promise<RefreshResponseDto> {
-    return this.authService.refresh(refreshTokenDto.refreshToken, ip, userAgent);
+    const result = await this.authService.refresh(
+      refreshTokenDto.refreshToken,
+      ip,
+      userAgent,
+    );
+    this.setAuthCookies(response, result);
+    return result;
+  }
+
+  private setAuthCookies(
+    response: Response,
+    tokens: {
+      accessToken: string;
+      refreshToken: string;
+      expiresIn: number;
+      refreshExpiresIn?: number;
+    },
+  ): void {
+    const options = getAuthCookieOptions();
+    response.cookie('accessToken', tokens.accessToken, {
+      ...options,
+      maxAge: tokens.expiresIn * 1000,
+    });
+    response.cookie('refreshToken', tokens.refreshToken, {
+      ...options,
+      maxAge: (tokens.refreshExpiresIn ?? 30 * 24 * 60 * 60) * 1000,
+    });
   }
 
   // ---------------------------------------------------------------------------

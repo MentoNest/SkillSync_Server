@@ -16,13 +16,16 @@ export class ThrottlerGuard implements CanActivate {
   private readonly defaultUnauthenticatedLimit = 20;
   private readonly defaultTtl = 60; // 1 minute (60 seconds)
   private readonly trustedIps: Set<string>;
+  private readonly isProduction = process.env.NODE_ENV === 'production';
 
   constructor(
     private readonly reflector: Reflector,
     @Optional()
     private readonly redisService?: RedisService,
   ) {
-    const rawWhitelist = process.env.TRUSTED_IPS || '127.0.0.1,::1,localhost';
+    const rawWhitelist =
+      process.env.TRUSTED_IPS ||
+      (this.isProduction ? '' : '127.0.0.1,::1,localhost');
     this.trustedIps = new Set(rawWhitelist.split(',').map((ip) => ip.trim()).filter(Boolean));
   }
 
@@ -34,7 +37,7 @@ export class ThrottlerGuard implements CanActivate {
     const clientIp = this.getClientIp(request);
 
     // Bypass rate limiting for trusted IPs
-    if (this.isTrustedIp(clientIp)) {
+    if (!this.isProduction && this.isTrustedIp(clientIp)) {
       return true;
     }
 
@@ -46,19 +49,25 @@ export class ThrottlerGuard implements CanActivate {
 
     // Check if request has authenticated user
     const userId = request.user?.id || request.user?.sub || (request as any).userId;
-    const isAuthenticated = Boolean(userId);
+    const hasBearerToken = /^Bearer\s+\S+$/i.test(
+      request.headers?.authorization ?? '',
+    );
+    const isAuthenticated = Boolean(userId || hasBearerToken);
 
     // Determine limit and TTL
-    let limit = throttleOptions?.limit;
-    let ttl = throttleOptions?.ttl ?? this.defaultTtl;
-
-    if (limit === undefined) {
-      limit = isAuthenticated ? this.defaultAuthenticatedLimit : this.defaultUnauthenticatedLimit;
+    const defaultLimit = isAuthenticated
+      ? this.defaultAuthenticatedLimit
+      : this.defaultUnauthenticatedLimit;
+    let limit = throttleOptions?.limit ?? defaultLimit;
+    if (this.isProduction) {
+      const productionLimit = isAuthenticated ? 50 : 10;
+      limit = Math.min(limit, productionLimit);
     }
+    let ttl = throttleOptions?.ttl ?? this.defaultTtl;
 
     // Build tracking key
     const routeKey = `${request.method}:${request.baseUrl || ''}${request.path || request.url || ''}`;
-    const rateLimitKey = isAuthenticated
+    const rateLimitKey = userId
       ? `rate_limit:user:${userId}:${routeKey}`
       : `rate_limit:ip:${clientIp}:${routeKey}`;
 
@@ -100,11 +109,6 @@ export class ThrottlerGuard implements CanActivate {
   }
 
   private getClientIp(req: any): string {
-    const forwarded = req.headers?.['x-forwarded-for'];
-    if (forwarded) {
-      const firstIp = (typeof forwarded === 'string' ? forwarded : forwarded[0]).split(',')[0];
-      return firstIp.trim();
-    }
     return req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || '127.0.0.1';
   }
 

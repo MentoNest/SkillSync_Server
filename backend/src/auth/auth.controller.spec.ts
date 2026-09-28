@@ -29,7 +29,9 @@ describe('AuthController', () => {
       }),
       refresh: jest.fn().mockResolvedValue({
         accessToken: 'new-token-abc',
+        refreshToken: 'refresh-xyz',
         expiresIn: 86400,
+        refreshExpiresIn: 2592000,
       }),
       logout: jest.fn().mockResolvedValue({ success: true, message: 'Logged out' }),
       revokeAll: jest.fn().mockResolvedValue({
@@ -84,6 +86,69 @@ describe('AuthController', () => {
       expect(mockAuthService.generateNonce).toHaveBeenCalledWith(
         'GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ',
       );
+    });
+  });
+
+  describe('auth cookies', () => {
+    it('sets secure access and refresh cookies on login', async () => {
+      const previousNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      const response = { cookie: jest.fn() } as any;
+
+      try {
+        const result = await controller.login({} as any, '192.0.2.1', response);
+
+        expect(result.accessToken).toBe('token-abc');
+        expect(response.cookie).toHaveBeenNthCalledWith(
+          1,
+          'accessToken',
+          'token-abc',
+          expect.objectContaining({
+            secure: true,
+            httpOnly: true,
+            sameSite: 'strict',
+            maxAge: 86400 * 1000,
+          }),
+        );
+        expect(response.cookie).toHaveBeenNthCalledWith(
+          2,
+          'refreshToken',
+          'refresh-xyz',
+          expect.objectContaining({
+            secure: true,
+            httpOnly: true,
+            sameSite: 'strict',
+          }),
+        );
+      } finally {
+        if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = previousNodeEnv;
+      }
+    });
+
+    it('rotates secure cookies on refresh', async () => {
+      const previousNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      const response = { cookie: jest.fn() } as any;
+
+      try {
+        const result = await controller.refresh(
+          { refreshToken: 'old-refresh' } as any,
+          '192.0.2.1',
+          response,
+        );
+
+        expect(result.accessToken).toBe('new-token-abc');
+        expect(response.cookie).toHaveBeenCalledTimes(2);
+        expect(response.cookie).toHaveBeenCalledWith(
+          'refreshToken',
+          'refresh-xyz',
+          expect.objectContaining({ secure: true, httpOnly: true, sameSite: 'strict' }),
+        );
+      } finally {
+        if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = previousNodeEnv;
+      }
     });
   });
 
