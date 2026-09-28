@@ -1,6 +1,7 @@
 import { CanActivate, ExecutionContext, Injectable, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator.js';
+import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import { ALLOW_INACTIVE_STATUS_KEY } from '../decorators/allow-inactive-status.decorator.js';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -8,14 +9,20 @@ import { Repository } from 'typeorm';
 import { User, UserStatus } from '../entities/user.entity.js';
 import { Role } from '../entities/role.entity.js';
 import { UserSuspension } from '../user/entities/user-suspension.entity.js';
+import {
+  expandRoles,
+  hasAllPermissions,
+  inheritsRole,
+  resolvePermissions,
+} from '../rbac/role-permissions';
 
-// Hierarchical role permissions - admin inherits all permissions from mentor and mentee
-const roleHierarchy: Record<string, string[]> = {
-  admin: ['admin', 'mentor', 'mentee'],
-  mentor: ['mentor', 'mentee'],
-  mentee: ['mentee'],
-};
-
+/**
+ * #1318: enforces `@Roles(...)` and `@RequirePermissions(...)` on a route.
+ *
+ * The user's roles are always read from the database (not from the token) so a
+ * revoked role takes effect immediately. When no requirement is declared the
+ * guard only requires a valid token.
+ */
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(
@@ -34,6 +41,10 @@ export class RolesGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
+    const requiredPermissions = this.reflector.getAllAndOverride<string[]>(PERMISSIONS_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
     const allowInactiveStatus = this.reflector.getAllAndOverride<boolean>(ALLOW_INACTIVE_STATUS_KEY, [
       context.getHandler(),
       context.getClass(),
@@ -43,8 +54,8 @@ export class RolesGuard implements CanActivate {
     const authHeader = request.headers.authorization;
     const token = authHeader?.split(' ')[1];
 
-    if (!requiredRoles && !token) {
-      return true; // No roles required and no token provided, allow public access
+    if (!requiredRoles && !requiredPermissions && !token) {
+      return true; // Nothing required and no token provided, allow public access
     }
 
     if (!token) {
@@ -106,25 +117,41 @@ export class RolesGuard implements CanActivate {
         }
       }
 
-      // Attach user to request for further use
+      // Expose the resolved role set for downstream handlers.
       request.user = user;
+      request.roles = expandRoles(user.roles ? user.roles.map((role) => role.name) : []);
 
-      if (!requiredRoles) {
+      if (!requiredRoles && !requiredPermissions) {
         return true;
       }
 
-      // Get user's role names
+      // #1318: get the user's role names and expand them through the
+      // hierarchy (admin -> mentor -> mentee) so a higher role satisfies any
+      // lower requirement.
       const userRoles = user.roles ? user.roles.map((role) => role.name) : [];
 
-      // Check if user has any of the required roles (considering hierarchy)
-      const hasPermission = requiredRoles.some((requiredRole) =>
-        userRoles.some(
-          (userRole) => roleHierarchy[userRole]?.includes(requiredRole) || false,
-        ),
-      );
+      if (requiredRoles?.length) {
+        const hasRequiredRole = requiredRoles.some((requiredRole) =>
+          userRoles.some((userRole) => inheritsRole(userRole, requiredRole)),
+        );
 
-      if (!hasPermission) {
-        throw new ForbiddenException(`Access denied. Required roles: ${requiredRoles.join(', ')}`);
+        if (!hasRequiredRole) {
+          throw new ForbiddenException(
+            `Access denied. Required roles: ${requiredRoles.join(', ')}`,
+          );
+        }
+      }
+
+      // #1318: optional fine grained permission check, resolved from the
+      // database roles (static defaults merged with the per-role JSONB list).
+      if (requiredPermissions?.length) {
+        const granted = resolvePermissions(user.roles ?? []);
+
+        if (!hasAllPermissions(granted, requiredPermissions)) {
+          throw new ForbiddenException(
+            `Access denied. Required permissions: ${requiredPermissions.join(', ')}`,
+          );
+        }
       }
 
       return true;
