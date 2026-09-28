@@ -1,221 +1,193 @@
 import {
   WebSocketGateway,
+  WebSocketServer,
   SubscribeMessage,
   OnGatewayConnection,
   OnGatewayDisconnect,
-  MessageBody,
   ConnectedSocket,
+  MessageBody,
 } from '@nestjs/websockets';
-import { Socket } from 'socket.io';
-import { ChatService } from './chat.service';
-import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
-import { ConfigService } from '@nestjs/config';
-import { createHmac } from 'crypto';
-import { Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Logger, Injectable } from '@nestjs/common';
+import { Server, Socket } from 'socket.io';
+import { JwtService } from '@nestjs/jwt';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { ChatMessage } from './chat-message.entity.js';
+import { User } from '../user/entities/user.entity.js';
+import { RedisService } from '../services/redis.service.js';
 
+@Injectable()
 @WebSocketGateway({
-  namespace: '/chat',
   cors: {
-    origin: '*',
+    origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
     credentials: true,
   },
+  namespace: '/chat',
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  @WebSocketServer()
+  server: Server;
+
   private readonly logger = new Logger(ChatGateway.name);
+  private readonly onlineUsers = new Map<string, string>(); // userId -> socketId
+  private readonly typingUsers = new Map<string, Set<string>>(); // roomId -> Set<userId>
+  private readonly RATE_LIMIT = 10;
+  private readonly RATE_WINDOW_MS = 60000;
+  private readonly messageTimestamps = new Map<string, number[]>();
 
   constructor(
-    private readonly chatService: ChatService,
-    private readonly configService: ConfigService,
+    private readonly jwtService: JwtService,
+    @InjectRepository(ChatMessage)
+    private readonly messageRepository: Repository<ChatMessage>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+    private readonly redisService: RedisService,
   ) {}
 
   async handleConnection(client: Socket) {
-    const token = client.handshake.auth?.token || client.handshake.headers?.authorization?.split(' ')[1];
-    if (!token) {
-      client.disconnect();
-      return;
-    }
-
     try {
-      const payload = this.verifyAccessToken(token);
-      client.data.user = payload;
-    } catch {
-      client.disconnect();
-    }
-  }
+      const token = client.handshake.auth?.token || client.handshake.headers?.authorization?.replace('Bearer ', '');
+      if (!token) {
+        client.disconnect();
+        return;
+      }
 
-  async handleDisconnect(client: Socket) {
-    const user = client.data?.user as JwtPayload | undefined;
-    if (user) {
-      await this.chatService.redisService.del(`user_socket:${user.sub}`);
-    }
-  }
+      const payload = await this.jwtService.verifyAsync(token);
+      const userId = payload.sub || payload.id;
+      client.data.userId = userId;
+      this.onlineUsers.set(userId, client.id);
 
-  @SubscribeMessage('join')
-  async handleJoin(
-    @MessageBody() data: { sessionId: string },
-    @ConnectedSocket() client: Socket,
-  ) {
-    const user = client.data?.user as JwtPayload;
-    if (!user) return { error: 'Unauthorized' };
-
-    try {
-      await this.chatService.validateSessionAccess(data.sessionId, user.sub);
-      await client.join(data.sessionId);
-      await this.chatService.redisService.set(`user_socket:${user.sub}`, client.id, 3600);
-      return { success: true, sessionId: data.sessionId };
+      client.emit('connected', { userId, socketId: client.id });
+      this.logger.log(`User ${userId} connected`);
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Failed to join session' };
+      this.logger.warn('WebSocket connection rejected: invalid token');
+      client.disconnect();
     }
   }
 
-  @SubscribeMessage('leave')
-  async handleLeave(
-    @MessageBody() data: { sessionId: string },
-    @ConnectedSocket() client: Socket,
-  ) {
-    const user = client.data?.user as JwtPayload;
-    if (!user) return { error: 'Unauthorized' };
-
-    await client.leave(data.sessionId);
-    return { success: true };
+  handleDisconnect(client: Socket) {
+    const userId = client.data?.userId;
+    if (userId) {
+      this.onlineUsers.delete(userId);
+      this.server.emit('user_offline', { userId });
+      this.logger.log(`User ${userId} disconnected`);
+    }
   }
 
   @SubscribeMessage('send_message')
-  async handleSendMessage(
-    @MessageBody() data: { sessionId: string; content: string; fileUrl?: string; fileName?: string; fileType?: string },
+  async handleMessage(
     @ConnectedSocket() client: Socket,
+    @MessageBody() data: {
+      receiverId: string;
+      content: string;
+      sessionId?: string;
+      fileUrl?: string;
+      fileType?: string;
+    },
   ) {
-    const user = client.data?.user as JwtPayload;
-    if (!user) return { error: 'Unauthorized' };
+    const senderId = client.data?.userId;
+    if (!senderId) return;
 
-    const allowed = await this.chatService.checkRateLimit(user.sub);
-    if (!allowed) {
-      return { error: 'Rate limit exceeded. Maximum 10 messages per minute.' };
+    if (!this.checkRateLimit(senderId)) {
+      client.emit('error', { message: 'Rate limit exceeded. Maximum 10 messages per minute.' });
+      return;
     }
 
-    try {
-      const message = await this.chatService.sendMessage(
-        data.sessionId,
-        user.sub,
-        data.content,
-        data.fileUrl,
-        data.fileName,
-        data.fileType,
-      );
+    const message = this.messageRepository.create({
+      senderId,
+      receiverId: data.receiverId,
+      sessionId: data.sessionId,
+      content: data.content,
+      fileUrl: data.fileUrl,
+      fileType: data.fileType,
+    });
 
-      client.to(data.sessionId).emit('new_message', {
-        id: message.id,
-        sessionId: message.sessionId,
-        senderId: message.senderId,
-        content: message.content,
-        fileUrl: message.fileUrl,
-        fileName: message.fileName,
-        fileType: message.fileType,
-        createdAt: message.createdAt,
-      });
+    const saved = await this.messageRepository.save(message);
 
-      const session = await this.chatService.getSession(data.sessionId);
-      const otherUserId = session.mentorId === user.sub ? session.menteeId : session.mentorId;
-      const otherSocketId = await this.chatService.getSocketId(otherUserId);
+    const receiverSocketId = this.onlineUsers.get(data.receiverId);
+    if (receiverSocketId) {
+      this.server.to(receiverSocketId).emit('new_message', saved);
+    }
 
-      if (!otherSocketId) {
-        this.logger.log(`Push notification placeholder for offline user ${otherUserId}`);
-      }
+    client.emit('message_sent', saved);
+    return saved;
+  }
 
-      return { success: true, messageId: message.id };
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Failed to send message' };
+  @SubscribeMessage('typing_start')
+  handleTypingStart(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { receiverId: string },
+  ) {
+    const userId = client.data?.userId;
+    if (!userId) return;
+
+    const receiverSocketId = this.onlineUsers.get(data.receiverId);
+    if (receiverSocketId) {
+      this.server.to(receiverSocketId).emit('user_typing', { userId, isTyping: true });
     }
   }
 
-  @SubscribeMessage('typing')
-  async handleTyping(
-    @MessageBody() data: { sessionId: string; isTyping: boolean },
+  @SubscribeMessage('typing_stop')
+  handleTypingStop(
     @ConnectedSocket() client: Socket,
+    @MessageBody() data: { receiverId: string },
   ) {
-    const user = client.data?.user as JwtPayload;
-    if (!user) return;
+    const userId = client.data?.userId;
+    if (!userId) return;
 
-    client.to(data.sessionId).emit('typing', {
-      userId: user.sub,
-      isTyping: data.isTyping,
+    const receiverSocketId = this.onlineUsers.get(data.receiverId);
+    if (receiverSocketId) {
+      this.server.to(receiverSocketId).emit('user_typing', { userId, isTyping: false });
+    }
+  }
+
+  @SubscribeMessage('mark_read')
+  async handleMarkRead(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { messageId: string },
+  ) {
+    const userId = client.data?.userId;
+    if (!userId) return;
+
+    await this.messageRepository.update(
+      { id: data.messageId, receiverId: userId },
+      { isRead: true },
+    );
+
+    client.emit('message_read', { messageId: data.messageId });
+  }
+
+  @SubscribeMessage('get_online_status')
+  handleGetOnlineStatus(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { userIds: string[] },
+  ) {
+    const statuses = data.userIds.map((id) => ({
+      userId: id,
+      isOnline: this.onlineUsers.has(id),
+    }));
+
+    client.emit('online_status', statuses);
+  }
+
+  async getUnreadCount(userId: string): Promise<number> {
+    return this.messageRepository.count({
+      where: { receiverId: userId, isRead: false },
     });
   }
 
-  @SubscribeMessage('read_message')
-  async handleReadMessage(
-    @MessageBody() data: { messageId: string },
-    @ConnectedSocket() client: Socket,
-  ) {
-    const user = client.data?.user as JwtPayload;
-    if (!user) return;
+  private checkRateLimit(userId: string): boolean {
+    const now = Date.now();
+    const timestamps = this.messageTimestamps.get(userId) || [];
+    const windowStart = now - this.RATE_WINDOW_MS;
+    const recent = timestamps.filter((t) => t > windowStart);
 
-    try {
-      const message = await this.chatService.markAsRead(data.messageId, user.sub);
-
-      client.to(message.sessionId).emit('message_read', {
-        messageId: data.messageId,
-        readBy: user.sub,
-      });
-
-      return { success: true };
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Failed to mark as read' };
-    }
-  }
-
-  private verifyAccessToken(token: string): JwtPayload {
-    const parts = token.split('.');
-    if (parts.length !== 3) throw new Error('Invalid token');
-
-    const [encodedHeader, encodedPayload, signature] = parts;
-
-    let header: { alg?: string; typ?: string };
-    try {
-      header = JSON.parse(Buffer.from(encodedHeader, 'base64url').toString('utf8'));
-    } catch {
-      throw new Error('Invalid token');
+    if (recent.length >= this.RATE_LIMIT) {
+      return false;
     }
 
-    if (header.alg !== 'HS256' || header.typ !== 'JWT') {
-      throw new Error('Invalid token');
-    }
-
-    const secret = this.configService.get<string>('JWT_ACCESS_TOKEN_SECRET') ??
-      this.configService.get<string>('JWT_SECRET') ??
-      'development-only-change-me';
-
-    const expected = createHmac('sha256', secret)
-      .update(`${encodedHeader}.${encodedPayload}`)
-      .digest('base64url');
-
-    if (!this.safeEquals(expected, signature)) {
-      throw new Error('Invalid token signature');
-    }
-
-    let payload: JwtPayload;
-    try {
-      payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
-    } catch {
-      throw new Error('Invalid token');
-    }
-
-    if (payload.typ !== 'access') throw new Error('Invalid token type');
-    if (typeof payload.exp !== 'number' || payload.exp <= Math.floor(Date.now() / 1000)) {
-      throw new Error('Token has expired');
-    }
-
-    return payload;
-  }
-
-  private safeEquals(a: string, b: string): boolean {
-    const bufA = Buffer.from(a);
-    const bufB = Buffer.from(b);
-    if (bufA.length !== bufB.length) return false;
-    let result = 0;
-    for (let i = 0; i < bufA.length; i++) {
-      result |= bufA[i] ^ bufB[i];
-    }
-    return result === 0;
+    recent.push(now);
+    this.messageTimestamps.set(userId, recent);
+    return true;
   }
 }

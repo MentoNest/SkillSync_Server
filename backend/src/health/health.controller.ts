@@ -1,26 +1,18 @@
-import { Controller, Get } from '@nestjs/common';
-import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
-import { RedisHealthIndicator } from '../redis/redis.health';
-import { DataSource } from 'typeorm';
+import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { HealthService, HealthCheckResult } from './health.service.js';
 
+@ApiTags('Health')
 @Controller('health')
 export class HealthController {
-  constructor(
-    private readonly health: HealthCheckService,
-    private readonly redis: RedisHealthIndicator,
-    private readonly dataSource: DataSource,
-  ) {}
+  constructor(private readonly healthService: HealthService) {}
 
   @Get()
-  @HealthCheck()
-  async check() {
-    return this.health.check([
-      async () => {
-        await this.dataSource.query('SELECT 1');
-        return { database: { status: 'up' } };
-      },
-      () => this.redis.isHealthy('redis'),
-      async () => ({ memory: { status: 'up', heapUsed: process.memoryUsage().heapUsed } }),
-    ]);
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Health check endpoint' })
+  @ApiResponse({ status: 200, description: 'Application and dependencies are healthy' })
+  @ApiResponse({ status: 503, description: 'One or more dependencies are unhealthy' })
+  async check(): Promise<HealthCheckResult> {
+    return this.healthService.check();
   }
 }

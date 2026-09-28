@@ -1,18 +1,16 @@
 [package]
-name = "skillsync-contract"
-version = "0.0.0"
+name = "skillsync_contract"
+version = "0.1.0"
 edition = "2021"
-publish = false
 
 [lib]
 crate-type = ["cdylib"]
-doctest = false
 
 [dependencies]
-soroban-sdk = "22.0.0"
+soroban-sdk = { version = "22.0.7", features = ["alloc"] }
 
 [dev-dependencies]
-soroban-sdk = { version = "22.0.0", features = ["testutils"] }
+soroban-sdk = { version = "22.0.7", features = ["testutils", "alloc"] }
 
 [profile.release]
 opt-level = "z"

@@ -1,45 +1,105 @@
-import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
-import { ScheduleModule } from '@nestjs/schedule';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { AppDataSource } from './database/data-source';
-import { HttpLoggerMiddleware } from './common/middleware/http-logger.middleware';
-import { AuthModule } from './auth/auth.module';
-import { RedisModule } from './redis/redis.module';
-import { HealthModule } from './health/health.module';
-import { UsersModule } from './users/users.module';
-import { PortfolioModule } from './portfolio/portfolio.module';
-import { AvailabilityModule } from './availability/availability.module';
-import { AvatarModule } from './avatar/avatar.module';
-import { AdminModule } from './admin/admin.module';
-import { MonitoringModule } from './monitoring/monitoring.module';
-import { MetricsMiddleware } from './monitoring/metrics.middleware';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { createObserveModule } from '@nestjs/observe';
+
+import { AppController } from './app.controller.js';
+import { AppService } from './app.service.js';
+
+import {
+  appConfig,
+  databaseConfig,
+  featureFlagsConfig,
+  envValidationSchema,
+} from './config/index.js';
+
+import { DatabaseModule } from './database/database.module.js';
+import { HealthModule } from './modules/health/health.module.js';
+import { ThrottlerModule } from './guards/throttler.module.js';
+
+import {
+  HttpExceptionFilter,
+  LoggingInterceptor,
+  TransformInterceptor,
+} from './common/index.js';
+
+import { AuthModule } from './auth/auth.module.js';
+import { UserModule } from './user/user.module.js';
+import { AuditModule } from './audit/audit.module.js';
+import { LogoutModule } from './logout/logout.module.js';
+import { RbacModule } from './rbac/rbac.module.js';
+import { SecurityModule } from './security/security.module.js';
+import { SeedModule } from './seed/seed.module.js';
+
+export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
 @Module({
   imports: [
-    ScheduleModule.forRoot(),
-    ConfigModule.forRoot({ isGlobal: true }),
-    TypeOrmModule.forRoot({
-      ...AppDataSource.options,
-      retryAttempts: 5,
+    // ─── Config ────────────────────────────────────────────────────────────
+    ConfigModule.forRoot({
+      isGlobal: true, // Available in every module without re-importing
+      envFilePath: ['.env', `.env.${process.env.NODE_ENV ?? 'development'}`],
+      load: [appConfig, databaseConfig, featureFlagsConfig],
+      validationSchema: envValidationSchema,
+      validationOptions: {},
     }),
-    AuthModule,
-    UsersModule,
-    AdminModule,
-    RedisModule,
+
+    // ─── Observability ─────────────────────────────────────────────────────
+    ObserveModule.forRoot({
+      appKey: process.env.OBSERVE_APP_KEY ?? '',
+      appSecret: process.env.OBSERVE_APP_SECRET ?? '',
+      serviceId: 'skillsync-backend',
+    }),
+
+    // ─── Database ──────────────────────────────────────────────────────────
+    DatabaseModule,
+
+    // ─── Feature Modules ───────────────────────────────────────────────────
     HealthModule,
-    PortfolioModule,
-    AvailabilityModule,
-    AvatarModule,
-    MonitoringModule,
+
+    // ─── Rate Limiting ─────────────────────────────────────────────────────
+    // Publishes ThrottlerGuard as a global guard so every route is throttled
+    // by default, with per-route @Throttle() overrides where declared.
+    ThrottlerModule,
+
+    // ─── Identity & Access ─────────────────────────────────────────────────
+    // SecurityModule is @Global: it owns the shared Redis connection and the
+    // access token blacklist used by the JWT guard.
+    SecurityModule,
+    // #1320: audit trail (also provides the retention sweep on boot).
+    AuditModule,
+    // #1313-#1316: Stellar wallet login, JWT issuance, refresh rotation.
+    AuthModule,
+    UserModule,
+    // #1317: POST /auth/logout and POST /auth/logout-all.
+    LogoutModule,
+    // #1318: roles catalogue + assignment API.
+    RbacModule,
+
+    // #1319: runs on application bootstrap, before the server starts listening.
+    SeedModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+
+    // Global exception filter — catches all HTTP exceptions
+    {
+      provide: APP_FILTER,
+      useClass: HttpExceptionFilter,
+    },
+
+    // Global logging interceptor — logs request method/url/duration
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: LoggingInterceptor,
+    },
+
+    // Global response transformer — wraps all responses in { data, timestamp }
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TransformInterceptor,
+    },
+  ],
 })
-export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(HttpLoggerMiddleware, MetricsMiddleware).forRoutes('*');
-  }
-}
+export class AppModule {}

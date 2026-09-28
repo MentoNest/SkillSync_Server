@@ -1,302 +1,324 @@
-import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource, IsNull } from 'typeorm';
-import { AuditLogService } from './audit-log.service';
-import { AuthService } from './auth.service';
-import { RefreshToken } from './entities/refresh-token.entity';
-import { SuspensionService } from './suspension.service';
-import { User } from '../users/entities/user.entity';
-
-class InMemoryRefreshTokenRepository {
-  tokens: RefreshToken[] = [];
-
-  create(data: Partial<RefreshToken>): RefreshToken {
-    return Object.assign(new RefreshToken(), data);
-  }
-
-  async save(token: RefreshToken): Promise<RefreshToken> {
-    token.setIds();
-    const existingIndex = this.tokens.findIndex((item) => item.id === token.id);
-    if (existingIndex >= 0) {
-      this.tokens[existingIndex] = token;
-    } else {
-      this.tokens.push(token);
-    }
-
-    return token;
-  }
-}
-
-class InMemoryEntityManager {
-  constructor(
-    private readonly repository: InMemoryRefreshTokenRepository,
-    private readonly userRepository: { users: User[]; findOne: (options: { where: { walletAddress?: string; id?: string } }) => Promise<User | null>; save: (user: User) => Promise<User> },
-  ) {}
-
-  async findOne(
-    entity: typeof RefreshToken | typeof User,
-    options: { where: { tokenHash?: string; walletAddress?: string; id?: string } },
-  ): Promise<RefreshToken | User | null> {
-    if (entity === RefreshToken) {
-      return this.repository.tokens.find((token) => token.tokenHash === options.where.tokenHash) ?? null;
-    }
-
-    if (entity === User) {
-      if (options.where.walletAddress) {
-        return (
-          this.userRepository.users.find((user) => user.walletAddress === options.where.walletAddress) ??
-          null
-        );
-      }
-      if (options.where.id) {
-        return this.userRepository.users.find((user) => user.id === options.where.id) ?? null;
-      }
-    }
-
-    return null;
-  }
-
-  async save(entity: typeof RefreshToken | typeof User, item: RefreshToken | User): Promise<RefreshToken | User> {
-    if (entity === RefreshToken) {
-      return this.repository.save(item as RefreshToken);
-    }
-    return this.userRepository.save(item as User);
-  }
-
-  async update(
-    _entity: typeof RefreshToken,
-    where: { familyId: string; revokedAt: ReturnType<typeof IsNull> },
-    values: Partial<RefreshToken>,
-  ): Promise<void> {
-    for (const token of this.repository.tokens) {
-      if (token.familyId === where.familyId && token.revokedAt === null) {
-        Object.assign(token, values);
-      }
-    }
-  }
-}
+import { JwtService } from '@nestjs/jwt';
+import { UnauthorizedException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Keypair } from '@stellar/stellar-sdk';
+import { AuthService } from './auth.service.js';
+import { UserService } from '../user/user.service.js';
+import { UserStatus } from '../user/entities/user.entity.js';
+import { RefreshToken } from './entities/refresh-token.entity.js';
+import { AuditLog } from './entities/audit-log.entity.js';
+import { RedisService } from './services/redis.service.js';
+import { NotificationService } from './services/notification.service.js';
+import { SuspiciousDetectionService } from './services/suspicious-detection.service.js';
+import { WalletStrategy } from './strategies/wallet.strategy.js';
 
 describe('AuthService', () => {
   let service: AuthService;
-  let repository: InMemoryRefreshTokenRepository;
-  let suspensionServiceMock: { getActiveSuspension: jest.Mock };
-  let userStore: {
-    users: User[];
-    findOne: jest.Mock<Promise<User | null>, [options: { where: { walletAddress?: string; id?: string } }]>
-    save: jest.Mock<Promise<User>, [user: User]>;
-  };
-  let auditLogService: {
-    logRefreshTokenUsage: jest.Mock;
-    logLoginSuccess: jest.Mock;
-    logLoginFailure: jest.Mock;
-    logLogout: jest.Mock;
-    logPasswordEquivalentChange: jest.Mock;
-    logRoleAssignment: jest.Mock;
-  };
-  const config: Record<string, string> = {
-    JWT_SECRET: 'test-secret',
-    REFRESH_TOKEN_HASH_SECRET: 'hash-secret',
-    JWT_ACCESS_TOKEN_TTL: '15m',
-    JWT_REFRESH_TOKEN_TTL: '30d',
-  };
+  let mockRefreshTokenRepo: any;
+  let mockAuditLogRepo: any;
+  let mockUserService: any;
+  let mockRedisService: any;
+  let mockSuspiciousDetectionService: any;
 
   beforeEach(async () => {
-    jest.useFakeTimers().setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
-    repository = new InMemoryRefreshTokenRepository();
-    userStore = {
-      users: [] as User[],
-      findOne: jest.fn(async (options: { where: { walletAddress?: string; id?: string } }) => {
-        if (options.where.walletAddress) {
-          return userStore.users.find((user) => user.walletAddress === options.where.walletAddress) ?? null;
-        }
-        if (options.where.id) {
-          return userStore.users.find((user) => user.id === options.where.id) ?? null;
-        }
-        return null;
-      }),
-      save: jest.fn(async (user: User) => {
-        const index = userStore.users.findIndex((existing) => existing.id === user.id);
-        if (index >= 0) {
-          userStore.users[index] = user;
-        } else {
-          userStore.users.push(user);
-        }
-        return user;
-      }),
+    mockRefreshTokenRepo = {
+      find: jest.fn().mockResolvedValue([{ id: 'tok-1' }, { id: 'tok-2' }]),
+      delete: jest.fn().mockResolvedValue({ affected: 2 }),
+      save: jest.fn().mockImplementation((t) => Promise.resolve(t)),
+      create: jest.fn().mockImplementation((t) => t),
+      findOne: jest.fn(),
+      remove: jest.fn(),
     };
 
-    const manager = new InMemoryEntityManager(repository, userStore);
-    auditLogService = {
-      logRefreshTokenUsage: jest.fn().mockResolvedValue(undefined),
-      logLoginSuccess: jest.fn().mockResolvedValue(undefined),
-      logLoginFailure: jest.fn().mockResolvedValue(undefined),
-      logLogout: jest.fn().mockResolvedValue(undefined),
-      logPasswordEquivalentChange: jest.fn().mockResolvedValue(undefined),
-      logRoleAssignment: jest.fn().mockResolvedValue(undefined),
+    mockAuditLogRepo = {
+      save: jest.fn().mockImplementation((a) => Promise.resolve(a)),
+      create: jest.fn().mockImplementation((a) => a),
     };
-    suspensionServiceMock = { getActiveSuspension: jest.fn().mockResolvedValue(null) };
+
+    mockUserService = {
+      findById: jest.fn().mockResolvedValue({
+        id: 'user-123',
+        walletAddress: 'ga7qynf7sowq3glr2bgmzehxavirza4kvwltjjfc7mgxua74p7ujvsgz',
+        tokenVersion: 1,
+        roles: [],
+      }),
+      findByEmail: jest.fn(),
+      findByWalletAddress: jest.fn(),
+      create: jest.fn(),
+      recordLogin: jest.fn(),
+      incrementTokenVersion: jest.fn().mockResolvedValue(2),
+      unlockAccount: jest.fn(),
+      checkAndExpireSuspension: jest.fn().mockResolvedValue(null),
+    };
+
+    // Simulate Redis-backed nonce storage so issue/consume flows work end-to-end
+    const redisStore = new Map<string, string>();
+    mockRedisService = {
+      set: jest.fn(async (key: string, value: string) => {
+        redisStore.set(key, value);
+      }),
+      get: jest.fn(async (key: string) => redisStore.get(key) ?? null),
+      del: jest.fn(async (key: string) => {
+        redisStore.delete(key);
+      }),
+      incr: jest.fn(),
+      expire: jest.fn(),
+      __store: redisStore,
+    };
+
+    mockSuspiciousDetectionService = {
+      getGeoLocation: jest.fn().mockReturnValue({ country: 'US', city: 'SF', lat: 37.77, lon: -122.41 }),
+      recordFailedLogin: jest.fn(),
+      evaluateLogin: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
         {
+          provide: JwtService,
+          useValue: { sign: jest.fn().mockReturnValue('mock-jwt-token') },
+        },
+        {
+          provide: UserService,
+          useValue: mockUserService,
+        },
+        {
           provide: getRepositoryToken(RefreshToken),
-          useValue: repository,
+          useValue: mockRefreshTokenRepo,
         },
         {
-          provide: SuspensionService,
-          useValue: suspensionServiceMock,
+          provide: getRepositoryToken(AuditLog),
+          useValue: mockAuditLogRepo,
         },
         {
-          provide: DataSource,
+          provide: RedisService,
+          useValue: mockRedisService,
+        },
+        {
+          provide: NotificationService,
           useValue: {
-            manager,
-            transaction: (
-              handler: (entityManager: InMemoryEntityManager) => Promise<unknown>,
-            ) => handler(manager),
+            sendSessionRevocationNotification: jest.fn(),
+            sendAdminAlert: jest.fn(),
           },
         },
         {
-          provide: ConfigService,
-          useValue: {
-            get: (key: string) => config[key],
-          },
+          provide: SuspiciousDetectionService,
+          useValue: mockSuspiciousDetectionService,
         },
         {
-          provide: AuditLogService,
-          useValue: auditLogService,
+          provide: WalletStrategy,
+          useValue: new WalletStrategy(),
         },
       ],
     }).compile();
 
-    service = module.get(AuthService);
+    service = module.get<AuthService>(AuthService);
   });
 
-  afterEach(() => {
-    jest.useRealTimers();
+  it('should be defined', () => {
+    expect(service).toBeDefined();
   });
 
-  it('rotates refresh tokens and invalidates the previous token', async () => {
-    userStore.users.push({ id: 'user-1', walletAddress: 'GABC', roles: [] } as any);
-    const issued = await service.issueTokenPair(
-      { sub: 'user-1', walletAddress: 'GABC' },
-      audit(),
-    );
-    const rotated = await service.refresh(
-      issued.refreshToken,
-      audit({ ipAddress: '10.0.0.2' }),
-    );
+  describe('revokeAll', () => {
+    it('should delete all refresh tokens, increment token version, and log audit event', async () => {
+      const result = await service.revokeAll('user-123', '192.168.1.1', 'Mozilla/5.0');
 
-    expect(rotated.accessToken).toBeDefined();
-    expect(rotated.refreshToken).not.toBe(issued.refreshToken);
-    expect(repository.tokens).toHaveLength(2);
-    expect(repository.tokens[0].revokedAt).toBeInstanceOf(Date);
-    expect(repository.tokens[0].replacedByTokenId).toBe(repository.tokens[1].id);
-    expect(repository.tokens[1].revokedAt).toBeNull();
-    expect(repository.tokens[1].ipAddress).toBe('10.0.0.2');
-    expect(auditLogService.logRefreshTokenUsage).toHaveBeenCalledWith(
-      expect.objectContaining({ success: true, userId: 'user-1' }),
-    );
+      expect(mockRefreshTokenRepo.delete).toHaveBeenCalledWith({ userId: 'user-123' });
+      expect(mockUserService.incrementTokenVersion).toHaveBeenCalledWith('user-123');
+      expect(mockAuditLogRepo.save).toHaveBeenCalled();
+      expect(result.success).toBe(true);
+      expect(result.revokedSessionsCount).toBe(2);
+      expect(result.tokenVersion).toBe(2);
+    });
   });
 
-  it('returns 401 when the refresh token is expired', async () => {
-    userStore.users.push({ id: 'user-1', walletAddress: 'GABC', roles: [] } as any);
-    const issued = await service.issueTokenPair({ sub: 'user-1' }, audit());
-    jest.setSystemTime(new Date('2026-02-01T00:00:01.000Z'));
+  describe('generateNonce', () => {
+    const keypair = Keypair.random();
+    const wallet = keypair.publicKey();
 
-    await expect(service.refresh(issued.refreshToken, audit())).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
-    expect(auditLogService.logRefreshTokenUsage).toHaveBeenCalledWith(
-      expect.objectContaining({ success: false, userId: null }),
-    );
+    it('should generate a 256-bit nonce, store it in Redis with a 5 minute TTL', async () => {
+      const result = await service.generateNonce(wallet);
+
+      expect(result.walletAddress).toBe(wallet.toLowerCase());
+      expect(result.nonce).toMatch(/^[0-9a-f]{64}$/); // 32 bytes hex
+      expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now());
+      expect(result.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + 300_000 + 1000);
+      expect(mockRedisService.set).toHaveBeenCalledWith(
+        `nonce:${wallet.toLowerCase()}`,
+        expect.any(String),
+        300,
+      );
+    });
+
+    it('should reject invalid (non-Stellar) wallet addresses', async () => {
+      await expect(service.generateNonce('0x71C841832047387195060979DC80EbbE62DCE35B')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should invalidate the previous unused nonce when a new one is requested', async () => {
+      const first = await service.generateNonce(wallet);
+      const second = await service.generateNonce(wallet);
+
+      expect(second.nonce).not.toBe(first.nonce);
+      const stored = JSON.parse(mockRedisService.__store.get(`nonce:${wallet.toLowerCase()}`));
+      expect(stored.nonce).toBe(second.nonce);
+    });
   });
 
-  it('blocks login for suspended users with suspension reason', async () => {
-    userStore.users.push({
-      id: 'user-1',
-      walletAddress: 'GABC',
-      tokenVersion: 0,
-      timezone: 'UTC',
+  describe('login with Stellar wallet signature', () => {
+    const keypair = Keypair.random();
+    const wallet = keypair.publicKey();
+    const mockUser = {
+      id: 'user-123',
+      walletAddress: wallet.toLowerCase(),
+      email: null,
+      displayName: 'Stellar User',
+      bio: null,
       avatarUrl: null,
-      avatarThumbnailUrl: null,
-      isVerified: false,
-      verifiedAt: null,
-      verifiedBy: null,
-      verificationNotes: null,
+      profileType: 'mentee',
+      settings: {},
+      isLocked: false,
+      lockoutUntil: null,
+      lastLoginAt: null,
+      tokenVersion: 0,
       roles: [],
-    } as unknown as User);
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
 
-    const suspended = {
-      id: 'suspension-1',
-      userId: 'user-1',
-      reason: 'Policy violation',
-      suspendedBy: 'admin-1',
-      suspendedAt: new Date('2026-01-01T00:00:00.000Z'),
-      suspendedUntil: new Date('2026-01-10T00:00:00.000Z'),
-      liftedAt: null,
-      liftedBy: null,
-      liftedReason: null,
-    } as unknown as any;
-    suspensionServiceMock.getActiveSuspension.mockResolvedValue(suspended);
+    const issueNonceAndSign = async () => {
+      const nonceResponse = await service.generateNonce(wallet);
+      const signature = Buffer.from(keypair.sign(Buffer.from(nonceResponse.nonce, 'utf8'))).toString('hex');
+      return { nonce: nonceResponse.nonce, signature };
+    };
 
-    await expect(service.login('GABC', audit())).rejects.toBeInstanceOf(ForbiddenException);
-    expect(auditLogService.logLoginFailure).toHaveBeenCalledWith(
-      expect.objectContaining({
-        attemptedWalletAddress: 'GABC',
-        reason: 'Account suspended',
-      })
-    );
-  });
+    it('should verify a valid signature, return tokens and audit login_success', async () => {
+      mockUserService.findByWalletAddress.mockResolvedValue(mockUser);
+      const { nonce, signature } = await issueNonceAndSign();
 
-  it('blocks refresh for suspended users with suspension reason', async () => {
-    userStore.users.push({ id: 'user-1', walletAddress: 'GABC', roles: [] } as any);
-    const issued = await service.issueTokenPair({ sub: 'user-1', walletAddress: 'GABC' }, audit());
-    const suspended = {
-      id: 'suspension-1',
-      userId: 'user-1',
-      reason: 'Policy violation',
-      suspendedBy: 'admin-1',
-      suspendedAt: new Date('2026-01-01T00:00:00.000Z'),
-      suspendedUntil: new Date('2026-01-10T00:00:00.000Z'),
-      liftedAt: null,
-      liftedBy: null,
-      liftedReason: null,
-    } as unknown as any;
-    suspensionServiceMock.getActiveSuspension.mockResolvedValue(suspended);
+      const result = await service.login({ walletAddress: wallet, nonce, signature });
 
-    await expect(service.refresh(issued.refreshToken, audit())).rejects.toBeInstanceOf(ForbiddenException);
-    expect(auditLogService.logRefreshTokenUsage).toHaveBeenCalledWith(
-      expect.objectContaining({ success: false, userId: 'user-1' }),
-    );
-  });
+      expect(result.accessToken).toBeDefined();
+      expect(result.refreshToken).toBeDefined();
+      expect(mockAuditLogRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'login_success' }),
+      );
+    });
 
-  it('detects refresh token reuse and revokes the token family', async () => {
-    userStore.users.push({ id: 'user-1', walletAddress: 'GABC', roles: [] } as any);
-    const issued = await service.issueTokenPair({ sub: 'user-1' }, audit());
-    await service.refresh(issued.refreshToken, audit());
+    it('should auto-provision a user account on first wallet login', async () => {
+      mockUserService.findByWalletAddress.mockResolvedValue(null);
+      mockUserService.create.mockResolvedValue({ id: 'user-123' });
+      mockUserService.findById.mockResolvedValue(mockUser);
+      const { nonce, signature } = await issueNonceAndSign();
 
-    await expect(service.refresh(issued.refreshToken, audit())).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+      await service.login({ walletAddress: wallet, nonce, signature });
 
-    expect(repository.tokens.every((token) => token.revokedAt)).toBe(true);
-    expect(repository.tokens.every((token) => token.concurrentReuseDetectedAt)).toBe(true);
+      expect(mockUserService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ walletAddress: wallet.toLowerCase() }),
+      );
+    });
+
+    it('should reject an invalid signature with 401 and audit login_failed', async () => {
+      const { nonce } = await issueNonceAndSign();
+      const wrongSignature = Buffer.from(keypair.sign(Buffer.from('tampered message', 'utf8'))).toString('hex');
+
+      await expect(
+        service.login({ walletAddress: wallet, nonce, signature: wrongSignature }),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(mockAuditLogRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'login_failed' }),
+      );
+    });
+
+    it('should consume the nonce after a failed attempt (replay protection)', async () => {
+      const { nonce } = await issueNonceAndSign();
+      const wrongSignature = Buffer.from(keypair.sign(Buffer.from('tampered', 'utf8'))).toString('hex');
+
+      await expect(
+        service.login({ walletAddress: wallet, nonce, signature: wrongSignature }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      // Nonce must be gone after any verification attempt
+      expect(mockRedisService.__store.has(`nonce:${wallet.toLowerCase()}`)).toBe(false);
+    });
+
+    it('should reject nonce reuse on a second login attempt (replay attack)', async () => {
+      mockUserService.findByWalletAddress.mockResolvedValue(mockUser);
+      const { nonce, signature } = await issueNonceAndSign();
+
+      await service.login({ walletAddress: wallet, nonce, signature });
+
+      await expect(service.login({ walletAddress: wallet, nonce, signature })).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('should reject login when no nonce was issued', async () => {
+      await expect(
+        service.login({
+          walletAddress: wallet,
+          nonce: 'unknown',
+          signature: 'a'.repeat(128),
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should reject an expired nonce before signature verification', async () => {
+      const { nonce } = await issueNonceAndSign();
+      // Force expiry in the stored nonce payload
+      const key = `nonce:${wallet.toLowerCase()}`;
+      const stored = JSON.parse(mockRedisService.__store.get(key));
+      stored.expiresAt = new Date(Date.now() - 1000).toISOString();
+      mockRedisService.__store.set(key, JSON.stringify(stored));
+
+      const signature = Buffer.from(keypair.sign(Buffer.from(nonce, 'utf8'))).toString('hex');
+      await expect(
+        service.login({ walletAddress: wallet, nonce, signature }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    describe('#1174/#1175 status-gated login', () => {
+      it('rejects login for a soft-deleted user still within the grace period', async () => {
+        mockUserService.findByWalletAddress.mockResolvedValue({
+          ...mockUser,
+          status: UserStatus.DELETED,
+          deletedAt: new Date(),
+        });
+        const { nonce, signature } = await issueNonceAndSign();
+
+        await expect(service.login({ walletAddress: wallet, nonce, signature })).rejects.toThrow(
+          ForbiddenException,
+        );
+      });
+
+      it('rejects login for a permanently suspended user with reason in the error', async () => {
+        mockUserService.findByWalletAddress.mockResolvedValue({ ...mockUser, status: UserStatus.SUSPENDED });
+        mockUserService.checkAndExpireSuspension.mockResolvedValue({
+          reason: 'terms violation',
+          suspendedUntil: null,
+        });
+        const { nonce, signature } = await issueNonceAndSign();
+
+        try {
+          await service.login({ walletAddress: wallet, nonce, signature });
+          fail('expected ForbiddenException');
+        } catch (err: any) {
+          expect(err).toBeInstanceOf(ForbiddenException);
+          expect(err.getResponse().reason).toBe('terms violation');
+        }
+      });
+
+      it('allows login through once a temporary suspension has auto-expired', async () => {
+        mockUserService.findByWalletAddress.mockResolvedValue({ ...mockUser, status: UserStatus.SUSPENDED });
+        mockUserService.checkAndExpireSuspension.mockResolvedValue(null); // already expired/lifted
+        const { nonce, signature } = await issueNonceAndSign();
+
+        const result = await service.login({ walletAddress: wallet, nonce, signature });
+        expect(result.accessToken).toBeDefined();
+      });
+    });
   });
 });
-
-function audit(
-  overrides: Partial<{
-    ipAddress: string;
-    userAgent: string;
-    deviceFingerprint: string;
-  }> = {},
-) {
-  return {
-    ipAddress: overrides.ipAddress ?? '127.0.0.1',
-    userAgent: overrides.userAgent ?? 'jest',
-    deviceFingerprint: overrides.deviceFingerprint ?? 'device-1',
-  };
-}
