@@ -1,12 +1,17 @@
-import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import redisConfig from './redis.config';
-import { RedisService } from './redis.service';
-import { RedisHealthIndicator } from './redis.health';
+import { Global, Module } from '@nestjs/common';
+import { RedisService } from './redis.service.js';
 
+/**
+ * Reusable Redis module (#1142).
+ *
+ * Marked `@Global()` so a single Redis connection/service instance is shared
+ * across the whole app without every feature module needing to import it —
+ * it's still a perfectly normal module other modules can import explicitly
+ * too if that's preferred for clarity.
+ */
+@Global()
 @Module({
-  imports: [ConfigModule.forFeature(redisConfig)],
-  providers: [RedisService, RedisHealthIndicator],
-  exports: [RedisService, RedisHealthIndicator],
+  providers: [RedisService],
+  exports: [RedisService],
 })
 export class RedisModule {}

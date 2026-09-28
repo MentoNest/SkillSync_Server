@@ -1,93 +1,81 @@
-import { HttpStatus, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { ValidationPipe, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { AppModule } from './app.module';
-import { DataSource } from 'typeorm';
-import { ApiValidationException } from './common/exceptions/api-exceptions';
-import { HttpExceptionFilter } from './common/filters/http-exception.filter';
-import helmet from 'helmet';
+import { AppModule, ObserveInstrument } from './app.module.js';
+import { requestLoggingMiddleware } from './common/middleware/logging.middleware.js';
 
-import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+const logger = new Logger('Bootstrap');
 
-async function bootstrap() {
+async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, {
-    // Disable NestJS built-in logger noise; our middleware handles request logs
-    logger:
-      process.env.NODE_ENV === 'production'
-        ? ['error', 'warn']
-        : ['log', 'error', 'warn', 'debug', 'verbose'],
+    instrument: ObserveInstrument,
+    // Source maps enabled for debugging — configured in tsconfig
+    bufferLogs: true,
   });
-  app.disable('x-powered-by');
-  app.set('trust proxy', process.env.TRUST_PROXY === 'true');
 
-  const allowedOrigins =
-    process.env.CORS_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean) ?? [];
-  app.enableCors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      if (process.env.NODE_ENV !== 'production' && /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
-        return callback(null, true);
-      }
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      return callback(new Error('Not allowed by CORS'), false);
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'Content-Type', 'Accept'],
-    optionsSuccessStatus: 204,
-  });
-  app.use(
-    helmet({
-      hsts: process.env.NODE_ENV === 'production' ? { maxAge: 31_536_000 } : false,
-      frameguard: { action: 'deny' },
-      noSniff: true,
-      xssFilter: true,
-    }),
-  );
+  app.use(requestLoggingMiddleware);
 
+  const configService = app.get(ConfigService);
+  const port = configService.get<number>('app.port') ?? 3000;
+  const env = configService.get<string>('app.env') ?? 'development';
+
+  // ─── Global Pipes ──────────────────────────────────────────────────────
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true,
-      transform: true,
+      whitelist: true,       // Strip unknown properties
+      forbidNonWhitelisted: true,
+      transform: true,       // Auto-transform payloads to DTO instances
       transformOptions: {
         enableImplicitConversion: true,
       },
-      exceptionFactory: (errors) => new ApiValidationException(errors),
-      errorHttpStatusCode: HttpStatus.BAD_REQUEST,
     }),
   );
-  app.useGlobalFilters(new HttpExceptionFilter());
-  app.useGlobalInterceptors(new ResponseInterceptor());
 
-  // Verify database connection before starting server
-  const dataSource = app.get(DataSource);
-  if (!dataSource.isInitialized) {
-    throw new Error('Database connection failed to initialize');
+  // ─── CORS ──────────────────────────────────────────────────────────────
+  if (env !== 'production') {
+    app.enableCors();
   }
 
-  // Attach unhandled errors to res.locals so the logger middleware can read stack traces
-  app.use((_err: Error, _req: unknown, res: { locals: { error: Error } }, next: (e: Error) => void) => {
-    res.locals.error = _err;
-    next(_err);
-  });
+  // ─── Graceful Shutdown ─────────────────────────────────────────────────
+  app.enableShutdownHooks();
 
-  if (process.env.NODE_ENV !== 'production') {
-    const swaggerConfig = new DocumentBuilder()
+  // ─── API prefix ────────────────────────────────────────────────────────
+  app.setGlobalPrefix('api/v1');
+
+  // ─── OpenAPI / Swagger ─────────────────────────────────────────────────
+  // The auth and user controllers already carry @ApiTags/@ApiResponse
+  // metadata, but the document was never generated or served, so none of it
+  // was reachable. Served at /api/docs, and only outside production.
+  if (env !== 'production') {
+    const openApiConfig = new DocumentBuilder()
       .setTitle('SkillSync API')
-      .setDescription('SkillSync authentication and user management API')
+      .setDescription(
+        'Decentralized mentorship marketplace. Wallet-based authentication, ' +
+          'sessions, and user profiles.',
+      )
       .setVersion('1.0')
       .addBearerAuth(
         { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
         'Bearer Auth',
       )
-      .addTag('Authentication')
-      .addTag('Wallet')
-      .addTag('Session Management')
+      .addTag('Authentication', 'Wallet challenge, login, refresh and logout')
+      .addTag('Wallet', 'Stellar wallet address operations')
+      .addTag('Session Management', 'Mentorship session lifecycle')
+      .addTag('User', 'User profile and account management')
+      .addTag('Security & Audit', 'Suspicious-activity and audit review')
       .build();
-    const document = SwaggerModule.createDocument(app, swaggerConfig);
-    SwaggerModule.setup('api/docs', app, document);
+
+    const openApiDocument = SwaggerModule.createDocument(app, openApiConfig);
+    SwaggerModule.setup('api/docs', app, openApiDocument, {
+      swaggerOptions: { persistAuthorization: true },
+    });
+    logger.log('📖 OpenAPI docs available at http://localhost:' + port + '/api/docs');
   }
 
-  await app.listen(process.env.PORT ?? 3000);
+  await app.listen(port);
+  logger.log(`🚀 SkillSync server running on http://localhost:${port}/api/v1`);
+  logger.log(`📌 Environment: ${env}`);
 }
-bootstrap();
+
+await bootstrap();

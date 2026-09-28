@@ -1,137 +1,291 @@
 import {
-  Body,
   Controller,
-  HttpCode,
   Post,
-  Req,
-  UnauthorizedException,
   Get,
+  Body,
   Param,
+  Req,
+  Ip,
+  Headers,
   UseGuards,
+  HttpCode,
+  HttpStatus,
+  Query,
+  ParseUUIDPipe,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiQuery,
+  ApiBody,
+} from '@nestjs/swagger';
 import type { Request } from 'express';
-import { AuthService } from './auth.service';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { LoginDto } from './dto/login.dto';
-import { NonceProvider } from './providers/nonce.provider';
-import { NonceParamDto } from './dto/nonce-param.dto';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { JwtPayload } from './interfaces/jwt-payload.interface';
+import { AuthService } from './auth.service.js';
+import { SuspiciousDetectionService } from './services/suspicious-detection.service.js';
+import { LoginDto } from './dto/login.dto.js';
+import { RefreshTokenDto } from './dto/refresh-token.dto.js';
+import { AuthResponseDto } from './dto/auth-response.dto.js';
+import { NonceResponseDto } from './dto/nonce-response.dto.js';
+import { RevokeAllResponseDto } from './dto/revoke-all-response.dto.js';
+import { RolesGuard } from '../guards/roles.guard.js';
+import { Roles } from '../decorators/roles.decorator.js';
+import { Throttle } from '../decorators/throttle.decorator.js';
+import { CurrentUser } from '../user/decorators/current-user.decorator.js';
+import { User } from '../user/entities/user.entity.js';
+import { RevokeAllRateLimitGuard } from './guards/revoke-all-rate-limit.guard.js';
+import { NonceRateLimitGuard } from './guards/nonce-rate-limit.guard.js';
+import { WalletLoginRateLimitGuard } from './guards/wallet-login-rate-limit.guard.js';
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
-    private readonly nonceProvider: NonceProvider,
+    private readonly suspiciousDetectionService: SuspiciousDetectionService,
   ) {}
 
+  // ---------------------------------------------------------------------------
+  // Wallet Authentication Endpoints
+  // ---------------------------------------------------------------------------
+  @ApiTags('Wallet')
   @Get('nonce/:walletAddress')
-  async generateNonce(@Param() params: NonceParamDto) {
-    return this.nonceProvider.generate(params.walletAddress);
+  @Throttle(30, 60)
+  @UseGuards(NonceRateLimitGuard)
+  @ApiOperation({
+    summary: 'Request cryptographic nonce challenge for Stellar wallet signature (#1146)',
+    description:
+      'Generates a unique, one-time cryptographic nonce (256-bit, crypto.randomBytes(32)) for a given Stellar wallet address. The nonce is stored in Redis under nonce:{walletAddress} with a 5 minute TTL and must be signed with the wallet private key. Requesting a new nonce invalidates any previous unused nonce. Rate limited to 5 requests per minute per wallet.',
+  })
+  @ApiParam({
+    name: 'walletAddress',
+    description: '56-character Stellar Ed25519 public key (G-address)',
+    example: 'GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Nonce challenge generated successfully ({ nonce, expiresAt })',
+    type: NonceResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid Stellar wallet address format (must be a 56-character G-address)',
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded (maximum 5 nonce requests per minute per wallet)',
+  })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Internal server error' })
+  async getNonce(@Param('walletAddress') walletAddress: string): Promise<NonceResponseDto> {
+    return this.authService.generateNonce(walletAddress);
   }
 
+  // ---------------------------------------------------------------------------
+  // Core Authentication Endpoints
+  // ---------------------------------------------------------------------------
+  @ApiTags('Authentication')
   @Post('login')
-  @HttpCode(200)
-  async login(@Body() body: LoginDto, @Req() request: Request) {
-    await this.nonceProvider.enforceLoginRateLimit(body.walletAddress);
-
-    const nonceValid = await this.nonceProvider.verifyAndConsume(
-      body.walletAddress,
-      body.nonce,
-    );
-
-    if (!nonceValid) {
-      await this.authService.logLoginFailure(
-        body.walletAddress,
-        {
-          ipAddress: this.getIpAddress(request),
-          userAgent: request.headers['user-agent'] ?? null,
-          deviceFingerprint: this.getDeviceFingerprint(request),
-        },
-        'Invalid or expired nonce',
-      );
-      throw new UnauthorizedException('Invalid or expired nonce');
-    }
-
-    return this.authService.loginWithSignature(
-      body.walletAddress,
-      body.nonce,
-      body.signature,
-      {
-        ipAddress: this.getIpAddress(request),
-        userAgent: request.headers['user-agent'] ?? null,
-        deviceFingerprint: this.getDeviceFingerprint(request),
-      },
-    );
+  @Throttle(5, 60)
+  @UseGuards(WalletLoginRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Authenticate user with Stellar wallet signature or email credentials (#1147)',
+    description:
+      'Verifies a Stellar wallet signature over the previously issued nonce using the Stellar SDK (StrKey + Keypair.verify). The nonce is invalidated immediately after the verification attempt to prevent replay attacks. Successful login creates/retrieves the user account and returns access and refresh tokens. Every attempt is audit logged. Rate limited to 10 attempts per 15 minutes per wallet.',
+  })
+  @ApiBody({ type: LoginDto })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Authentication successful. Returns JWT access and refresh tokens.',
+    type: AuthResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Missing required credentials',
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Invalid signature, expired/missing nonce, or invalid email/password',
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'Account locked due to consecutive failed attempts or suspicious activity',
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded (maximum 10 login attempts per 15 minutes per wallet)',
+  })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Internal server error' })
+  async login(
+    @Body() loginDto: LoginDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<AuthResponseDto> {
+    return this.authService.login(loginDto, ip, userAgent);
   }
 
+  @ApiTags('Authentication')
   @Post('refresh')
-  @HttpCode(200)
-  refresh(@Body() body: RefreshTokenDto, @Req() request: Request) {
-    if (!body?.refreshToken || typeof body.refreshToken !== 'string') {
-      throw new UnauthorizedException('Refresh token is required');
-    }
+  @Throttle(10, 60)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Exchange a refresh token for a new token pair (rotation)',
+    description:
+      'Validates the refresh token, revokes it and returns a freshly signed access token together with a new refresh token (#1316 rotation). Presenting a token that was already rotated is treated as a compromise: the whole token family and every other session of the account are revoked and a security audit event is written.',
+  })
+  @ApiBody({ type: RefreshTokenDto })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'New token pair issued; the presented refresh token is revoked',
+    type: RefreshResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Refresh token is missing or malformed',
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description:
+      'Invalid, expired, revoked or already rotated refresh token (the same message in every case)',
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'User account is locked or disabled',
+  })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Internal server error' })
+  async refresh(
+    @Body() refreshTokenDto: RefreshTokenDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<RefreshResponseDto> {
+    return this.authService.refresh(refreshTokenDto.refreshToken, ip, userAgent);
+  }
 
-    return this.authService.refresh(body.refreshToken, {
-      ipAddress: this.getIpAddress(request),
-      userAgent: request.headers['user-agent'] ?? null,
-      deviceFingerprint: this.getDeviceFingerprint(request),
+  // ---------------------------------------------------------------------------
+  // #1317: there is deliberately no `POST /auth/logout` here. Logout needs the
+  // raw access token from the Authorization header in order to blacklist it, so
+  // it lives in `src/logout/logout.controller.ts`. The route that used to live
+  // here only deleted a refresh token taken from the request body and therefore
+  // never invalidated the session credential.
+  // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // Session Management Endpoints (#1158)
+  // ---------------------------------------------------------------------------
+  @ApiTags('Session Management')
+  @Post('revoke-all')
+  @Throttle(3, 3600)
+  @UseGuards(RolesGuard, RevokeAllRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('Bearer Auth')
+  @ApiOperation({
+    summary: 'Revoke all active sessions across all devices for the current user',
+    description:
+      'Invalidates and deletes all stored refresh tokens for the authenticated user and increments the tokenVersion, immediately invalidating all existing JWT access tokens. Action is logged in the audit log. Rate limited to 3 requests per hour.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'All sessions successfully revoked',
+    type: RevokeAllResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Missing or invalid Bearer authentication token',
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'Invalid token version or locked account',
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded (maximum 3 revoke-all requests per hour)',
+  })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Internal server error' })
+  async revokeAll(
+    @CurrentUser() user: User,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<RevokeAllResponseDto> {
+    return this.authService.revokeAll(user.id, ip, userAgent);
+  }
+
+  @ApiTags('Session Management')
+  @Post('admin/revoke-all/:userId')
+  @Roles('admin')
+  @UseGuards(RolesGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('Bearer Auth')
+  @ApiOperation({
+    summary: 'Admin: Revoke all active sessions for a target user',
+    description:
+      'Allows an administrator to immediately invalidate all sessions and refresh tokens for any user account in the system.',
+  })
+  @ApiParam({
+    name: 'userId',
+    description: 'Target user UUID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Target user sessions revoked successfully',
+    type: RevokeAllResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Authentication token missing or invalid',
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'Requires admin role permissions',
+  })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Target user not found' })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Internal server error' })
+  async adminRevokeAll(
+    @Param('userId', ParseUUIDPipe) targetUserId: string,
+    @CurrentUser() adminUser: User,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<RevokeAllResponseDto> {
+    return this.authService.adminRevokeAll(targetUserId, adminUser, ip, userAgent);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Security & Suspicious Activity Dashboard Endpoints (#1157)
+  // ---------------------------------------------------------------------------
+  @ApiTags('Security & Audit')
+  @Get('admin/suspicious-activity')
+  @Roles('admin')
+  @UseGuards(RolesGuard)
+  @ApiBearerAuth('Bearer Auth')
+  @ApiOperation({
+    summary: 'Admin: Retrieve suspicious authentication and security audit logs',
+    description:
+      'Provides a security dashboard feed of all suspicious authentication events (abnormal IP changes, rapid geo jumps, brute force attempts) flagged by the detection engine.',
+  })
+  @ApiQuery({ name: 'page', required: false, example: 1, description: 'Page number' })
+  @ApiQuery({ name: 'limit', required: false, example: 20, description: 'Items per page' })
+  @ApiQuery({
+    name: 'walletAddress',
+    required: false,
+    example: '0x71C841832047387195060979DC80EbbE62DCE35B',
+    description: 'Filter logs by wallet address',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Paginated list of suspicious audit log events',
+  })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Authentication required' })
+  @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Admin privileges required' })
+  async getSuspiciousActivity(
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+    @Query('walletAddress') walletAddress?: string,
+  ) {
+    return this.suspiciousDetectionService.getSuspiciousActivityDashboard({
+      page,
+      limit,
+      walletAddress,
     });
-  }
-
-  @Post('logout')
-  @UseGuards(JwtAuthGuard)
-  @HttpCode(200)
-  async logout(@Req() request: Request) {
-    const authHeader = request.headers['authorization'];
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Missing Bearer token');
-    }
-
-    const accessToken = authHeader.slice(7);
-    const user = (request as Request & { user?: JwtPayload }).user;
-
-    if (!user?.sub) {
-      throw new UnauthorizedException('Invalid token payload');
-    }
-
-    await this.authService.logoutUser(accessToken, user.sub, {
-      ipAddress: this.getIpAddress(request),
-      userAgent: request.headers['user-agent'] ?? null,
-      deviceFingerprint: this.getDeviceFingerprint(request),
-    });
-
-    return { message: 'Logout successful' };
-  }
-
-  @Post('logout-all')
-  @UseGuards(JwtAuthGuard)
-  @HttpCode(200)
-  async logoutAll(@Req() request: Request) {
-    const user = (request as Request & { user?: JwtPayload }).user;
-
-    if (!user?.sub) {
-      throw new UnauthorizedException('Invalid token payload');
-    }
-
-    return this.authService.logoutAllSessions(user.sub, {
-      ipAddress: this.getIpAddress(request),
-      userAgent: request.headers['user-agent'] ?? null,
-      deviceFingerprint: this.getDeviceFingerprint(request),
-    });
-  }
-
-  private getIpAddress(request: Request): string | null {
-    const forwardedFor = request.headers['x-forwarded-for'];
-    if (typeof forwardedFor === 'string' && forwardedFor.length > 0) {
-      return forwardedFor.split(',')[0].trim();
-    }
-
-    return request.socket.remoteAddress ?? null;
-  }
-
-  private getDeviceFingerprint(request: Request): string | null {
-    const header = request.headers['x-device-fingerprint'];
-    return typeof header === 'string' && header.length > 0 ? header : null;
   }
 }
