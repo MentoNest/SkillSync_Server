@@ -23,6 +23,14 @@ import {
   TransformInterceptor,
 } from './common/index.js';
 
+import { AuthModule } from './auth/auth.module.js';
+import { UserModule } from './user/user.module.js';
+import { AuditModule } from './audit/audit.module.js';
+import { LogoutModule } from './logout/logout.module.js';
+import { RbacModule } from './rbac/rbac.module.js';
+import { SecurityModule } from './security/security.module.js';
+import { SeedModule } from './seed/seed.module.js';
+
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
 @Module({
@@ -53,11 +61,23 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     // Publishes ThrottlerGuard as a global guard so every route is throttled
     // by default, with per-route @Throttle() overrides where declared.
     ThrottlerModule,
-    // Add further feature modules here, e.g.:
-    // UsersModule,
-    // AuthModule,
-    // SkillsModule,
-    // EscrowModule,
+
+    // ─── Identity & Access ─────────────────────────────────────────────────
+    // SecurityModule is @Global: it owns the shared Redis connection and the
+    // access token blacklist used by the JWT guard.
+    SecurityModule,
+    // #1320: audit trail (also provides the retention sweep on boot).
+    AuditModule,
+    // #1313-#1316: Stellar wallet login, JWT issuance, refresh rotation.
+    AuthModule,
+    UserModule,
+    // #1317: POST /auth/logout and POST /auth/logout-all.
+    LogoutModule,
+    // #1318: roles catalogue + assignment API.
+    RbacModule,
+
+    // #1319: runs on application bootstrap, before the server starts listening.
+    SeedModule,
   ],
   controllers: [AppController],
   providers: [
