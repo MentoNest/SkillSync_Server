@@ -8,7 +8,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { IS_OPTIONAL_AUTH_KEY, IS_PUBLIC_KEY } from '../decorators/optional-auth.decorator.js';
-import { RedisService } from '../services/redis.service.js';
+import { TokenBlacklistService } from '../security/token-blacklist.service';
 
 export interface JwtAuthGuardOptions {
   optional?: boolean;
@@ -21,7 +21,10 @@ export class JwtAuthGuard implements CanActivate {
   constructor(
     @Optional() private readonly reflector?: Reflector,
     @Optional() private readonly jwtService?: JwtService,
-    @Optional() private readonly redisService?: RedisService,
+    // #1317: Redis backed access token blacklist. Checked *before* the
+    // signature is verified so a token revoked by logout is rejected even
+    // though it is still cryptographically valid.
+    @Optional() private readonly tokenBlacklist?: TokenBlacklistService,
     options?: JwtAuthGuardOptions,
   ) {
     this.isExplicitOptional = options?.optional;
@@ -77,17 +80,14 @@ export class JwtAuthGuard implements CanActivate {
       });
     }
 
-    // Check Redis blacklist
-    if (this.redisService) {
-      const isBlacklisted = await this.redisService.isTokenBlacklisted(token);
-      if (isBlacklisted) {
-        throw new UnauthorizedException({
-          statusCode: 401,
-          message: 'Token has been revoked',
-          code: 'token_revoked',
-          error: 'Unauthorized',
-        });
-      }
+    // #1317: consult the Redis blacklist before validating the token.
+    if (this.tokenBlacklist && (await this.tokenBlacklist.isTokenBlacklisted(token))) {
+      throw new UnauthorizedException({
+        statusCode: 401,
+        message: 'Token has been revoked',
+        code: 'token_revoked',
+        error: 'Unauthorized',
+      });
     }
 
     // Verify token signature and expiration
