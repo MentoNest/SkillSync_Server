@@ -30,6 +30,7 @@ import { LogoutModule } from './logout/logout.module.js';
 import { RbacModule } from './rbac/rbac.module.js';
 import { SecurityModule } from './security/security.module.js';
 import { SeedModule } from './seed/seed.module.js';
+import { MetricsModule } from './metrics/metrics.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -78,6 +79,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
     // #1319: runs on application bootstrap, before the server starts listening.
     SeedModule,
+    MetricsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -7,8 +7,12 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { IS_OPTIONAL_AUTH_KEY, IS_PUBLIC_KEY } from '../decorators/optional-auth.decorator.js';
+import {
+  IS_OPTIONAL_AUTH_KEY,
+  IS_PUBLIC_KEY,
+} from '../decorators/optional-auth.decorator.js';
 import { TokenBlacklistService } from '../security/token-blacklist.service';
+import { MetricsService } from '../metrics/metrics.service.js';
 
 export interface JwtAuthGuardOptions {
   optional?: boolean;
@@ -25,7 +29,8 @@ export class JwtAuthGuard implements CanActivate {
     // signature is verified so a token revoked by logout is rejected even
     // though it is still cryptographically valid.
     @Optional() private readonly tokenBlacklist?: TokenBlacklistService,
-    options?: JwtAuthGuardOptions,
+    @Optional() options?: JwtAuthGuardOptions,
+    @Optional() private readonly metricsService?: MetricsService,
   ) {
     this.isExplicitOptional = options?.optional;
   }
@@ -74,14 +79,18 @@ export class JwtAuthGuard implements CanActivate {
       }
       throw new UnauthorizedException({
         statusCode: 401,
-        message: 'Invalid authorization header format. Format must be Bearer <token>',
+        message:
+          'Invalid authorization header format. Format must be Bearer <token>',
         code: 'invalid_token',
         error: 'Unauthorized',
       });
     }
 
     // #1317: consult the Redis blacklist before validating the token.
-    if (this.tokenBlacklist && (await this.tokenBlacklist.isTokenBlacklisted(token))) {
+    if (
+      this.tokenBlacklist &&
+      (await this.tokenBlacklist.isTokenBlacklisted(token))
+    ) {
       throw new UnauthorizedException({
         statusCode: 401,
         message: 'Token has been revoked',
@@ -102,6 +111,9 @@ export class JwtAuthGuard implements CanActivate {
       request.user = payload;
       return true;
     } catch (error: any) {
+      this.metricsService?.incrementJwtFailures(
+        error?.name === 'TokenExpiredError' ? 'expired' : 'invalid',
+      );
       if (error?.name === 'TokenExpiredError') {
         throw new UnauthorizedException({
           statusCode: 401,
