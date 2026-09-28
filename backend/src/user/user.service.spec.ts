@@ -4,6 +4,9 @@ import { UserService } from './user.service.js';
 import { User, ProfileType, UserStatus } from './entities/user.entity.js';
 import { Role } from '../entities/role.entity.js';
 import { MentorProfile } from '../entities/mentor-profile.entity.js';
+import { MenteeProfile } from '../entities/mentee-profile.entity.js';
+import { AvailabilitySlot } from '../entities/availability-slot.entity.js';
+import { ProfileCompletenessService } from './services/profile-completeness.service.js';
 import { RedisService } from '../auth/services/redis.service.js';
 import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
 import { AuditLog } from '../auth/entities/audit-log.entity.js';
@@ -15,6 +18,9 @@ describe('UserService', () => {
   let mockUserRepository: any;
   let mockRoleRepository: any;
   let mockMentorProfileRepository: any;
+  let mockMenteeProfileRepository: any;
+  let mockAvailabilitySlotRepository: any;
+  let mockProfileCompletenessService: any;
   let mockRefreshTokenRepository: any;
   let mockAuditLogRepository: any;
   let mockSuspensionRepository: any;
@@ -39,6 +45,20 @@ describe('UserService', () => {
     mockMentorProfileRepository = {
       find: jest.fn().mockResolvedValue([]),
       createQueryBuilder: jest.fn(),
+    };
+
+    mockMenteeProfileRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockResolvedValue([]),
+    };
+
+    mockAvailabilitySlotRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
+
+    mockProfileCompletenessService = {
+      calculateUserCompleteness: jest.fn().mockResolvedValue({ score: 60, missingFields: [] }),
+      clearUserCache: jest.fn().mockResolvedValue(undefined),
     };
 
     mockRefreshTokenRepository = {
@@ -79,6 +99,18 @@ describe('UserService', () => {
         {
           provide: getRepositoryToken(MentorProfile),
           useValue: mockMentorProfileRepository,
+        },
+        {
+          provide: getRepositoryToken(MenteeProfile),
+          useValue: mockMenteeProfileRepository,
+        },
+        {
+          provide: getRepositoryToken(AvailabilitySlot),
+          useValue: mockAvailabilitySlotRepository,
+        },
+        {
+          provide: ProfileCompletenessService,
+          useValue: mockProfileCompletenessService,
         },
         {
           provide: getRepositoryToken(RefreshToken),
