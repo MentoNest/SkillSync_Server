@@ -23,10 +23,10 @@
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "seed:demo": "npm run build && node dist/seed/demo-seed.js",
-    "migration:generate": "typeorm-ts-node-esm -d src/database/data-source.ts migration:generate",
-    "migration:run": "typeorm-ts-node-esm -d src/database/data-source.ts migration:run",
-    "migration:revert": "typeorm-ts-node-esm -d src/database/data-source.ts migration:revert",
-    "migration:show": "typeorm-ts-node-esm -d src/database/data-source.ts migration:show",
+    "migration:generate": "typeorm-ts-node-esm -d src/data-source.ts migration:generate",
+    "migration:run": "typeorm-ts-node-esm -d src/data-source.ts migration:run",
+    "migration:revert": "typeorm-ts-node-esm -d src/data-source.ts migration:revert",
+    "migration:show": "typeorm-ts-node-esm -d src/data-source.ts migration:show",
     "prepare": "husky"
   },
   "lint-staged": {

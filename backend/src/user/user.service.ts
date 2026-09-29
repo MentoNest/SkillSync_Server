@@ -166,7 +166,7 @@ export class UserService {
 
     if (query.search) {
       queryBuilder.andWhere(
-        '(LOWER(user.displayName) LIKE LOWER(:search) OR LOWER(user.email) LIKE LOWER(:search) OR LOWER(user.walletAddress) LIKE LOWER(:search))',
+        '(user.displayName ILIKE :search OR LOWER(user.email) LIKE LOWER(:search) OR LOWER(user.walletAddress) LIKE LOWER(:search))',
         { search: `%${query.search}%` },
       );
     }
@@ -249,7 +249,7 @@ export class UserService {
       const mentorSkillSubQuery = this.mentorProfileRepository
         .createQueryBuilder('mentorProfile')
         .select('mentorProfile.userId')
-        .where(':skill = ANY(mentorProfile.skills)');
+        .where('mentorProfile.skills @> ARRAY[:skill]::text[]');
       queryBuilder
         .andWhere(`user.id IN (${mentorSkillSubQuery.getQuery()})`)
         .setParameter('skill', query.skill);

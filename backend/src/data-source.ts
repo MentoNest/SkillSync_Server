@@ -21,6 +21,7 @@ export const AppDataSource = new DataSource({
   // `databaseConfig` is a Nest `registerAs` factory; invoking it returns the
   // plain connection options the running application uses.
   ...(databaseConfig() as ConstructorParameters<typeof DataSource>[0]),
+  migrations: ['src/migrations/*.ts'],
   synchronize: false,
 });
 
