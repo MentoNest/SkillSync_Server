@@ -28,15 +28,27 @@ export interface PaginationOptions {
 export class PaginationService {
   private readonly DEFAULT_MAX_LIMIT = 100;
 
+  private normalizePositiveInteger(value: number, fallback: number): number {
+    return Number.isFinite(value) && value > 0
+      ? Math.max(1, Math.floor(value))
+      : fallback;
+  }
+
   async paginate<T extends ObjectLiteral>(
     queryBuilderOrRepository: SelectQueryBuilder<T> | Repository<T>,
     page: number = 1,
     limit: number = 20,
     options: PaginationOptions = {},
   ): Promise<PaginatedResponse<T>> {
-    const maxLimit = options.maxLimit || this.DEFAULT_MAX_LIMIT;
-    const safeLimit = Math.min(Math.max(limit, 1), maxLimit);
-    const safePage = Math.max(page, 1);
+    const maxLimit = this.normalizePositiveInteger(
+      options.maxLimit ?? this.DEFAULT_MAX_LIMIT,
+      this.DEFAULT_MAX_LIMIT,
+    );
+    const safeLimit = Math.min(
+      this.normalizePositiveInteger(limit, 1),
+      maxLimit,
+    );
+    const safePage = this.normalizePositiveInteger(page, 1);
     const skip = (safePage - 1) * safeLimit;
 
     // Get query builder if repository was provided
@@ -85,15 +97,22 @@ export class PaginationService {
     limit: number = 100,
     cursor?: string | number,
     order: 'ASC' | 'DESC' = 'DESC',
+    maxLimit: number = this.DEFAULT_MAX_LIMIT,
   ): Promise<{
     data: T[];
     nextCursor: string | number | null;
     hasMore: boolean;
   }> {
-    const safeLimit = Math.min(limit, this.DEFAULT_MAX_LIMIT);
-    
-    if (cursor) {
-      queryBuilder.andWhere(`${cursorField} ${order === 'DESC' ? '<' : '>'} :cursor`, { cursor });
+    const safeLimit = Math.min(
+      this.normalizePositiveInteger(limit, 1),
+      this.normalizePositiveInteger(maxLimit, this.DEFAULT_MAX_LIMIT),
+    );
+
+    if (cursor !== undefined && cursor !== null) {
+      queryBuilder.andWhere(
+        `${cursorField} ${order === 'DESC' ? '<' : '>'} :cursor`,
+        { cursor },
+      );
     }
 
     // Take one extra to check if there's more
@@ -103,7 +122,9 @@ export class PaginationService {
     const results = await queryBuilder.getMany();
     const hasMore = results.length > safeLimit;
     const data = hasMore ? results.slice(0, safeLimit) : results;
-    const nextCursor = hasMore ? (data[data.length - 1] as any)[cursorField] : null;
+    const nextCursor = hasMore
+      ? (data[data.length - 1] as Record<string, string | number>)[cursorField]
+      : null;
 
     return {
       data,

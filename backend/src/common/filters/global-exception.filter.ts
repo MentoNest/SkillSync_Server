@@ -7,7 +7,10 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { ErrorCode, errorCodeFromStatus } from '../exceptions/error-codes.enum.js';
+import {
+  ErrorCode,
+  errorCodeFromStatus,
+} from '../exceptions/error-codes.enum.js';
 import {
   FieldError,
   ValidationException,
@@ -15,6 +18,7 @@ import {
 import { RequestWithLoggingContext } from '../middleware/logging.middleware.js';
 
 export interface ErrorResponseBody {
+  success: false;
   statusCode: number;
   message: string;
   error: string;
@@ -96,6 +100,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     }
 
     const body: ErrorResponseBody = {
+      success: false,
       statusCode: status,
       message,
       error: errorCode,

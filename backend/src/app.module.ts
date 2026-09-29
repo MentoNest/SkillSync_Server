@@ -18,10 +18,11 @@ import { HealthModule } from './health/health.module.js';
 import { ThrottlerModule } from './guards/throttler.module.js';
 
 import {
-  HttpExceptionFilter,
+  GlobalExceptionFilter,
   LoggingInterceptor,
   TransformInterceptor,
 } from './common/index.js';
+import { PaginationModule } from './common/services/pagination.module.js';
 
 import { AuthModule } from './auth/auth.module.js';
 import { UserModule } from './user/user.module.js';
@@ -81,6 +82,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     // #1319: runs on application bootstrap, before the server starts listening.
     SeedModule,
     MetricsModule,
+    PaginationModule,
 
     // #1346: admin dashboard, featured mentors management, public mentor listing.
     AdminModule,
@@ -89,10 +91,10 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
   providers: [
     AppService,
 
-    // Global exception filter — catches all HTTP exceptions
+    // Global exception filter — normalizes all HTTP errors
     {
       provide: APP_FILTER,
-      useClass: HttpExceptionFilter,
+      useClass: GlobalExceptionFilter,
     },
 
     // Global logging interceptor — logs request method/url/duration
@@ -101,7 +103,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
       useClass: LoggingInterceptor,
     },
 
-    // Global response transformer — wraps all responses in { data, timestamp }
+    // Global response transformer — wraps successful responses consistently
     {
       provide: APP_INTERCEPTOR,
       useClass: TransformInterceptor,

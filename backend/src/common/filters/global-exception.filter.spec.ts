@@ -127,6 +127,7 @@ describe('GlobalExceptionFilter', () => {
 
     const body = json.mock.calls[0][0];
     expect(body.statusCode).toBe(HttpStatus.NOT_FOUND);
+    expect(body.success).toBe(false);
     expect(body.error).toBe('NOT_FOUND');
     expect(body.message).toContain('User with id "42"');
   });
@@ -150,6 +151,7 @@ describe('GlobalExceptionFilter', () => {
     const body = json.mock.calls[0][0];
     expect(Object.keys(body)).toEqual(
       expect.arrayContaining([
+        'success',
         'statusCode',
         'message',
         'error',
