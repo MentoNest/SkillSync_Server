@@ -1,12 +1,19 @@
-import { Controller, Get, UseGuards, Res, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  UseGuards,
+  Res,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiProduces } from '@nestjs/swagger';
 import { MetricsService } from './metrics.service.js';
-import { RolesGuard } from '../guards/roles.guard.js';
+import { MetricsBasicAuthGuard } from './metrics-basic-auth.guard.js';
 
 @ApiTags('Metrics')
 @Controller('metrics')
-@UseGuards(RolesGuard)
+@UseGuards(MetricsBasicAuthGuard)
 export class MetricsController {
   constructor(private readonly metricsService: MetricsService) {}
 

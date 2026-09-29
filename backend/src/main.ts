@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { ValidationPipe, Logger, RequestMethod } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { Socket } from 'node:net';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule, ObserveInstrument } from './app.module.js';
@@ -29,6 +30,11 @@ async function bootstrap(): Promise<void> {
     }),
   );
   app.use(requestLoggingMiddleware);
+  const metricsService = app.get(MetricsService);
+  app.getHttpServer().on('connection', (socket: Socket) => {
+    const finishTracking = metricsService.trackHttpConnection();
+    socket.once('close', finishTracking);
+  });
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>('app.port') ?? 3000;
@@ -38,9 +44,9 @@ async function bootstrap(): Promise<void> {
   // ─── Global Pipes ──────────────────────────────────────────────────────
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true,       // Strip unknown properties
+      whitelist: true, // Strip unknown properties
       forbidNonWhitelisted: true,
-      transform: true,       // Auto-transform payloads to DTO instances
+      transform: true, // Auto-transform payloads to DTO instances
       transformOptions: {
         enableImplicitConversion: true,
       },
@@ -55,7 +61,12 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
 
   // ─── API prefix ────────────────────────────────────────────────────────
-  app.setGlobalPrefix('api/v1');
+  app.setGlobalPrefix('api/v1', {
+    exclude: [
+      { path: 'health', method: RequestMethod.ALL },
+      { path: 'health/live', method: RequestMethod.ALL },
+    ],
+  });
 
   // ─── OpenAPI / Swagger ─────────────────────────────────────────────────
   // The auth and user controllers already carry @ApiTags/@ApiResponse
@@ -84,7 +95,9 @@ async function bootstrap(): Promise<void> {
     SwaggerModule.setup('api/docs', app, openApiDocument, {
       swaggerOptions: { persistAuthorization: true },
     });
-    logger.log('📖 OpenAPI docs available at http://localhost:' + port + '/api/docs');
+    logger.log(
+      '📖 OpenAPI docs available at http://localhost:' + port + '/api/docs',
+    );
   }
 
   await app.listen(port);

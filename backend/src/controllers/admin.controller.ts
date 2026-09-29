@@ -20,6 +20,7 @@ import { RolesGuard } from '../guards/roles.guard.js';
 import { Roles } from '../decorators/roles.decorator.js';
 import { AdminDashboardService } from '../services/admin-dashboard.service.js';
 import { ProfileCompletenessService } from '../user/services/profile-completeness.service.js';
+import { FeaturedMentorService } from '../services/featured-mentor.service.js';
 import { UserStatus } from '../user/entities/user.entity.js';
 
 @ApiTags('Admin')
@@ -30,7 +31,8 @@ import { UserStatus } from '../user/entities/user.entity.js';
 export class AdminController {
   constructor(
     private readonly adminService: AdminDashboardService,
-    private readonly profileCompletenessService: ProfileCompletenessService
+    private readonly profileCompletenessService: ProfileCompletenessService,
+    private readonly featuredMentorService: FeaturedMentorService,
   ) {}
 
   @Get('dashboard')
@@ -182,5 +184,63 @@ export class AdminController {
   @ApiResponse({ status: 200, description: 'System health retrieved' })
   async getSystemHealth() {
     return this.adminService.getSystemHealth();
+  }
+
+  // ─── #1346: Featured Mentor endpoints ─────────────────────────────────────
+
+  /**
+   * #1346: List all currently featured (and not-yet-expired) mentors.
+   */
+  @Get('mentors/featured')
+  @ApiOperation({ summary: 'List featured mentors (#1346)' })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'Featured mentors list' })
+  async getFeaturedMentors(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.featuredMentorService.getFeaturedMentors(
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 20,
+    );
+  }
+
+  /**
+   * #1346: Feature a mentor profile. Only admin role may call this.
+   * Returns 400 if the mentor is already featured or the cap is reached.
+   */
+  @Post('mentors/:mentorId/feature')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Feature a mentor profile (#1346)' })
+  @ApiResponse({ status: 200, description: 'Mentor featured' })
+  @ApiResponse({ status: 400, description: 'Already featured or limit reached' })
+  @ApiResponse({ status: 404, description: 'Mentor profile not found' })
+  async featureMentor(
+    @Param('mentorId', ParseUUIDPipe) mentorId: string,
+    @Body('featuredOrder') featuredOrder?: number,
+    @Request() req?: any,
+  ) {
+    return this.featuredMentorService.featureMentor(
+      mentorId,
+      req?.user?.id,
+      { featuredOrder },
+    );
+  }
+
+  /**
+   * #1346: Unfeature a previously featured mentor.
+   * Returns 400 if the mentor is not currently featured.
+   */
+  @Delete('mentors/:mentorId/feature')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Unfeature a mentor profile (#1346)' })
+  @ApiResponse({ status: 200, description: 'Mentor unfeatured' })
+  @ApiResponse({ status: 404, description: 'Mentor profile not found' })
+  async unfeatureMentor(
+    @Param('mentorId', ParseUUIDPipe) mentorId: string,
+    @Request() req?: any,
+  ) {
+    return this.featuredMentorService.unfeatureMentor(mentorId, req?.user?.id);
   }
 }
