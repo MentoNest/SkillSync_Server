@@ -16,6 +16,7 @@ import { AuditLog } from '../auth/entities/audit-log.entity.js';
 import { RolesGuard } from '../guards/roles.guard.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { ProfileCompletenessService } from './services/profile-completeness.service.js';
+import { getJwtSecret } from '../config/production-security.config.js';
 
 @Module({
   imports: [
@@ -26,7 +27,7 @@ import { ProfileCompletenessService } from './services/profile-completeness.serv
     // and manage suspension records.
     TypeOrmModule.forFeature([User, Role, MentorProfile, MenteeProfile, AvailabilitySlot, UserSuspension, RefreshToken, AuditLog]),
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+      secret: getJwtSecret(),
       signOptions: { expiresIn: '1d' },
     }),
     // Provides RedisService (exported by AuthModule) for user search caching.

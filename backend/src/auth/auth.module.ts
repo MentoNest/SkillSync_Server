@@ -20,6 +20,7 @@ import { UserSuspension } from '../user/entities/user-suspension.entity.js';
 import { Role } from '../entities/role.entity.js';
 import { RolesGuard } from '../guards/roles.guard.js';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard.js';
+import { getJwtSecret } from '../config/production-security.config.js';
 
 @Module({
   imports: [
@@ -28,7 +29,7 @@ import { JwtAuthGuard } from '../guards/jwt-auth.guard.js';
     // instance's dependencies from its own imports).
     TypeOrmModule.forFeature([RefreshToken, AuditLog, User, Role, UserSuspension]),
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+      secret: getJwtSecret(),
       signOptions: { expiresIn: '1d' },
     }),
     PassportModule.register({ defaultStrategy: 'jwt' }),

@@ -3,6 +3,7 @@ import { ValidationPipe, Logger, RequestMethod } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Socket } from 'node:net';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
 import { AppModule, ObserveInstrument } from './app.module.js';
 import { requestLoggingMiddleware } from './common/middleware/logging.middleware.js';
 import {
@@ -10,6 +11,7 @@ import {
   createCorsOriginGuard,
   parseCorsOrigins,
 } from './config/cors.util.js';
+import { parseTrustProxy } from './config/production-security.config.js';
 
 const logger = new Logger('Bootstrap');
 
@@ -20,6 +22,13 @@ async function bootstrap(): Promise<void> {
     bufferLogs: true,
   });
 
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.set('trust proxy', parseTrustProxy(process.env.TRUST_PROXY));
+  app.use(
+    helmet({
+      contentSecurityPolicy: env === 'production' ? undefined : false,
+    }),
+  );
   app.use(requestLoggingMiddleware);
   const metricsService = app.get(MetricsService);
   app.getHttpServer().on('connection', (socket: Socket) => {
