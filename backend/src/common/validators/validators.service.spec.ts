@@ -2,6 +2,7 @@ import { validate } from 'class-validator';
 import { IsValidWalletAddress } from './is-valid-wallet-address.validator.js';
 import { IsValidTimezone } from './is-valid-timezone.validator.js';
 import { IsValidAvailabilitySlot } from './is-valid-availability-slot.validator.js';
+import { IsAfterDate } from './is-after-date.validator.js';
 
 class TestWalletDto {
   @IsValidWalletAddress()
@@ -27,6 +28,27 @@ class TestSlotDto {
 
   constructor(slot: any) {
     this.slot = slot;
+  }
+}
+
+class TestAfterDateDto {
+  startDate?: Date;
+
+  @IsAfterDate((obj) => obj.startDate)
+  endDate: any;
+
+  constructor(endDate: any, startDate?: Date) {
+    this.endDate = endDate;
+    this.startDate = startDate;
+  }
+}
+
+class TestAfterNowDto {
+  @IsAfterDate()
+  futureDate: any;
+
+  constructor(futureDate: any) {
+    this.futureDate = futureDate;
   }
 }
 
@@ -108,6 +130,44 @@ describe('Custom Validators', () => {
         startTime: '17:00',
         endTime: '09:00',
       });
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('IsAfterDate', () => {
+    it('should pass when date is after current time by default', async () => {
+      const future = new Date(Date.now() + 60000);
+      const dto = new TestAfterNowDto(future);
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail when date is in the past by default', async () => {
+      const past = new Date(Date.now() - 60000);
+      const dto = new TestAfterNowDto(past);
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it('should pass when endDate is after startDate', async () => {
+      const start = new Date('2026-01-01T10:00:00Z');
+      const end = new Date('2026-01-01T11:00:00Z');
+      const dto = new TestAfterDateDto(end, start);
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should fail when endDate is before startDate', async () => {
+      const start = new Date('2026-01-01T12:00:00Z');
+      const end = new Date('2026-01-01T11:00:00Z');
+      const dto = new TestAfterDateDto(end, start);
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it('should fail when value is not a valid date', async () => {
+      const dto = new TestAfterDateDto('invalid-date' as any);
       const errors = await validate(dto);
       expect(errors.length).toBeGreaterThan(0);
     });

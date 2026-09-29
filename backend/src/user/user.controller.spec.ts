@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UserController } from './user.controller.js';
 import { UserService } from './user.service.js';
+import { ProfileCompletenessService } from './services/profile-completeness.service.js';
 import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { User, ProfileType } from './entities/user.entity.js';
@@ -20,12 +21,21 @@ describe('UserController', () => {
       findAll: jest.fn(),
     };
 
+    const mockProfileCompletenessService = {
+      calculateUserCompleteness: jest.fn().mockResolvedValue({ score: 80, missingFields: [] }),
+      clearUserCache: jest.fn().mockResolvedValue(undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       controllers: [UserController],
       providers: [
         {
           provide: UserService,
           useValue: mockUserService,
+        },
+        {
+          provide: ProfileCompletenessService,
+          useValue: mockProfileCompletenessService,
         },
         {
           provide: JwtService,

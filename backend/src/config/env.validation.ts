@@ -22,6 +22,10 @@ export const envValidationSchema = Joi.object({
   DB_POOL_SIZE: Joi.number().min(1).max(100).default(10),
   DB_SSL: Joi.boolean().default(false),
 
+  // Prometheus scraping credentials. Metrics remain unavailable until both are configured.
+  METRICS_BASIC_AUTH_USERNAME: Joi.string().optional(),
+  METRICS_BASIC_AUTH_PASSWORD: Joi.string().optional(),
+
   // Feature Flags
   FEATURE_FLAG_NEW_MATCHING: Joi.boolean().default(false),
   FEATURE_FLAG_AI_RECOMMENDATIONS: Joi.boolean().default(false),
@@ -33,4 +37,4 @@ export const envValidationSchema = Joi.object({
 
   // Audit log retention (#1320) - days before an audit event is purged.
   AUDIT_LOG_RETENTION_DAYS: Joi.number().integer().min(1).max(3650).default(90),
-});
+}).and('METRICS_BASIC_AUTH_USERNAME', 'METRICS_BASIC_AUTH_PASSWORD');
