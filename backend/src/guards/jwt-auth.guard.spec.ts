@@ -14,6 +14,7 @@ describe('JwtAuthGuard', () => {
   let mockReflector: any;
   let mockJwtService: any;
   let mockRedisService: any;
+  let mockMetricsService: any;
 
   const VALID_TOKEN = 'valid.jwt.token';
   const PAYLOAD = {
@@ -28,13 +29,15 @@ describe('JwtAuthGuard', () => {
     const request: any = { headers, ...requestOverrides };
     return {
       switchToHttp: () => ({ getRequest: () => request }),
-      getHandler: () => (() => undefined),
+      getHandler: () => () => undefined,
       getClass: () => class {},
     } as any;
   };
 
   /** Reads the `code` field the guard attaches to its 401 payloads. */
-  const codeOf = async (promise: Promise<unknown>): Promise<string | undefined> => {
+  const codeOf = async (
+    promise: Promise<unknown>,
+  ): Promise<string | undefined> => {
     try {
       await promise;
       throw new Error('expected the guard to reject');
@@ -46,12 +49,17 @@ describe('JwtAuthGuard', () => {
   beforeEach(() => {
     mockReflector = { getAllAndOverride: jest.fn().mockReturnValue(undefined) };
     mockJwtService = { verifyAsync: jest.fn().mockResolvedValue(PAYLOAD) };
-    mockRedisService = { isTokenBlacklisted: jest.fn().mockResolvedValue(false) };
+    mockRedisService = {
+      isTokenBlacklisted: jest.fn().mockResolvedValue(false),
+    };
+    mockMetricsService = { incrementJwtFailures: jest.fn() };
 
     guard = new JwtAuthGuard(
       mockReflector as Reflector,
       mockJwtService as JwtService,
       mockRedisService as RedisService,
+      undefined,
+      mockMetricsService,
     );
   });
 
@@ -76,7 +84,9 @@ describe('JwtAuthGuard', () => {
     it('rejects with 401 and token_missing when the header is absent', async () => {
       const ctx = buildContext({});
 
-      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
       expect(await codeOf(guard.canActivate(ctx))).toBe('token_missing');
     });
 
@@ -103,7 +113,9 @@ describe('JwtAuthGuard', () => {
     it('rejects with 401 and token_expired', async () => {
       const ctx = buildContext({ authorization: `Bearer ${VALID_TOKEN}` });
 
-      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
       expect(await codeOf(guard.canActivate(ctx))).toBe('token_expired');
     });
 
@@ -116,12 +128,17 @@ describe('JwtAuthGuard', () => {
 
   describe('invalid tokens', () => {
     beforeEach(() => {
-      mockJwtService.verifyAsync.mockRejectedValue(new Error('invalid signature'));
+      mockJwtService.verifyAsync.mockRejectedValue(
+        new Error('invalid signature'),
+      );
     });
 
     it('rejects with 401 and invalid_token', async () => {
       const ctx = buildContext({ authorization: `Bearer ${VALID_TOKEN}` });
       expect(await codeOf(guard.canActivate(ctx))).toBe('invalid_token');
+      expect(mockMetricsService.incrementJwtFailures).toHaveBeenCalledWith(
+        'invalid',
+      );
     });
   });
 
@@ -133,7 +150,9 @@ describe('JwtAuthGuard', () => {
     it('rejects with 401 and token_revoked', async () => {
       const ctx = buildContext({ authorization: `Bearer ${VALID_TOKEN}` });
 
-      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
       expect(await codeOf(guard.canActivate(ctx))).toBe('token_revoked');
     });
 
@@ -172,7 +191,9 @@ describe('JwtAuthGuard', () => {
       mockReflector.getAllAndOverride.mockImplementation((key: string) =>
         key === IS_OPTIONAL_AUTH_KEY ? true : undefined,
       );
-      mockJwtService.verifyAsync.mockRejectedValue(new Error('invalid signature'));
+      mockJwtService.verifyAsync.mockRejectedValue(
+        new Error('invalid signature'),
+      );
       const ctx = buildContext({ authorization: `Bearer ${VALID_TOKEN}` });
 
       await expect(guard.canActivate(ctx)).resolves.toBe(true);

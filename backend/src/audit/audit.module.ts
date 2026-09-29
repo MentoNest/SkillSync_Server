@@ -9,6 +9,7 @@ import { UserSuspension } from '../user/entities/user-suspension.entity';
 import { Role } from '../entities/role.entity';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { RolesGuard } from '../guards/roles.guard';
+import { getJwtSecret } from '../config/production-security.config.js';
 
 /**
  * #1320: audit trail feature module.
@@ -23,7 +24,7 @@ import { RolesGuard } from '../guards/roles.guard';
     TypeOrmModule.forFeature([AuditLog, User, Role, UserSuspension]),
     // JwtService is required by RolesGuard to verify the bearer token.
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+      secret: getJwtSecret(),
       signOptions: { expiresIn: '1d' },
     }),
   ],

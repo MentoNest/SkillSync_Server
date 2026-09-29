@@ -6,12 +6,13 @@ import { ChatGateway } from './chat.gateway.js';
 import { ChatController } from './chat.controller.js';
 import { User } from '../user/entities/user.entity.js';
 import { RedisService } from '../services/redis.service.js';
+import { getJwtSecret } from '../config/production-security.config.js';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([ChatMessage, User]),
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+      secret: getJwtSecret(),
       signOptions: { expiresIn: '1d' },
     }),
   ],

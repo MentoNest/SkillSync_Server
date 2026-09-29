@@ -1,7 +1,9 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { ValidationPipe, Logger, RequestMethod } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { Socket } from 'node:net';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
 import { AppModule, ObserveInstrument } from './app.module.js';
 import { requestLoggingMiddleware } from './common/middleware/logging.middleware.js';
 import { configureSecurityHeaders } from './security/security-headers.js';
@@ -15,12 +17,20 @@ async function bootstrap(): Promise<void> {
     bufferLogs: true,
   });
 
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.set('trust proxy', parseTrustProxy(process.env.TRUST_PROXY));
+  app.use(
+    helmet({
+      contentSecurityPolicy: env === 'production' ? undefined : false,
+    }),
+  );
   app.use(requestLoggingMiddleware);
   configureSecurityHeaders(app, process.env.NODE_ENV);
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>('app.port') ?? 3000;
   const env = configService.get<string>('app.env') ?? 'development';
+  const allowedCorsOrigins = parseCorsOrigins(process.env.CORS_ORIGINS);
 
   // ─── Global Pipes ──────────────────────────────────────────────────────
   app.useGlobalPipes(
@@ -35,15 +45,19 @@ async function bootstrap(): Promise<void> {
   );
 
   // ─── CORS ──────────────────────────────────────────────────────────────
-  if (env !== 'production') {
-    app.enableCors();
-  }
+  app.use(createCorsOriginGuard(allowedCorsOrigins, env));
+  app.enableCors(createCorsOptions(allowedCorsOrigins, env));
 
   // ─── Graceful Shutdown ─────────────────────────────────────────────────
   app.enableShutdownHooks();
 
   // ─── API prefix ────────────────────────────────────────────────────────
-  app.setGlobalPrefix('api/v1');
+  app.setGlobalPrefix('api/v1', {
+    exclude: [
+      { path: 'health', method: RequestMethod.ALL },
+      { path: 'health/live', method: RequestMethod.ALL },
+    ],
+  });
 
   // ─── OpenAPI / Swagger ─────────────────────────────────────────────────
   // The auth and user controllers already carry @ApiTags/@ApiResponse

@@ -5,6 +5,7 @@ import { HealthService } from './health.service.js';
 describe('HealthController', () => {
   let controller: HealthController;
   let mockHealthService: any;
+  let mockResponse: any;
 
   beforeEach(async () => {
     mockHealthService = {
@@ -19,6 +20,10 @@ describe('HealthController', () => {
         ],
       }),
     };
+    mockResponse = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [HealthController],
@@ -29,9 +34,30 @@ describe('HealthController', () => {
   });
 
   it('should return health check result', async () => {
-    const result = await controller.check();
-    expect(result.status).toBe('healthy');
-    expect(result.components).toHaveLength(3);
+    await controller.check(mockResponse);
+    expect(mockResponse.status).toHaveBeenCalledWith(200);
+    expect(mockResponse.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'healthy',
+        components: expect.any(Array),
+      }),
+    );
     expect(mockHealthService.check).toHaveBeenCalled();
+  });
+
+  it('should return HTTP 503 when a dependency is unhealthy', async () => {
+    mockHealthService.check.mockResolvedValue({
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      uptime: 100,
+      components: [{ name: 'database', status: 'unhealthy', responseTimeMs: 3 }],
+    });
+
+    await controller.check(mockResponse);
+    expect(mockResponse.status).toHaveBeenCalledWith(503);
+  });
+
+  it('should provide a dependency-independent liveness response', () => {
+    expect(controller.live()).toMatchObject({ status: 'ok' });
   });
 });

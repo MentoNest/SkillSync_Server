@@ -1,5 +1,9 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import * as crypto from 'crypto';
+import {
+  getEncryptionKey,
+  getSearchHashSalt,
+} from '../../config/production-security.config.js';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
@@ -26,11 +30,7 @@ export class EncryptionService implements OnModuleDestroy {
   private readonly keyRotationKeys: Buffer[] = [];
 
   constructor() {
-    const keyEnv = process.env.ENCRYPTION_KEY;
-    if (!keyEnv) {
-      throw new Error('ENCRYPTION_KEY environment variable is required');
-    }
-    this.masterKey = Buffer.from(keyEnv, 'hex');
+    this.masterKey = Buffer.from(getEncryptionKey(), 'hex');
 
     const rotationKeysEnv = process.env.ENCRYPTION_KEY_ROTATION;
     if (rotationKeysEnv) {
@@ -118,7 +118,7 @@ export class EncryptionService implements OnModuleDestroy {
    * Used for exact-match lookups (e.g., email search)
    */
   hashForSearch(value: string): string {
-    const salt = process.env.SEARCH_HASH_SALT || 'default-salt-change-in-production';
+    const salt = getSearchHashSalt();
     return crypto
       .createHmac('sha256', salt)
       .update(value.toLowerCase().trim())

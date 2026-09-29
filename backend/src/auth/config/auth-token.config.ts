@@ -24,6 +24,7 @@
  * | `REFRESH_REUSE_ALERT`        | `true`    | Alert + family revoke on token reuse       |
  */
 import type { SignOptions } from 'jsonwebtoken';
+import { getJwtSecret } from '../../config/production-security.config.js';
 
 export type JwtAlgorithm = 'HS256' | 'RS256';
 
@@ -129,7 +130,7 @@ export function loadAuthTokenConfig(): AuthTokenConfig {
 
   cached = Object.freeze({
     algorithm,
-    secret: env.JWT_SECRET || 'your-secret-key-change-in-production',
+    secret: env.JWT_SECRET || getJwtSecret(),
     privateKey,
     publicKey,
     issuer: env.JWT_ISSUER || 'skillsync',

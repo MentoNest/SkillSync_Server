@@ -1,3 +1,5 @@
+import { getJwtSecret } from './production-security.config.js';
+
 export class AppConfig {
   private static instance: AppConfig;
 
@@ -23,11 +25,7 @@ export class AppConfig {
   }
 
   get jwtSecret(): string {
-    const secret = process.env.JWT_SECRET;
-    if (this.isProduction && (!secret || secret === 'your-secret-key-change-in-production')) {
-      throw new Error('JWT_SECRET must be set in production');
-    }
-    return secret || 'your-secret-key-change-in-production';
+    return getJwtSecret();
   }
 
   get dbConfig() {
@@ -35,7 +33,7 @@ export class AppConfig {
       host: process.env.DB_HOST || 'localhost',
       port: parseInt(process.env.DB_PORT || '5432', 10),
       username: process.env.DB_USERNAME || 'postgres',
-      password: process.env.DB_PASSWORD || 'password',
+      password: process.env.DB_PASSWORD ?? '',
       database: process.env.DB_DATABASE || 'skillsync',
     };
   }
@@ -49,7 +47,7 @@ export class AppConfig {
   }
 
   get enableSwagger(): boolean {
-    return !this.isProduction || process.env.ENABLE_SWAGGER === 'true';
+    return !this.isProduction;
   }
 
   get trustedIps(): string[] {
@@ -60,14 +58,21 @@ export class AppConfig {
 
   validate(): void {
     if (this.isProduction) {
-      const required = ['JWT_SECRET', 'DB_PASSWORD', 'DB_HOST'];
+      const required = [
+        'JWT_SECRET',
+        'DB_PASSWORD',
+        'DB_HOST',
+        'ENCRYPTION_KEY',
+        'SEARCH_HASH_SALT',
+        'CORS_ORIGINS',
+      ];
       const missing = required.filter((key) => !process.env[key]);
       if (missing.length > 0) {
         throw new Error(`Missing required environment variables for production: ${missing.join(', ')}`);
       }
 
-      if (this.jwtSecret === 'your-secret-key-change-in-production') {
-        throw new Error('JWT_SECRET must be changed from default in production');
+      if (process.env.JWT_SECRET!.length < 32) {
+        throw new Error('JWT_SECRET must contain at least 32 characters in production');
       }
     }
   }

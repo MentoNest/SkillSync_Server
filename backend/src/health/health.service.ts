@@ -17,10 +17,11 @@ export interface HealthCheckResult {
   components: ComponentStatus[];
 }
 
+const DEPENDENCY_TIMEOUT_MS = 75;
+
 @Injectable()
 export class HealthService {
   private readonly logger = new Logger(HealthService.name);
-  private readonly startTime = Date.now();
 
   constructor(
     @InjectDataSource()
@@ -40,58 +41,33 @@ export class HealthService {
     return {
       status: allHealthy ? 'healthy' : 'unhealthy',
       timestamp: new Date().toISOString(),
-      uptime: Math.floor((Date.now() - this.startTime) / 1000),
+      uptime: process.uptime(),
       components,
     };
   }
 
   private async checkDatabase(): Promise<ComponentStatus> {
-    const start = Date.now();
-    try {
-      await this.dataSource.query('SELECT 1');
-      return {
-        name: 'database',
-        status: 'healthy',
-        responseTimeMs: Date.now() - start,
-      };
-    } catch (error: any) {
-      this.logger.error(`Database health check failed: ${error.message}`);
-      return {
-        name: 'database',
-        status: 'unhealthy',
-        responseTimeMs: Date.now() - start,
-        details: error.message,
-      };
-    }
+    return this.checkDependency('database', () =>
+      this.dataSource.query('SELECT 1'),
+    );
   }
 
   private async checkRedis(): Promise<ComponentStatus> {
-    const start = Date.now();
     const client = this.redisService.getClient();
     if (!client) {
       return {
         name: 'redis',
-        status: 'healthy',
+        status: 'unhealthy',
         responseTimeMs: 0,
-        details: 'Using in-memory fallback (Redis not connected)',
+        details: 'Redis client is not connected',
       };
     }
-    try {
+    return this.checkDependency('redis', async () => {
       const result = await client.ping();
-      return {
-        name: 'redis',
-        status: result === 'PONG' ? 'healthy' : 'unhealthy',
-        responseTimeMs: Date.now() - start,
-      };
-    } catch (error: any) {
-      this.logger.warn(`Redis health check failed, using in-memory: ${error.message}`);
-      return {
-        name: 'redis',
-        status: 'healthy',
-        responseTimeMs: Date.now() - start,
-        details: `Redis unavailable, in-memory fallback active: ${error.message}`,
-      };
-    }
+      if (result !== 'PONG') {
+        throw new Error('Unexpected Redis PING response');
+      }
+    });
   }
 
   private checkMemory(): ComponentStatus {
@@ -110,5 +86,44 @@ export class HealthService {
         rssUsedMB,
       }),
     };
+  }
+
+  private async checkDependency(
+    name: 'database' | 'redis',
+    check: () => Promise<unknown>,
+  ): Promise<ComponentStatus> {
+    const startedAt = performance.now();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      await Promise.race([
+        check(),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error('Dependency check timed out')),
+            DEPENDENCY_TIMEOUT_MS,
+          );
+        }),
+      ]);
+      return {
+        name,
+        status: 'healthy',
+        responseTimeMs: Math.round(performance.now() - startedAt),
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(`${name} health check failed: ${message}`);
+      return {
+        name,
+        status: 'unhealthy',
+        responseTimeMs: Math.round(performance.now() - startedAt),
+        details:
+          message === 'Dependency check timed out'
+            ? `Check timed out after ${DEPENDENCY_TIMEOUT_MS}ms`
+            : `${name} check failed`,
+      };
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
   }
 }

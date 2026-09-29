@@ -7,6 +7,7 @@ import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { User } from '../user/entities/user.entity';
 import { AuditModule } from '../audit/audit.module';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
+import { getJwtSecret } from '../config/production-security.config.js';
 
 /**
  * #1317: logout feature module.
@@ -19,7 +20,7 @@ import { JwtAuthGuard } from '../guards/jwt-auth.guard';
     TypeOrmModule.forFeature([RefreshToken, User]),
     AuditModule,
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+      secret: getJwtSecret(),
       signOptions: { expiresIn: '1d' },
     }),
   ],
