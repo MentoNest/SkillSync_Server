@@ -31,6 +31,7 @@ import { RbacModule } from './rbac/rbac.module.js';
 import { SecurityModule } from './security/security.module.js';
 import { SeedModule } from './seed/seed.module.js';
 import { MetricsModule } from './metrics/metrics.module.js';
+import { AdminModule } from './modules/admin.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -80,6 +81,9 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     // #1319: runs on application bootstrap, before the server starts listening.
     SeedModule,
     MetricsModule,
+
+    // #1346: admin dashboard, featured mentors management, public mentor listing.
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [

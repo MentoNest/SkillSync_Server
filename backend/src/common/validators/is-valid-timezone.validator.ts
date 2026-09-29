@@ -6,8 +6,10 @@ import {
   ValidationOptions,
 } from 'class-validator';
 
-// List of all valid IANA timezones
-const VALID_TIMEZONES = new Set(Intl.supportedValuesOf('timeZone'));
+// List of all valid IANA timezones.
+// 'UTC' is a recognised alias that some runtimes omit from
+// Intl.supportedValuesOf('timeZone'), so it is added explicitly.
+const VALID_TIMEZONES = new Set([...Intl.supportedValuesOf('timeZone'), 'UTC']);
 
 @ValidatorConstraint({ name: 'isValidTimezone', async: false })
 export class IsValidTimezoneConstraint implements ValidatorConstraintInterface {

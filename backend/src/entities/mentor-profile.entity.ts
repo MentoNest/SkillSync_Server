@@ -27,6 +27,7 @@ import { User } from './user.entity.js';
 @Index('IDX_mentor_profiles_hourlyRate', ['hourlyRate'])
 @Index('IDX_mentor_profiles_averageRating', ['averageRating'])
 @Index('IDX_mentor_profiles_isVerified_averageRating', ['isVerified', 'averageRating'])
+@Index('IDX_mentor_profiles_isFeatured_featuredOrder', ['isFeatured', 'featuredOrder'])
 export class MentorProfile {
   @PrimaryGeneratedColumn('uuid')
   @IsUUID()
@@ -147,6 +148,23 @@ export class MentorProfile {
   @IsNumber()
   @IsOptional()
   profileCompletionPercentage: number;
+
+  // #1346: featured mentor flag — set by admins via POST /admin/mentors/:id/feature
+  @Column({ type: 'boolean', default: false })
+  @IsBoolean()
+  @IsOptional()
+  isFeatured: boolean;
+
+  // #1346: timestamp when the mentor was featured (drives the auto-expiry logic)
+  @Column({ type: 'timestamp', nullable: true })
+  @IsOptional()
+  featuredAt: Date | null;
+
+  // #1346: position within the featured list (lower = higher priority)
+  @Column({ type: 'int', nullable: true })
+  @IsNumber()
+  @IsOptional()
+  featuredOrder: number | null;
 
   @CreateDateColumn()
   createdAt: Date;
