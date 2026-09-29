@@ -49,7 +49,10 @@ async function bootstrap(): Promise<void> {
 
   // ─── API prefix ────────────────────────────────────────────────────────
   app.setGlobalPrefix('api/v1', {
-    exclude: [{ path: 'metrics', method: RequestMethod.ALL }],
+    exclude: [
+      { path: 'health', method: RequestMethod.ALL },
+      { path: 'health/live', method: RequestMethod.ALL },
+    ],
   });
 
   // ─── OpenAPI / Swagger ─────────────────────────────────────────────────

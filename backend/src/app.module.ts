@@ -14,7 +14,7 @@ import {
 } from './config/index.js';
 
 import { DatabaseModule } from './database/database.module.js';
-import { HealthModule } from './modules/health/health.module.js';
+import { HealthModule } from './health/health.module.js';
 import { ThrottlerModule } from './guards/throttler.module.js';
 
 import {

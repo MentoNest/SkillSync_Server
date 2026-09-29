@@ -72,7 +72,7 @@ With Mau, you can deploy your application in just a few clicks, allowing you to 
 
 ## Observability
 
-The authenticated Prometheus endpoint and Grafana setup are documented in [docs/metrics.md](docs/metrics.md).
+The public readiness/liveness endpoints and Kubernetes probe configuration are documented in [docs/health-checks.md](docs/health-checks.md).
 
 In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
 
