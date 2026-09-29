@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Delete,
   Param,
   Body,
@@ -18,8 +19,11 @@ import { NotificationService } from '../services/notification.service.js';
 import type {
   CreateNotificationDto,
   NotificationFilter,
+  UpdateNotificationPreferencesDto,
 } from '../services/notification.service.js';
-import { NotificationType, NotificationPriority } from '../entities/notification.entity.js';
+import {
+  NotificationType,
+} from '../entities/notification.entity.js';
 
 @ApiTags('Notifications')
 @ApiBearerAuth('Bearer Auth')
@@ -66,15 +70,14 @@ export class NotificationController {
     return { count };
   }
 
-  @Post(':id/read')
+  @Post('read-many')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Mark notification as read' })
-  @ApiResponse({ status: 200, description: 'Notification marked as read' })
-  async markAsRead(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Request() req: any,
-  ) {
-    return this.notificationService.markAsRead(id, req.user.id);
+  @ApiOperation({ summary: 'Mark several notifications as read at once' })
+  @ApiResponse({ status: 200, description: 'Batch read update applied' })
+  async markManyAsRead(@Request() req: any, @Body() body: { ids: string[] }) {
+    const ids = Array.isArray(body?.ids) ? body.ids : [];
+    const updated = await this.notificationService.markManyAsRead(ids, req.user.id);
+    return { updated };
   }
 
   @Post('read-all')
@@ -84,6 +87,36 @@ export class NotificationController {
   async markAllAsRead(@Request() req: any) {
     await this.notificationService.markAllAsRead(req.user.id);
     return { success: true };
+  }
+
+  // ─── Preferences (#1364) ───────────────────────────────────────────────
+
+  @Get('preferences')
+  @ApiOperation({ summary: 'Get notification preferences for the current user' })
+  @ApiResponse({ status: 200, description: 'Preferences retrieved' })
+  async getPreferences(@Request() req: any) {
+    return this.notificationService.getPreferences(req.user.id);
+  }
+
+  @Put('preferences')
+  @ApiOperation({ summary: 'Update notification preferences (opt-out per type/channel)' })
+  @ApiResponse({ status: 200, description: 'Preferences updated' })
+  async updatePreferences(
+    @Request() req: any,
+    @Body() dto: UpdateNotificationPreferencesDto,
+  ) {
+    return this.notificationService.updatePreferences(req.user.id, dto);
+  }
+
+  @Post(':id/read')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Mark notification as read' })
+  @ApiResponse({ status: 200, description: 'Notification marked as read' })
+  async markAsRead(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: any,
+  ) {
+    return this.notificationService.markAsRead(id, req.user.id);
   }
 
   @Delete(':id')

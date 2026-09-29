@@ -33,6 +33,11 @@ import { SecurityModule } from './security/security.module.js';
 import { SeedModule } from './seed/seed.module.js';
 import { MetricsModule } from './metrics/metrics.module.js';
 import { AdminModule } from './modules/admin.module.js';
+// #1362-#1364: real-time chat, session scheduling and the notification
+// system that carries their lifecycle events.
+import { ChatModule } from './chat/chat.module.js';
+import { SessionModule } from './session/session.module.js';
+import { NotificationModule } from './modules/notification.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -86,6 +91,13 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
     // #1346: admin dashboard, featured mentors management, public mentor listing.
     AdminModule,
+
+    // #1364: notification system (REST + `/notifications` WebSocket).
+    NotificationModule,
+    // #1363: session scheduling, availability, cancellation policy, history.
+    SessionModule,
+    // #1362: real-time chat gateway with session-scoped rooms.
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [

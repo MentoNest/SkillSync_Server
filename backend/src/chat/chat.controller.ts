@@ -1,7 +1,6 @@
 import {
   Controller,
   Get,
-  Param,
   UseGuards,
   Req,
   HttpCode,
@@ -26,5 +25,18 @@ export class ChatController {
     const user = (req as any).user;
     const count = await this.chatGateway.getUnreadCount(user.id);
     return { unreadCount: count };
+  }
+
+  /**
+   * #1362: unread counts grouped by conversation partner, for per-chat badge
+   * rendering in the client.
+   */
+  @Get('unread-counts')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get unread message counts grouped by partner' })
+  async getUnreadCountsByPartner(@Req() req: Request) {
+    const user = (req as any).user;
+    const counts = await this.chatGateway.getUnreadCountsByPartner(user.id);
+    return { counts };
   }
 }
