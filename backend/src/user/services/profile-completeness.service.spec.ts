@@ -122,7 +122,7 @@ describe('ProfileCompletenessService', () => {
       expect(result.suggestions).toBeUndefined(); // No suggestions since score >= 80%
     });
 
-    it('should return 66% for mentee with only one required field filled', async () => {
+    it('should return 33% for mentee with only one required field filled', async () => {
       const mockUser = {
         id: 'test-user-id',
         profileType: ProfileType.MENTEE,
@@ -143,8 +143,13 @@ describe('ProfileCompletenessService', () => {
       } as MenteeProfile);
 
       const result = await service.calculateUserCompleteness('test-user-id');
-      
-      // 1 out of 3 required fields filled: 33.33% base, no bonus, rounded to 33? Wait wait let's calculate: 1/3 *100 = 33.33, rounded to 33. But wait the test expected 66%? Wait no I only filled one field, let's fix the test. Actually wait if I fill two required fields: 2/3 *100 = 66.66, rounded to 67. Let me correct the test.
+
+      expect(result.score).toBe(33);
+      expect(result.missingFields.map((field) => field.field)).toEqual([
+        'currentSkillLevel',
+        'areasOfInterest',
+      ]);
+      expect(result.suggestions).toBeDefined();
     });
 
     it('should return ~67% for mentee with two out of three required fields filled', async () => {
@@ -283,5 +288,42 @@ describe('ProfileCompletenessService', () => {
       expect(mockUserRepository.findOne).not.toHaveBeenCalled();
       expect(result).toEqual(cachedResult);
     });
+  });
+
+  describe('getAllUsersCompleteness', () => {
+    it('queries active users and caches the aggregate result', async () => {
+      mockUserRepository.find.mockResolvedValue([]);
+
+      await expect(service.getAllUsersCompleteness()).resolves.toEqual([]);
+      expect(mockUserRepository.find).toHaveBeenCalledWith({
+        where: { status: UserStatus.ACTIVE },
+      });
+      expect(mockRedisService.set).toHaveBeenCalledWith(
+        'admin:profile:completeness:all',
+        '[]',
+        300,
+      );
+    });
+
+    it('returns a cached aggregate without querying users', async () => {
+      const cached = [{ userId: 'user-1', completenessScore: 80 }];
+      mockRedisService.get.mockResolvedValue(JSON.stringify(cached));
+
+      await expect(service.getAllUsersCompleteness()).resolves.toEqual(cached);
+      expect(mockUserRepository.find).not.toHaveBeenCalled();
+    });
+  });
+
+  it('clears both per-user and admin completeness caches', async () => {
+    await service.clearUserCache('user-1');
+
+    expect(mockRedisService.del).toHaveBeenNthCalledWith(
+      1,
+      'profile:completeness:user-1',
+    );
+    expect(mockRedisService.del).toHaveBeenNthCalledWith(
+      2,
+      'admin:profile:completeness:all',
+    );
   });
 });

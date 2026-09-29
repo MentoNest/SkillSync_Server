@@ -18,7 +18,7 @@ export const databaseConfig = registerAs(
     synchronize: process.env.NODE_ENV === 'development',
 
     // Migration configuration
-    migrations: ['dist/database/migrations/*.js'],
+    migrations: ['dist/migrations/*.js'],
     migrationsRun: false,
     migrationsTableName: 'migrations_history',
 

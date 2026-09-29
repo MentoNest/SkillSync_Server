@@ -153,6 +153,29 @@ describe('UserService', () => {
     });
   });
 
+  describe('public profile lookups', () => {
+    it('looks up usernames case-insensitively and includes roles', async () => {
+      const user = { id: 'uuid-123', username: 'alex_rivers', roles: [] };
+      mockUserRepository.findOne.mockResolvedValue(user);
+
+      await expect(service.findByUsername('Alex_Rivers')).resolves.toBe(user);
+      expect(mockUserRepository.findOne).toHaveBeenCalledWith({
+        where: { username: 'alex_rivers' },
+        relations: { roles: true },
+      });
+    });
+
+    it('returns only active users for UUID-based public lookups', async () => {
+      const activeUser = { id: 'uuid-123', status: UserStatus.ACTIVE, roles: [] };
+      mockUserRepository.findOne
+        .mockResolvedValueOnce(activeUser)
+        .mockResolvedValueOnce({ id: 'uuid-456', status: UserStatus.SUSPENDED });
+
+      await expect(service.findByIdIfActive('uuid-123')).resolves.toBe(activeUser);
+      await expect(service.findByIdIfActive('uuid-456')).resolves.toBeNull();
+    });
+  });
+
   describe('incrementTokenVersion', () => {
     it('should increment user token version', async () => {
       const mockUser = { id: 'uuid-123', tokenVersion: 1 };
@@ -261,7 +284,7 @@ describe('UserService', () => {
       await service.searchUsers({ skill: 'Solidity' });
 
       expect(mockMentorProfileRepository.createQueryBuilder).toHaveBeenCalled();
-      expect(mentorQb.where).toHaveBeenCalledWith(':skill = ANY(mentorProfile.skills)');
+      expect(mentorQb.where).toHaveBeenCalledWith('mentorProfile.skills @> ARRAY[:skill]::text[]');
       expect(qb.setParameter).toHaveBeenCalledWith('skill', 'Solidity');
     });
 
