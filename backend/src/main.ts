@@ -6,12 +6,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule, ObserveInstrument } from './app.module.js';
 import { requestLoggingMiddleware } from './common/middleware/logging.middleware.js';
-import {
-  createCorsOptions,
-  createCorsOriginGuard,
-  parseCorsOrigins,
-} from './config/cors.util.js';
-import { parseTrustProxy } from './config/production-security.config.js';
+import { configureSecurityHeaders } from './security/security-headers.js';
 
 const logger = new Logger('Bootstrap');
 
@@ -30,11 +25,7 @@ async function bootstrap(): Promise<void> {
     }),
   );
   app.use(requestLoggingMiddleware);
-  const metricsService = app.get(MetricsService);
-  app.getHttpServer().on('connection', (socket: Socket) => {
-    const finishTracking = metricsService.trackHttpConnection();
-    socket.once('close', finishTracking);
-  });
+  configureSecurityHeaders(app, process.env.NODE_ENV);
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>('app.port') ?? 3000;

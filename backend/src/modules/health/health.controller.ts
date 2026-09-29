@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
@@ -27,11 +27,17 @@ export class HealthController {
       dbStatus = 'disconnected';
     }
 
-    return {
+    const response: HealthStatus = {
       status: dbStatus === 'connected' ? 'ok' : 'error',
       timestamp: new Date().toISOString(),
       database: dbStatus,
       uptime: process.uptime(),
     };
+
+    if (dbStatus === 'disconnected') {
+      throw new ServiceUnavailableException(response);
+    }
+
+    return response;
   }
 }
