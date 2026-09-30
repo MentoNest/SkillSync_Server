@@ -1,4 +1,13 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
+  Index,
+} from 'typeorm';
 import { User } from '../user/entities/user.entity.js';
 
 export enum NotificationType {
@@ -16,6 +25,17 @@ export enum NotificationPriority {
   MEDIUM = 'medium',
   HIGH = 'high',
   URGENT = 'urgent',
+}
+
+/**
+ * #1364: delivery channels. `in_app` is the only channel fully implemented;
+ * `email` and `push` persist the intent and are placeholders for a future
+ * SendGrid / push-provider integration.
+ */
+export enum NotificationChannel {
+  IN_APP = 'in_app',
+  EMAIL = 'email',
+  PUSH = 'push',
 }
 
 @Entity('notifications')
@@ -58,6 +78,22 @@ export class Notification {
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   icon: string;
+
+  /**
+   * #1364: delivery intent for external channels. `in_app` is always
+   * delivered; `email`/`push` entries are queued for the (placeholder)
+   * SendGrid / push integrations.
+   */
+  @Column({ type: 'jsonb', default: () => "'[\"in_app\"]'::jsonb" })
+  channels: NotificationChannel[];
+
+  /**
+   * #1364: soft expiry for ephemeral notifications (e.g. reminders).
+   * Rows past this timestamp are skipped when reading and swept by the
+   * retention job. `null` means the row only expires via retention.
+   */
+  @Column({ type: 'timestamp', nullable: true })
+  expiresAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;

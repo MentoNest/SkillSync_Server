@@ -66,6 +66,28 @@ export class Session {
   @Column({ type: 'text', nullable: true })
   review: string | null;
 
+  // #1363: lifecycle timestamps for the status workflow.
+  @Column({ type: 'timestamp', nullable: true })
+  confirmedAt: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  completedAt: Date | null;
+
+  // #1363: cancellation audit — who cancelled, why, and whether the 24-hour
+  // policy was violated (penalty left to the payments/escrow integration).
+  @Column({ type: 'uuid', nullable: true })
+  cancelledBy: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  cancellationReason: string | null;
+
+  @Column({ type: 'boolean', default: false })
+  cancellationPenaltyApplied: boolean;
+
+  // #1363: set once the reminder placeholder has fired for this session.
+  @Column({ type: 'timestamp', nullable: true })
+  reminderSentAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 
