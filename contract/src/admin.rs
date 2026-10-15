@@ -1,143 +1,66 @@
-use soroban_sdk::{contracttype, symbol_short, Address, Env};
+use soroban_sdk::{Address, Env};
 
 use crate::errors::ContractError;
 use crate::events;
 use crate::storage;
 
-/// Default dispute resolution window, in ledgers (~1 hour on Stellar),
-/// used until an admin configures a different value.
-const DEFAULT_DISPUTE_WINDOW: u32 = 1000;
-
-/// Storage keys owned by this module.
+/// The `only_once` guard — the contract's take on an `only_once` modifier.
 ///
-/// The dispute window has no accessor in `storage` yet, so it keeps its key
-/// local rather than widening that module's `DataKey` enum. This mirrors how
-/// `dispute` and `session` each own a private key type.
-#[contracttype]
-#[derive(Clone)]
-enum ConfigKey {
-    DisputeWindow,
-}
-
-/// Assert that `caller` is the stored admin and that they authorized this
-/// call, returning the admin address so callers can reuse it.
-///
-/// This is the single admin guard for the whole contract: `admin`, `fee`,
-/// `upgrade`, `oracle` and `token` all route through it, so a new
-/// admin-only entry point cannot accidentally invent its own notion of who
-/// the admin is, or forget the `require_auth` check that turns a stored
-/// address into an authenticated one.
-pub fn require_admin(env: &Env, caller: &Address) -> Result<Address, ContractError> {
-    if !storage::is_initialized(env) {
-        return Err(ContractError::NotInitialized);
+/// Runs before any state is written: the first call proceeds, every later
+/// call reverts with [`ContractError::AlreadyInitialized`] *before* touching
+/// storage, so a re-initialization can never overwrite the original admin
+/// or treasury.
+fn only_once(env: &Env) -> Result<(), ContractError> {
+    if storage::is_initialized(env) {
+        return Err(ContractError::AlreadyInitialized);
     }
-
-    let admin = storage::get_admin(env).ok_or(ContractError::NotInitialized)?;
-    if caller != &admin {
-        return Err(ContractError::NotAdmin);
-    }
-
-    caller.require_auth();
-    Ok(admin)
+    Ok(())
 }
 
 /// Initialize the contract state.
 ///
-/// This function is protected by an "only_once" pattern: it checks whether
-/// the `Initialized` flag is already set in persistent storage. If it is,
-/// the call reverts with `ContractError::AlreadyInitialized`.
+/// Callable exactly once, by the deployer: `admin.require_auth()` means the
+/// address claiming the admin role must have signed the invocation, so an
+/// arbitrary third party cannot initialize the contract with itself as admin.
 ///
 /// On success:
-/// - Stores `admin` and `treasury` in persistent instance storage.
-/// - Sets the `Initialized` flag.
-/// - Emits an `Initialized` event carrying both addresses.
-pub fn initialize(env: &Env, admin: Address, treasury: Address) -> Result<(), ContractError> {
-    // ── Only-once guard ─────────────────────────────────────────────────
-    if storage::is_initialized(env) {
-        return Err(ContractError::AlreadyInitialized);
-    }
+/// - Stores `admin` and `treasury` in instance storage.
+/// - Sets the `Initialized` flag (the only-once latch).
+/// - Emits `Initialized(admin, treasury)`.
+///
+/// # Errors
+/// - [`ContractError::AlreadyInitialized`] — any call after the first.
+pub fn initialize(
+    env: &Env,
+    admin: Address,
+    treasury: Address,
+) -> Result<(), ContractError> {
+    // ── only_once modifier ──────────────────────────────────────────────
+    only_once(env)?;
 
-    // ── Require deployer authorization ──────────────────────────────────
-    // The admin must sign the transaction that calls initialize,
-    // preventing arbitrary actors from claiming the admin role.
+    // ── deployer authorization ──────────────────────────────────────────
     admin.require_auth();
 
-    // ── Persist state ───────────────────────────────────────────────────
+    // ── persistent state ────────────────────────────────────────────────
     storage::set_admin(env, &admin);
     storage::set_treasury(env, &treasury);
     storage::set_initialized(env);
 
-    // ── Emit event ──────────────────────────────────────────────────────
+    // ── event ───────────────────────────────────────────────────────────
     events::emit_initialized(env, &admin, &treasury);
 
     Ok(())
 }
 
-/// Update the treasury wallet that receives platform fees (admin only).
+/// Read the stored admin, failing when the contract is not initialized.
 ///
-/// `new_treasury` is a `soroban_sdk::Address`, so it is guaranteed by the
-/// SDK to be a valid contract address; no extra validation is needed.
-///
-/// # Events
-/// Emits `TreasuryUpdated` with the new treasury address.
-///
-/// # Errors
-/// - [`ContractError::NotInitialized`] if the contract is not initialized.
-/// - [`ContractError::NotAdmin`] if `caller` is not the admin.
-pub fn set_treasury(
-    env: &Env,
-    caller: Address,
-    new_treasury: Address,
-) -> Result<(), ContractError> {
-    require_admin(env, &caller)?;
-
-    storage::set_treasury(env, &new_treasury);
-    env.events()
-        .publish((symbol_short!("treasury"), new_treasury), ());
-
-    Ok(())
+/// The entry point future admin-gated functions build on: one place decides
+/// what "the contract is live" means.
+pub fn require_admin(env: &Env) -> Result<Address, ContractError> {
+    storage::get_admin(env).ok_or(ContractError::NotInitialized)
 }
 
-/// Return the treasury wallet that receives platform fees.
-///
-/// `None` until [`initialize`] has run.
-pub fn get_treasury(env: &Env) -> Option<Address> {
-    storage::get_treasury(env)
-}
-
-/// Set the dispute resolution window, in ledgers (admin only).
-///
-/// The window is the number of ledgers after a session is marked complete
-/// during which a dispute can still be opened.
-///
-/// # Events
-/// Emits `DisputeWindowUpdated` with the new window.
-///
-/// # Errors
-/// - [`ContractError::NotInitialized`] if the contract is not initialized.
-/// - [`ContractError::NotAdmin`] if `caller` is not the admin.
-pub fn set_dispute_window(
-    env: &Env,
-    caller: Address,
-    window_ledgers: u32,
-) -> Result<(), ContractError> {
-    require_admin(env, &caller)?;
-
-    env.storage()
-        .instance()
-        .set(&ConfigKey::DisputeWindow, &window_ledgers);
-    env.events()
-        .publish((symbol_short!("disp_win"), window_ledgers), ());
-
-    Ok(())
-}
-
-/// Return the dispute resolution window in ledgers.
-///
-/// Falls back to [`DEFAULT_DISPUTE_WINDOW`] before an admin sets one.
-pub fn get_dispute_window(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get::<ConfigKey, u32>(&ConfigKey::DisputeWindow)
-        .unwrap_or(DEFAULT_DISPUTE_WINDOW)
+/// Read the stored treasury, failing when the contract is not initialized.
+pub fn require_treasury(env: &Env) -> Result<Address, ContractError> {
+    storage::get_treasury(env).ok_or(ContractError::NotInitialized)
 }
