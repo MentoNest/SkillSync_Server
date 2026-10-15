@@ -1,69 +1,47 @@
-use soroban_sdk::{contracttype, Address};
+use soroban_sdk::{contracttype, Address, Env};
 
-/// Persistent storage keys for the contract.
+/// Persistent contract state keys.
 ///
-/// Using `contracttype` ensures the keys are serialized consistently
-/// in the ledger and avoids raw string collisions.
+/// Values live in *instance* storage: they are contract-wide configuration
+/// (one admin, one treasury, one initialized flag) rather than per-key
+/// records, and instance storage is the cheap, TTL-extending home for that.
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
-    /// Whether the contract has been initialized (bool).
+    /// `bool` — set once by `initialize`, never cleared.
     Initialized,
-    /// The admin address.
+    /// `Address` — the governing admin.
     Admin,
-    /// The treasury address.
+    /// `Address` — the fee-receiving treasury.
     Treasury,
-    /// The current platform fee in basis points (u32).
-    PlatformFeeBps,
 }
 
-/// Typed wrappers around raw storage to keep business logic clean.
-use soroban_sdk::Env;
-
+/// Whether `initialize` has already run.
 pub fn is_initialized(env: &Env) -> bool {
-    env.storage()
-        .instance()
-        .get::<DataKey, bool>(&DataKey::Initialized)
-        .unwrap_or(false)
+    env.storage().instance().has(&DataKey::Initialized)
 }
 
+/// Flip the only-once flag. Called exclusively by `initialize`.
 pub fn set_initialized(env: &Env) {
-    env.storage()
-        .instance()
-        .set(&DataKey::Initialized, &true);
+    env.storage().instance().set(&DataKey::Initialized, &true);
 }
 
-pub fn get_admin(env: &Env) -> Option<Address> {
-    env.storage()
-        .instance()
-        .get::<DataKey, Address>(&DataKey::Admin)
-}
-
+/// Store the admin address (persistent for the contract's lifetime).
 pub fn set_admin(env: &Env, admin: &Address) {
     env.storage().instance().set(&DataKey::Admin, admin);
 }
 
-pub fn get_treasury(env: &Env) -> Option<Address> {
-    env.storage()
-        .instance()
-        .get::<DataKey, Address>(&DataKey::Treasury)
+/// Read the stored admin, or `None` when the contract is uninitialized.
+pub fn get_admin(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::Admin)
 }
 
+/// Store the treasury address.
 pub fn set_treasury(env: &Env, treasury: &Address) {
-    env.storage()
-        .instance()
-        .set(&DataKey::Treasury, treasury);
+    env.storage().instance().set(&DataKey::Treasury, treasury);
 }
 
-pub fn get_platform_fee_bps(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get::<DataKey, u32>(&DataKey::PlatformFeeBps)
-        .unwrap_or(0)
-}
-
-pub fn set_platform_fee_bps(env: &Env, fee_bps: u32) {
-    env.storage()
-        .instance()
-        .set(&DataKey::PlatformFeeBps, &fee_bps);
+/// Read the stored treasury, or `None` when the contract is uninitialized.
+pub fn get_treasury(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::Treasury)
 }
