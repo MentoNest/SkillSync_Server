@@ -1,10 +1,15 @@
 import { registerAs } from '@nestjs/config';
 
 /**
- * Feature flags configuration.
- * Enables gradual rollout of new capabilities per environment.
+ * Feature flag configuration (#1420).
+ *
+ * Flags are plain booleans read from the environment so a rollout can be
+ * enabled or disabled per deployment without a code change. The Joi schema in
+ * `env.validation.ts` keeps `FEATURE_FLAG_*` to real booleans.
  */
+const flag = (name: string): boolean => process.env[name] === 'true';
+
 export const featureFlagsConfig = registerAs('featureFlags', () => ({
-  newMatching: process.env.FEATURE_FLAG_NEW_MATCHING === 'true',
-  aiRecommendations: process.env.FEATURE_FLAG_AI_RECOMMENDATIONS === 'true',
+  newMatching: flag('FEATURE_FLAG_NEW_MATCHING'),
+  aiRecommendations: flag('FEATURE_FLAG_AI_RECOMMENDATIONS'),
 }));

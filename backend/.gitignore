@@ -1,29 +1,9 @@
-# Dependencies
 node_modules/
-
-# Build output
 dist/
-
-# Environment variables — never commit real secrets
-.env
-.env.local
-.env.*.local
-
-# Logs
+coverage/
 *.log
-npm-debug.log*
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# IDE
-.idea/
-.vscode/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-
-# TypeScript incremental build
+.env
+.env.*
+!.env.example
 *.tsbuildinfo
+.DS_Store
