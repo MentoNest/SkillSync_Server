@@ -1,6 +1,7 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinTable, ManyToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Role } from '../../rbac/entities/role.entity';
 
-/** Minimal account record needed by wallet auth; profile fields live in the users PR. */
+/** Minimal account record needed for RBAC; profile fields live in the users PR. */
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn('uuid')
@@ -13,8 +14,13 @@ export class User {
   @Column({ type: 'int', default: 0 })
   tokenVersion!: number;
 
-  @Column({ type: 'timestamptz', nullable: true })
-  lastLoginAt!: Date | null;
+  @ManyToMany(() => Role, (r) => r.users)
+  @JoinTable({
+    name: 'user_roles',
+    joinColumn: { name: 'user_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'role_id', referencedColumnName: 'id' },
+  })
+  roles!: Role[];
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
