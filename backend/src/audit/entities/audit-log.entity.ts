@@ -7,6 +7,9 @@ export enum AuditEvent {
   TOKEN_REFRESHED = 'token_refreshed',
   LOGOUT = 'logout',
   ROLE_CHANGED = 'role_changed',
+  AVATAR_UPDATED = 'avatar_updated',
+  PORTFOLIO_LINK_ADDED = 'portfolio_link_added',
+  PORTFOLIO_LINK_REMOVED = 'portfolio_link_removed',
 }
 
 @Entity('audit_logs')

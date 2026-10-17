@@ -14,6 +14,18 @@ export class User {
   @Column({ type: 'int', default: 0 })
   tokenVersion!: number;
 
+  @Column({ name: 'avatarUrl', type: 'varchar', length: 2048, nullable: true })
+  avatarUrl!: string | null;
+
+  @Column({ name: 'avatarThumbnailUrl', type: 'varchar', length: 2048, nullable: true })
+  avatarThumbnailUrl!: string | null;
+
+  @Column({ name: 'avatarSmallUrl', type: 'varchar', length: 2048, nullable: true })
+  avatarSmallUrl!: string | null;
+
+  @Column({ name: 'avatarMediumUrl', type: 'varchar', length: 2048, nullable: true })
+  avatarMediumUrl!: string | null;
+
   @ManyToMany(() => Role, (r) => r.users)
   @JoinTable({
     name: 'user_roles',
