@@ -14,6 +14,10 @@ export class User {
   @Column({ type: 'int', default: 0 })
   tokenVersion!: number;
 
+  /** IANA timezone name (e.g. 'America/New_York'); used to render date/time responses. */
+  @Column({ type: 'varchar', length: 64, default: 'UTC' })
+  timezone!: string;
+
   @ManyToMany(() => Role, (r) => r.users)
   @JoinTable({
     name: 'user_roles',
