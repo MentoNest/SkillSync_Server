@@ -12,6 +12,7 @@ export function buildDataSourceOptions(env: Record<string, string | undefined>):
     type: 'postgres' as const,
     entities: [join(__dirname, '..', '**', '*.entity.{ts,js}')],
     migrations: [join(__dirname, '..', 'migrations', '*.{ts,js}')],
+    subscribers: [join(__dirname, '..', '**', '*.subscriber.{ts,js}')],
     synchronize: false,
     ssl: env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
   };

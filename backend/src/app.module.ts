@@ -3,19 +3,29 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AuditModule } from './audit/audit.module';
 import { AuthGuardsModule } from './auth/guards/auth-guards.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { SecurityModule } from './auth/security/security.module';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
+import { RbacModule } from './rbac/rbac.module';
 import { RedisModule } from './redis/redis.module';
+import { ProfileHistoryModule } from './users/profile-history/profile-history.module';
+import { UserAccountModule } from './users/user-account/user-account.module';
+import { UserSearchModule } from './users/user-search/user-search.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     RedisModule,
+    AuditModule,
     AuthGuardsModule,
     RateLimitModule,
     SecurityModule,
+    RbacModule,
+    UserAccountModule,
+    UserSearchModule,
+    ProfileHistoryModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
