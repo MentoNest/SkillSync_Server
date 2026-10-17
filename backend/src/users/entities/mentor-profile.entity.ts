@@ -94,6 +94,11 @@ export class MentorProfile {
   @Column({ name: 'review_count', type: 'int', default: 0 })
   reviewCount!: number;
 
+  /** Mirrors the owning user's soft-delete state. */
+  @Index('IDX_mentor_profiles_deleted_at')
+  @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt!: Date | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

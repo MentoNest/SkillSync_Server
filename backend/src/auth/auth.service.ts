@@ -1,7 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User } from '../users/entities/user.entity';
+import { User, UserStatus } from '../users/entities/user.entity';
 import { LoginDto } from './dto/auth.dto';
 import { NonceService } from './nonce.service';
 import { DeviceInfo, RefreshTokenService, TokenPair } from './refresh-token.service';
@@ -28,6 +28,11 @@ export class AuthService {
 
     let user = await this.users.findOne({ where: { walletAddress: wallet } });
     if (!user) user = await this.users.save(this.users.create({ walletAddress: wallet }));
+    if (user.deletedAt || user.status === UserStatus.DELETED) {
+      throw new ForbiddenException(
+        'This account has been deleted. Reactivate it via POST /user/account/restore within the grace period.',
+      );
+    }
     user.lastLoginAt = new Date();
     await this.users.save(user);
     return this.refresh.issuePair(user, device);
