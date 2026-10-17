@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from '../users/entities/user.entity';
+import { SuspensionModule } from '../users/suspension/suspension.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { RefreshToken } from './entities/refresh-token.entity';
@@ -14,6 +15,7 @@ import { TokenService } from './token.service';
 @Module({
   imports: [
     TypeOrmModule.forFeature([User, RefreshToken]),
+    SuspensionModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (c: ConfigService) => ({
