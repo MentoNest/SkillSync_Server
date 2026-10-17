@@ -94,6 +94,9 @@ export class MentorProfile {
   @Column({ name: 'review_count', type: 'int', default: 0 })
   reviewCount!: number;
 
+  @Column({ name: 'profile_version', type: 'int', default: 1 })
+  profileVersion!: number;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 
