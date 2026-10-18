@@ -10,6 +10,8 @@ export enum VerificationRequestStatus {
 @Entity('mentor_verification_requests')
 @Index('IDX_mentor_verification_requests_mentor_id', ['mentorId'])
 @Index('IDX_mentor_verification_requests_status', ['status'])
+// Admin review queue: pending requests, oldest first (#1463).
+@Index('IDX_mentor_verification_requests_status_created', ['status', 'createdAt'])
 export class MentorVerificationRequest {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

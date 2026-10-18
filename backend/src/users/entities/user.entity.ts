@@ -15,6 +15,12 @@ import { UserStatus } from '../user-status/user-status.enum';
 @Entity('users')
 @Index('IDX_users_deleted_at', ['deletedAt'])
 @Index('IDX_users_display_name', ['displayName'])
+// Auth lookup: resolve a wallet then read its status in one hop (#1463).
+@Index('IDX_users_wallet_address_status', ['walletAddress', 'status'])
+// Directory listing: filter by status, newest first (#1463). The `role`
+// predicate from the issue lives in `user_roles`, which is indexed separately
+// because a role is a many-to-many and cannot be part of a `users` index.
+@Index('IDX_users_status_created_at', ['status', 'createdAt'])
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

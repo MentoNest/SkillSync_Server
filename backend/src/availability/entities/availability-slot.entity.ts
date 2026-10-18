@@ -3,6 +3,8 @@ import { Check, Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn,
 /** A weekly recurring availability window for a mentor. Times are wall-clock in `timezone`. */
 @Entity('availability_slots')
 @Index('IDX_availability_slots_mentor_id', ['mentorId'])
+// Availability lookup: "every slot for this mentor on this weekday" (#1463).
+@Index('IDX_availability_slots_mentor_day', ['mentorId', 'dayOfWeek'])
 @Check('CHK_availability_slots_day_of_week', '"day_of_week" >= 0 AND "day_of_week" <= 6')
 export class AvailabilitySlot {
   @PrimaryGeneratedColumn('uuid')
