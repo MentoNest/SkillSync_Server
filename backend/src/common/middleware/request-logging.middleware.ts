@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { redactSensitiveData } from '../utils/redact.util';
+import { isSafeRequestId, runWithRequestContext } from '../request-context/request-context';
 
 const logger = new Logger('HTTP');
 
@@ -23,7 +24,9 @@ export interface RequestWithLoggingContext extends Request {
 
 export function requestLoggingMiddleware(req: Request, res: Response, next: NextFunction): void {
   const typedReq = req as RequestWithLoggingContext;
-  const requestId = (typedReq.headers['x-request-id'] as string | undefined) || randomUUID();
+  // Reuse a client/proxy id only when it is well-formed; otherwise mint one.
+  const incoming = typedReq.headers['x-request-id'];
+  const requestId = isSafeRequestId(incoming) ? incoming : randomUUID();
   typedReq.requestId = requestId;
   res.setHeader('X-Request-Id', requestId);
 
@@ -73,5 +76,6 @@ export function requestLoggingMiddleware(req: Request, res: Response, next: Next
     }
   });
 
-  next();
+  // Everything downstream (handlers, loggers, DB calls) sees the request id.
+  runWithRequestContext({ requestId }, () => next());
 }
