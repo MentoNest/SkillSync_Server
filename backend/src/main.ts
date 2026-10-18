@@ -5,12 +5,25 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { buildCorsOptions } from './config/cors.config';
-import { configureApiVersioning } from './common/versioning/versioning';
+import { requestLoggingMiddleware } from './common/middleware/request-logging.middleware';
+import {
+  DEFAULT_SHUTDOWN_TIMEOUT_MS,
+  registerGracefulShutdown,
+  rejectDuringShutdown,
+} from './shutdown/graceful-shutdown';
+import { ShutdownService } from './shutdown/shutdown.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
+
+  // #1480 - request id on every request (header, logs, DB comments)
+  app.use(requestLoggingMiddleware);
+
+  // #1483 - refuse new requests once shutdown has begun
+  const shutdown = app.get(ShutdownService);
+  app.use(rejectDuringShutdown(shutdown));
   const isProd = (config.get<string>('NODE_ENV') ?? process.env.NODE_ENV) === 'production';
 
   // #1469 — Trust proxy when behind Nginx / Cloudflare
@@ -97,6 +110,14 @@ async function bootstrap() {
 
   const port = config.get<number>('PORT') ?? 3000;
   await app.listen(port);
+
+  // #1483 - SIGTERM/SIGINT: drain in-flight requests, close DB/Redis, exit
+  app.enableShutdownHooks();
+  registerGracefulShutdown({
+    app,
+    shutdown,
+    timeoutMs: Number(config.get<string>('SHUTDOWN_TIMEOUT_MS') ?? DEFAULT_SHUTDOWN_TIMEOUT_MS),
+  });
   logger.log(`SkillSync API listening on :${port} (NODE_ENV=${config.get('NODE_ENV') ?? 'development'})`);
 }
 

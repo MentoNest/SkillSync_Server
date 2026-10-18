@@ -20,9 +20,9 @@ import { MetricsModule } from './metrics/metrics.module';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { RbacModule } from './rbac/rbac.module';
 import { RedisModule } from './redis/redis.module';
-import { AdminApiModule } from './admin/admin.module';
-import { NotificationsModule } from './notifications/notifications.module';
-import { SessionsModule } from './sessions/sessions.module';
+import { ShutdownModule } from './shutdown/shutdown.module';
+import { EncryptionModule } from './security/encryption/encryption.module';
+import { BackupModule } from './backup/backup.module';
 import { DemoSeedModule } from './seed/demo-seed.module';
 import { AvatarModule } from './users/avatar/avatar.module';
 import { FeaturedMentorModule } from './users/mentor-profile/featured-mentor.module';
@@ -36,9 +36,9 @@ import { PortfolioLinksModule } from './users/portfolio-links/portfolio-links.mo
     }),
     MetricsModule,
     RedisModule,
-    SessionsModule,
-    NotificationsModule,
-    AdminApiModule,
+    ShutdownModule,
+    EncryptionModule,
+    BackupModule,
     AuditModule,
     AuthGuardsModule,
     RateLimitModule,

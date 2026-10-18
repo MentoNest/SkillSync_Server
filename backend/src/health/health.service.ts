@@ -4,6 +4,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import type Redis from 'ioredis';
 import type { DataSource } from 'typeorm';
 import { REDIS } from '../redis/redis.module';
+import { ShutdownService } from '../shutdown/shutdown.service';
 
 export type ComponentStatus = 'up' | 'down' | 'skipped';
 
@@ -14,7 +15,7 @@ export interface ComponentHealth {
 }
 
 export interface HealthReport {
-  status: 'ok' | 'degraded' | 'error';
+  status: 'ok' | 'degraded' | 'error' | 'shutting_down';
   uptimeSeconds: number;
   timestamp: string;
   components: {
@@ -32,9 +33,26 @@ export class HealthService {
     @Optional() @InjectDataSource() private readonly dataSource?: DataSource,
     @Optional() @Inject(REDIS) private readonly redis?: Redis,
     @Optional() private readonly config?: ConfigService,
+    @Optional() private readonly shutdown?: ShutdownService,
   ) {}
 
   async check(): Promise<{ report: HealthReport; httpStatus: number }> {
+    // Readiness probes must fail as soon as shutdown begins so traffic drains.
+    if (this.shutdown?.isShuttingDown()) {
+      return {
+        report: {
+          status: 'shutting_down',
+          uptimeSeconds: Math.floor((Date.now() - this.startedAt) / 1000),
+          timestamp: new Date().toISOString(),
+          components: {
+            database: { status: 'skipped' },
+            redis: { status: 'skipped' },
+            memory: { status: 'skipped' },
+          },
+        },
+        httpStatus: 503,
+      };
+    }
     const [database, redis] = await Promise.all([
       this.checkDatabase(),
       this.checkRedis(),
