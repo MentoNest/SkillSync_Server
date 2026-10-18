@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
-import { AuditService } from '../audit/audit.service';
-import { AuditEvent } from '../audit/entities/audit-log.entity';
-import { UsersService } from '../users/users.service';
-import { LoginDto } from './dto/login.dto';
+import { ForbiddenException, Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { User, UserStatus } from '../users/entities/user.entity';
+import { LoginDto } from './dto/auth.dto';
+import { NonceService } from './nonce.service';
 import { DeviceInfo, RefreshTokenService, TokenPair } from './refresh-token.service';
 import { NonceService } from './nonce.service';
 import { SignatureService } from './signature.service';
@@ -38,17 +39,16 @@ export class AuthService {
       throw err;
     }
 
-    const user = await this.users.findOrCreateByWallet({ walletAddress: wallet });
-    await this.users.recordLogin(user.id);
-    const pair = await this.refresh.issuePair(user, device);
-    await this.audit.record({
-      event: AuditEvent.LOGIN_SUCCESS,
-      userId: user.id,
-      walletAddress: wallet,
-      ipAddress: device.ipAddress ?? null,
-      userAgent: device.userAgent ?? null,
-    });
-    return pair;
+    let user = await this.users.findOne({ where: { walletAddress: wallet } });
+    if (!user) user = await this.users.save(this.users.create({ walletAddress: wallet }));
+    if (user.deletedAt || user.status === UserStatus.DELETED) {
+      throw new ForbiddenException(
+        'This account has been deleted. Reactivate it via POST /user/account/restore within the grace period.',
+      );
+    }
+    user.lastLoginAt = new Date();
+    await this.users.save(user);
+    return this.refresh.issuePair(user, device);
   }
 
   refreshTokens(refreshToken: string, device: DeviceInfo): Promise<TokenPair> {
