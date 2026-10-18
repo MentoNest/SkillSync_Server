@@ -20,7 +20,8 @@ export enum UserStatus {
   DELETED = 'deleted',
 }
 
-/** Minimal account record needed for RBAC; profile fields live in the users PR. */
+export type UserStatus = 'active' | 'pending' | 'suspended' | 'deleted';
+
 @Entity('users')
 @Index('IDX_users_deleted_at', ['deletedAt'])
 @Index('IDX_users_display_name', ['displayName'])
@@ -28,7 +29,7 @@ export class User {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Index({ unique: true })
+  @Index('IDX_users_wallet_address', { unique: true })
   @Column({ type: 'varchar', length: 56 })
   walletAddress!: string;
 
@@ -76,4 +77,7 @@ export class User {
 
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
+
+  @DeleteDateColumn({ type: 'timestamptz', nullable: true })
+  deletedAt!: Date | null;
 }
