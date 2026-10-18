@@ -1,8 +1,8 @@
 import { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
-/** Mounts the OpenAPI UI at /api/docs and the JSON spec at /api/docs-json. */
-export function setupSwagger(app: INestApplication): void {
+/** Builds the OpenAPI document (also used by the contract-testing scripts). */
+export function createOpenApiDocument(app: INestApplication) {
   const config = new DocumentBuilder()
     .setTitle('SkillSync API')
     .setDescription(
@@ -13,6 +13,11 @@ export function setupSwagger(app: INestApplication): void {
     .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })
     .addTag('Auth', 'Nonce, login, refresh, logout and session management')
     .build();
-  const document = SwaggerModule.createDocument(app, config);
+  return SwaggerModule.createDocument(app, config);
+}
+
+/** Mounts the OpenAPI UI at /api/docs and the JSON spec at /api/docs-json. */
+export function setupSwagger(app: INestApplication): void {
+  const document = createOpenApiDocument(app);
   SwaggerModule.setup('api/docs', app, document, { jsonDocumentUrl: 'api/docs-json' });
 }

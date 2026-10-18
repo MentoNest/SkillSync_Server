@@ -74,5 +74,18 @@ jobs:
       - name: Production build
         run: npm run build
 
+      # Contract testing (#1484): regenerate the OpenAPI document and fail the
+      # PR when it breaks compatibility with the base branch's copy.
+      - name: OpenAPI breaking-change check
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --depth=1 origin "${{ github.base_ref }}"
+          if git show "origin/${{ github.base_ref }}:backend/docs/openapi.json" > /tmp/openapi.base.json 2>/dev/null; then
+            npm run openapi:generate -- /tmp/openapi.head.json
+            npm run openapi:check -- /tmp/openapi.base.json /tmp/openapi.head.json
+          else
+            echo "No docs/openapi.json on the base branch yet; skipping."
+          fi
+
       - name: Security audit
         run: npm audit --audit-level=high

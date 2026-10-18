@@ -21,6 +21,9 @@
     "typeorm": "typeorm-ts-node-commonjs -d src/data-source.ts",
     "migration:run": "npm run typeorm -- migration:run",
     "migration:revert": "npm run typeorm -- migration:revert",
+    "openapi:generate": "ts-node -r tsconfig-paths/register scripts/generate-openapi.ts",
+    "openapi:check": "ts-node -r tsconfig-paths/register scripts/check-openapi-breaking.ts",
+    "client:generate": "bash scripts/generate-api-client.sh",
     "seed:demo": "ts-node -r tsconfig-paths/register src/seed/run-demo-seed.ts"
   },
   "dependencies": {
