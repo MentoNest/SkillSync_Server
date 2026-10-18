@@ -30,9 +30,8 @@ export interface JwtPayload {
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
-    private readonly jwt: JwtService,
+    private readonly strategy: JwtStrategy,
     private readonly reflector: Reflector,
-    private readonly config: ConfigService,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {

@@ -1,14 +1,25 @@
-import { Column, CreateDateColumn, Entity, Index, JoinTable, ManyToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  JoinTable,
+  ManyToMany,
+  OneToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 import { Role } from '../../rbac/entities/role.entity';
 import { UserStatus } from '../user-status/user-status.enum';
 
-/** Minimal account record needed for RBAC; profile fields live in the users PR. */
 @Entity('users')
+@Index('IDX_users_deleted_at', ['deletedAt'])
+@Index('IDX_users_display_name', ['displayName'])
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Index({ unique: true })
+  @Index('IDX_users_wallet_address', { unique: true })
   @Column({ type: 'varchar', length: 56 })
   walletAddress!: string;
 
@@ -34,6 +45,18 @@ export class User {
   @Column({ type: 'int', default: 0 })
   tokenVersion!: number;
 
+  @Column({ name: 'displayName', type: 'varchar', length: 100, nullable: true })
+  displayName!: string | null;
+
+  @Column({ name: 'avatarUrl', type: 'varchar', length: 2048, nullable: true })
+  avatarUrl!: string | null;
+
+  @OneToOne(() => MentorProfile, (p) => p.user)
+  mentorProfile?: MentorProfile;
+
+  @OneToOne(() => MenteeProfile, (p) => p.user)
+  menteeProfile?: MenteeProfile;
+
   @ManyToMany(() => Role, (r) => r.users)
   @JoinTable({
     name: 'user_roles',
@@ -42,9 +65,15 @@ export class User {
   })
   roles!: Role[];
 
+  @OneToOne(() => MentorProfile, (profile) => profile.user)
+  mentorProfile?: MentorProfile;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
+
+  @DeleteDateColumn({ type: 'timestamptz', nullable: true })
+  deletedAt!: Date | null;
 }
