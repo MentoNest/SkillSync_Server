@@ -6,8 +6,7 @@ mod events;
 mod payments;
 mod storage;
 mod types;
-mod sessions;
-mod upgrade;
+mod lifecycle;
 
 #[cfg(test)]
 mod test_utils;
