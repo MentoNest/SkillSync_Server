@@ -10,22 +10,18 @@ import { SecurityModule } from './auth/security/security.module';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { RbacModule } from './rbac/rbac.module';
 import { RedisModule } from './redis/redis.module';
-import { ProfileHistoryModule } from './users/profile-history/profile-history.module';
-import { UserAccountModule } from './users/user-account/user-account.module';
-import { UserSearchModule } from './users/user-search/user-search.module';
+import { ProfileModule } from './users/profile/profile.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     RedisModule,
     AuditModule,
+    RbacModule,
     AuthGuardsModule,
     RateLimitModule,
     SecurityModule,
-    RbacModule,
-    UserAccountModule,
-    UserSearchModule,
-    ProfileHistoryModule,
+    ProfileModule,
   ],
   controllers: [AppController],
   providers: [

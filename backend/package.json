@@ -28,7 +28,6 @@
     "@nestjs/core": "^11.0.1",
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/platform-express": "^11.0.1",
-    "@nestjs/schedule": "^5.0.1",
     "@nestjs/swagger": "^11.0.0",
     "@nestjs/typeorm": "^11.0.0",
     "@stellar/stellar-sdk": "^13.1.0",

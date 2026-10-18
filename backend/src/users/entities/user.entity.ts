@@ -10,17 +10,8 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Role } from '../../rbac/entities/role.entity';
+import { MenteeProfile } from './mentee-profile.entity';
 import { MentorProfile } from './mentor-profile.entity';
-
-/** Lifecycle states understood by the soft-delete / reactivation flow. */
-export enum UserStatus {
-  ACTIVE = 'active',
-  PENDING = 'pending',
-  SUSPENDED = 'suspended',
-  DELETED = 'deleted',
-}
-
-export type UserStatus = 'active' | 'pending' | 'suspended' | 'deleted';
 
 @Entity('users')
 @Index('IDX_users_deleted_at', ['deletedAt'])
@@ -57,9 +48,17 @@ export class User {
   @Column({ type: 'int', default: 0 })
   tokenVersion!: number;
 
-  /** Set when the account is soft-deleted; NULL means the account is active. */
-  @Column({ type: 'timestamptz', nullable: true })
-  deletedAt!: Date | null;
+  @Column({ name: 'displayName', type: 'varchar', length: 100, nullable: true })
+  displayName!: string | null;
+
+  @Column({ name: 'avatarUrl', type: 'varchar', length: 2048, nullable: true })
+  avatarUrl!: string | null;
+
+  @OneToOne(() => MentorProfile, (p) => p.user)
+  mentorProfile?: MentorProfile;
+
+  @OneToOne(() => MenteeProfile, (p) => p.user)
+  menteeProfile?: MenteeProfile;
 
   @ManyToMany(() => Role, (r) => r.users)
   @JoinTable({
