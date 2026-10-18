@@ -10,6 +10,9 @@ export enum AuditEvent {
   AVATAR_UPDATED = 'avatar_updated',
   PORTFOLIO_LINK_ADDED = 'portfolio_link_added',
   PORTFOLIO_LINK_REMOVED = 'portfolio_link_removed',
+  MENTOR_FEATURED = 'mentor_featured',
+  MENTOR_UNFEATURED = 'mentor_unfeatured',
+  MENTOR_FEATURE_REORDERED = 'mentor_feature_reordered',
 }
 
 @Entity('audit_logs')
