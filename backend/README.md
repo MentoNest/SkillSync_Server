@@ -96,3 +96,59 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+## Security headers & CORS (#1470, #1471)
+
+Helmet is applied globally in `src/main.ts` (CSP, `X-Frame-Options: DENY`,
+`X-Content-Type-Options: nosniff`, XSS filter, HSTS in production, no `X-Powered-By`).
+
+CORS is driven by `CORS_ORIGINS` (comma-separated). In non-production,
+`http://localhost:3000` and `http://localhost:5173` are always allowed.
+Credentials are enabled; preflight responds with 204.
+
+## Health check (#1472)
+
+`GET /health` is public (no JWT). It runs `SELECT 1` against Postgres and
+`PING` against Redis. Response shape:
+
+```json
+{
+  "status": "ok",
+  "uptimeSeconds": 12,
+  "timestamp": "2026-10-18T00:00:00.000Z",
+  "components": {
+    "database": { "status": "up", "latencyMs": 2 },
+    "redis": { "status": "up", "latencyMs": 1 },
+    "memory": { "status": "up", "message": "heap 40/64 MB" }
+  }
+}
+```
+
+Returns **503** if database or redis is down. Point Kubernetes probes here:
+
+```yaml
+livenessProbe:
+  httpGet: { path: /health, port: 3000 }
+readinessProbe:
+  httpGet: { path: /health, port: 3000 }
+```
+
+## Demo data seed (#1474)
+
+```bash
+# one-off
+npm run seed:demo
+
+# or auto-run on boot
+SEED_DEMO_DATA=true npm run start:dev
+```
+
+Creates **5 mentors** and **5 mentees** with deterministic wallets. Usernames
+look like emails for easy recognition:
+
+| Username | Role | Wallet (prefix) |
+|----------|------|-----------------|
+| `demo_mentor_1@example.com` … `_5@` | mentor | `GDEMO…0001`–`0005` |
+| `demo_mentee_1@example.com` … `_5@` | mentee | `GDEMO…0011`–`0015` |
+
+Idempotent and non-destructive: only demo wallets are upserted.
