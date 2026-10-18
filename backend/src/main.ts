@@ -5,6 +5,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { buildCorsOptions } from './config/cors.config';
+import { configureApiVersioning } from './common/versioning/versioning';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -64,6 +65,9 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  // #1479 — /api/v1/... URI versioning
+  configureApiVersioning(app);
 
   // #1469 — Swagger only outside production (or when explicitly enabled)
   const swaggerEnabled =
