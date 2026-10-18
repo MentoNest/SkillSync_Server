@@ -29,23 +29,27 @@ export class RateLimitGuard implements CanActivate {
   constructor(
     @Inject(REDIS) private readonly redis: Redis,
     private readonly reflector: Reflector,
-    config: ConfigService,
+    private readonly config: ConfigService,
   ) {
     this.defaults = {
-      limit: parseInt(config.get<string>('RATE_LIMIT_DEFAULT') ?? '100', 10),
-      ttl: parseInt(config.get<string>('RATE_LIMIT_WINDOW_SECONDS') ?? '60', 10),
+      limit: parseInt(
+        this.config.get<string>('RATE_LIMIT_DEFAULT') ??
+          (this.config.get<string>('NODE_ENV') === 'production' ? '50' : '100'),
+        10,
+      ),
+      ttl: parseInt(this.config.get<string>('RATE_LIMIT_WINDOW_SECONDS') ?? '60', 10),
     };
     this.trusted = new Set(
-      (config.get<string>('RATE_LIMIT_TRUSTED_IPS') ?? '')
+      (this.config.get<string>('RATE_LIMIT_TRUSTED_IPS') ?? '')
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
     );
-    this.failOpen = config.get<string>('RATE_LIMIT_FAIL_OPEN') !== 'false';
+    this.failOpen = this.config.get<string>('RATE_LIMIT_FAIL_OPEN') !== 'false';
   }
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
-    const opts =
+    let opts =
       this.reflector.getAllAndOverride<ThrottleOptions>(THROTTLE_KEY, [ctx.getHandler(), ctx.getClass()]) ??
       this.defaults;
     if (opts.limit <= 0) return true;
@@ -56,7 +60,15 @@ export class RateLimitGuard implements CanActivate {
     if (this.trusted.has(ip)) return true;
 
     // Authenticated callers are limited per user, anonymous ones per IP.
+    // #1469 — stricter production defaults: auth 50/min, anon 10/min when env set
+    const isProd = this.config.get<string>('NODE_ENV') === 'production';
+    const authLimit = parseInt(this.config.get<string>('RATE_LIMIT_AUTH_LIMIT') ?? (isProd ? '50' : '100'), 10);
+    const anonLimit = parseInt(this.config.get<string>('RATE_LIMIT_ANON_LIMIT') ?? (isProd ? '10' : '100'), 10);
     const subject = req.user?.sub ? `user:${req.user.sub}` : `ip:${ip}`;
+    const effectiveLimit = req.user?.sub ? authLimit : anonLimit;
+    if (!this.reflector.getAllAndOverride(THROTTLE_KEY, [ctx.getHandler(), ctx.getClass()])) {
+      opts = { ...opts, limit: effectiveLimit };
+    }
     const route = `${req.method}:${req.route?.path ?? req.path}`;
     const windowMs = opts.ttl * 1000;
     const now = Date.now();

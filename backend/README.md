@@ -1,3 +1,5 @@
+[![CI](https://github.com/MentoNest/SkillSync_Server/actions/workflows/ci.yml/badge.svg)](https://github.com/MentoNest/SkillSync_Server/actions/workflows/ci.yml)
+
 <p align="center">
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
 </p>
@@ -152,3 +154,25 @@ look like emails for easy recognition:
 | `demo_mentee_1@example.com` … `_5@` | mentee | `GDEMO…0011`–`0015` |
 
 Idempotent and non-destructive: only demo wallets are upserted.
+
+
+## Docker
+
+See [docs/DOCKER.md](./docs/DOCKER.md). Quick start:
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+## Metrics
+
+Prometheus scrape endpoint: `GET /metrics`. See [docs/METRICS.md](./docs/METRICS.md).
+
+## Production hardening
+
+- Secrets only from environment (`validateEnv` at startup)
+- Helmet, strict CORS (`CORS_ORIGINS`), Swagger disabled when `NODE_ENV=production`
+- Rate limits: 50/min authenticated, 10/min anonymous in production
+- Cookies: `HttpOnly`, `Secure` (prod), `SameSite=Strict`
+- `TRUST_PROXY=true` when behind a reverse proxy
