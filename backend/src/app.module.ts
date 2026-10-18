@@ -19,6 +19,8 @@ import { RbacModule } from './rbac/rbac.module';
 import { RedisModule } from './redis/redis.module';
 import { AvatarModule } from './users/avatar/avatar.module';
 import { FeaturedMentorModule } from './users/mentor-profile/featured-mentor.module';
+import { HealthModule } from './health/health.module';
+import { DemoSeedModule } from './seed/demo-seed.module';
 import { PortfolioLinksModule } from './users/portfolio-links/portfolio-links.module';
 
 @Module({
@@ -36,6 +38,8 @@ import { PortfolioLinksModule } from './users/portfolio-links/portfolio-links.mo
     AvatarModule,
     PortfolioLinksModule,
     FeaturedMentorModule,
+    HealthModule,
+    DemoSeedModule,
     // Standardised pagination (#1461) and the success/error envelope (#1462).
     PaginationModule,
     ResponseEnvelopeModule,
