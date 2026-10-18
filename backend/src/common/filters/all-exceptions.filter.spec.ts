@@ -70,6 +70,7 @@ describe('AllExceptionsFilter', () => {
 
     const body = errorBody(response);
     expect(response.status).toHaveBeenCalledWith(400);
+    expect(body.success).toBe(false);
     expect(body.statusCode).toBe(400);
     expect(body.message).toBe('Bad name');
     expect(body.error).toBe('Bad Request');
@@ -211,5 +212,28 @@ describe('AllExceptionsFilter', () => {
     new AllExceptionsFilter().catch(new HttpException('weird', 418), unknownStatus.host);
     expect(errorBody(unknownStatus.response).code).toBe(ErrorCode.ERROR);
     expect(errorBody(unknownStatus.response).error).toBe('Error');
+  });
+
+  it('marks every error response with success:false so clients can branch on it (#1462)', () => {
+    for (const exception of [
+      new BadRequestException('bad'),
+      new NotFoundException('missing'),
+      new InternalServerErrorException('boom'),
+      'non-error value',
+    ]) {
+      const { host, response } = createHost();
+      new AllExceptionsFilter().catch(exception, host);
+      expect(errorBody(response).success).toBe(false);
+    }
+  });
+
+  it('never leaks an internal message through the envelope in production', () => {
+    process.env.NODE_ENV = 'production';
+    const { host, response } = createHost();
+
+    new AllExceptionsFilter().catch(new Error('postgres://user:hunter2@db'), host);
+
+    expect(JSON.stringify(errorBody(response))).not.toContain('hunter2');
+    expect(errorBody(response).message).toBe('Internal server error');
   });
 });

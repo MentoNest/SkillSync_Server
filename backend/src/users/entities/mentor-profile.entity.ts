@@ -36,6 +36,9 @@ export const MAX_BIO_LENGTH = 1000;
 @Index('IDX_mentor_profiles_user_id', ['userId'], { unique: true })
 @Index('IDX_mentor_profiles_hourly_rate', ['hourlyRate'])
 @Index('IDX_mentor_profiles_average_rating', ['averageRating'])
+// Covers `WHERE is_featured = true ORDER BY featured_order` on the public
+// featured listing (#1459).
+@Index('IDX_mentor_profiles_featured_order', ['isFeatured', 'featuredOrder'])
 @Check('CHK_mentor_profiles_hourly_rate', `"hourly_rate" >= ${MIN_HOURLY_RATE} AND "hourly_rate" <= ${MAX_HOURLY_RATE}`)
 export class MentorProfile {
   @PrimaryGeneratedColumn('uuid')
@@ -112,6 +115,18 @@ export class MentorProfile {
 
   @Column({ name: 'profile_version', type: 'int', default: 1 })
   profileVersion!: number;
+
+  /** Homepage/discovery spotlight (#1459). */
+  @Column({ name: 'is_featured', type: 'boolean', default: false })
+  isFeatured!: boolean;
+
+  /** When the mentor was last featured; drives automatic expiry. */
+  @Column({ name: 'featured_at', type: 'timestamptz', nullable: true })
+  featuredAt!: Date | null;
+
+  /** Manual sort position. Lower sorts first; admins reorder via drag and drop. */
+  @Column({ name: 'featured_order', type: 'int', default: 0 })
+  featuredOrder!: number;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
