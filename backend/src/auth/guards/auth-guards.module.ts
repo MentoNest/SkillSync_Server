@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
+import { JwtStrategy } from '../strategies/jwt.strategy';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Global()
@@ -11,7 +12,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
       useFactory: (c: ConfigService) => ({ secret: c.getOrThrow<string>('JWT_SECRET') }),
     }),
   ],
-  providers: [JwtAuthGuard],
-  exports: [JwtAuthGuard, JwtModule],
+  providers: [JwtAuthGuard, JwtStrategy],
+  exports: [JwtAuthGuard, JwtStrategy, JwtModule],
 })
 export class AuthGuardsModule {}
