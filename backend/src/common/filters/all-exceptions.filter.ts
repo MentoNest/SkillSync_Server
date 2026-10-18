@@ -10,7 +10,15 @@ export interface FieldErrors {
   errors: string[];
 }
 
+/**
+ * Error envelope (#1462). Mirrors {@link ApiSuccessResponse} so clients can
+ * branch on `success` instead of sniffing status codes.
+ *
+ * `code`, `details` and `stack` are additive — they predate the envelope and
+ * existing clients rely on them, so the shape stays backward compatible.
+ */
 export interface ErrorResponse {
+  success: false;
   statusCode: number;
   message: string | string[];
   error: string;
@@ -131,6 +139,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     const body: ErrorResponse = {
+      success: false,
       statusCode,
       message,
       error,

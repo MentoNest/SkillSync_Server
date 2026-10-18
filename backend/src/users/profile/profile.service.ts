@@ -204,6 +204,8 @@ export class ProfileService {
       totalSessions: profile.reviewCount,
       totalMentoringHours: profile.totalMentoringHours,
       isVerified: profile.isVerified,
+      // Drives the "Featured" badge on profile cards (#1459).
+      isFeatured: profile.isFeatured === true,
       profileCompleteness: this.mentorCompleteness(profile),
       memberSince: user.createdAt,
     };

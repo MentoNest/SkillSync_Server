@@ -115,6 +115,18 @@ export class MentorProfile {
   @Column({ name: 'profile_version', type: 'int', default: 1 })
   profileVersion!: number;
 
+  /** Homepage/discovery spotlight (#1459). */
+  @Column({ name: 'is_featured', type: 'boolean', default: false })
+  isFeatured!: boolean;
+
+  /** When the mentor was last featured; drives automatic expiry. */
+  @Column({ name: 'featured_at', type: 'timestamptz', nullable: true })
+  featuredAt!: Date | null;
+
+  /** Manual sort position. Lower sorts first; admins reorder via drag and drop. */
+  @Column({ name: 'featured_order', type: 'int', default: 0 })
+  featuredOrder!: number;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

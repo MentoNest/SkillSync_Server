@@ -14,6 +14,7 @@ export const MAX_LIMIT = 100;
 
 export interface PublicMentorProfile {
   isVerified: boolean;
+  isFeatured: boolean;
   skills: string[];
   expertiseAreas: string[];
   averageRating: number;
@@ -72,7 +73,12 @@ export class UserSearchService {
         : sortBy === UserSortBy.RATING
           ? 'mentor.averageRating'
           : 'user.createdAt';
-    qb.orderBy(sortColumn, sortOrder)
+
+    // Featured mentors surface ahead of the rest regardless of sort column
+    // (#1459), then the admin-managed order, then the requested sort.
+    qb.orderBy('mentor.isFeatured', 'DESC', 'NULLS LAST')
+      .addOrderBy('mentor.featuredOrder', 'ASC', 'NULLS LAST')
+      .addOrderBy(sortColumn, sortOrder)
       .addOrderBy('user.id', 'ASC')
       .skip((page - 1) * limit)
       .take(limit);
@@ -113,6 +119,8 @@ export class UserSearchService {
       mentorProfile: profile
         ? {
             isVerified: profile.isVerified,
+            // Surfaced so discovery cards can render the "Featured" badge (#1459).
+            isFeatured: profile.isFeatured === true,
             skills: profile.skills ?? [],
             expertiseAreas: profile.expertiseAreas ?? [],
             averageRating: Number(profile.averageRating),
