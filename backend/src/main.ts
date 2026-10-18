@@ -79,6 +79,9 @@ async function bootstrap() {
     }),
   );
 
+  // #1479 — /api/v1/... URI versioning
+  configureApiVersioning(app);
+
   // #1469 — Swagger only outside production (or when explicitly enabled)
   const swaggerEnabled =
     config.get<string>('SWAGGER_ENABLED') === 'true' || !isProd;
