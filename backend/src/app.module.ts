@@ -7,6 +7,9 @@ import { AuditModule } from './audit/audit.module';
 import { AuthGuardsModule } from './auth/guards/auth-guards.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { SecurityModule } from './auth/security/security.module';
+import { AvailabilityModule } from './availability/availability.module';
+import { TimezoneModule } from './common/timezone/timezone.module';
+import { MentorVerificationModule } from './mentor-verification/mentor-verification.module';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { RbacModule } from './rbac/rbac.module';
 import { RedisModule } from './redis/redis.module';
@@ -23,10 +26,9 @@ import { UsernameModule } from './users/username/username.module';
     AuthGuardsModule,
     RateLimitModule,
     SecurityModule,
-    UserStatusModule,
-    SuspensionModule,
-    UsernameModule,
-    CompletenessModule,
+    TimezoneModule,
+    AvailabilityModule,
+    MentorVerificationModule,
   ],
   controllers: [AppController],
   providers: [

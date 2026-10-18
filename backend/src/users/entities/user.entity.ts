@@ -45,17 +45,9 @@ export class User {
   @Column({ type: 'int', default: 0 })
   tokenVersion!: number;
 
-  @Column({ name: 'displayName', type: 'varchar', length: 100, nullable: true })
-  displayName!: string | null;
-
-  @Column({ name: 'avatarUrl', type: 'varchar', length: 2048, nullable: true })
-  avatarUrl!: string | null;
-
-  @OneToOne(() => MentorProfile, (p) => p.user)
-  mentorProfile?: MentorProfile;
-
-  @OneToOne(() => MenteeProfile, (p) => p.user)
-  menteeProfile?: MenteeProfile;
+  /** IANA timezone name (e.g. 'America/New_York'); used to render date/time responses. */
+  @Column({ type: 'varchar', length: 64, default: 'UTC' })
+  timezone!: string;
 
   @ManyToMany(() => Role, (r) => r.users)
   @JoinTable({
