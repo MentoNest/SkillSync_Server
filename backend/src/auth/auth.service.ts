@@ -1,7 +1,8 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User, UserStatus } from '../users/entities/user.entity';
+import { SuspensionService } from '../users/suspension/suspension.service';
+import { User } from '../users/entities/user.entity';
 import { LoginDto } from './dto/auth.dto';
 import { NonceService } from './nonce.service';
 import { DeviceInfo, RefreshTokenService, TokenPair } from './refresh-token.service';
@@ -15,7 +16,7 @@ export class AuthService {
     private readonly nonces: NonceService,
     private readonly signatures: SignatureService,
     private readonly refresh: RefreshTokenService,
-    private readonly audit: AuditService,
+    @Optional() private readonly suspensions?: SuspensionService,
   ) {}
 
   requestNonce(walletAddress: string) {
@@ -41,11 +42,18 @@ export class AuthService {
 
     let user = await this.users.findOne({ where: { walletAddress: wallet } });
     if (!user) user = await this.users.save(this.users.create({ walletAddress: wallet }));
-    if (user.deletedAt || user.status === UserStatus.DELETED) {
-      throw new ForbiddenException(
-        'This account has been deleted. Reactivate it via POST /user/account/restore within the grace period.',
-      );
+
+    if (this.suspensions) {
+      const suspension = await this.suspensions.checkLogin(user.id);
+      if (suspension) {
+        throw new ForbiddenException({
+          message: 'Account suspended',
+          reason: suspension.reason,
+          suspendedUntil: suspension.suspendedUntil,
+        });
+      }
     }
+
     user.lastLoginAt = new Date();
     await this.users.save(user);
     return this.refresh.issuePair(user, device);

@@ -10,18 +10,23 @@ import { SecurityModule } from './auth/security/security.module';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { RbacModule } from './rbac/rbac.module';
 import { RedisModule } from './redis/redis.module';
-import { ProfileModule } from './users/profile/profile.module';
+import { CompletenessModule } from './users/completeness/profile-completeness.module';
+import { SuspensionModule } from './users/suspension/suspension.module';
+import { UserStatusModule } from './users/user-status/user-status.module';
+import { UsernameModule } from './users/username/username.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     RedisModule,
     AuditModule,
-    RbacModule,
     AuthGuardsModule,
     RateLimitModule,
     SecurityModule,
-    ProfileModule,
+    UserStatusModule,
+    SuspensionModule,
+    UsernameModule,
+    CompletenessModule,
   ],
   controllers: [AppController],
   providers: [

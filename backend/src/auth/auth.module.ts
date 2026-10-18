@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditModule } from '../audit/audit.module';
 import { UsersModule } from '../users/users.module';
 import { User } from '../users/entities/user.entity';
+import { SuspensionModule } from '../users/suspension/suspension.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { RefreshToken } from './entities/refresh-token.entity';
@@ -18,6 +19,7 @@ import { WalletStrategy } from './strategies/wallet.strategy';
 @Module({
   imports: [
     TypeOrmModule.forFeature([User, RefreshToken]),
+    SuspensionModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (c: ConfigService) => ({

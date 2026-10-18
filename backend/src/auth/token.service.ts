@@ -3,12 +3,14 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { randomUUID } from 'crypto';
 import { User } from '../users/entities/user.entity';
+import { UserStatus } from '../users/user-status/user-status.enum';
 
 export interface AccessTokenClaims {
   sub: string;
   wallet: string;
   roles: string[];
   permissions: string[];
+  status: UserStatus;
   ver: number;
   jti: string;
 }
@@ -31,6 +33,7 @@ export class TokenService {
       wallet: user.walletAddress,
       roles,
       permissions,
+      status: user.status ?? UserStatus.ACTIVE,
       ver: user.tokenVersion,
       jti: randomUUID(),
     };

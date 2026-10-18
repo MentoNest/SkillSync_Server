@@ -1,6 +1,15 @@
-import { CanActivate, ExecutionContext, Injectable, SetMetadata, UnauthorizedException } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+  SetMetadata,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
-import { JwtStrategy } from '../strategies/jwt.strategy';
+import { JwtService } from '@nestjs/jwt';
+import { UserStatus } from '../../users/user-status/user-status.enum';
 
 export const IS_PUBLIC_KEY = 'isPublic';
 /** Mark a route as not requiring a token. */
@@ -11,6 +20,7 @@ export interface JwtPayload {
   wallet: string;
   roles: string[];
   permissions: string[];
+  status?: UserStatus;
   jti: string;
   ver?: number;
   iat: number;
@@ -32,7 +42,21 @@ export class JwtAuthGuard implements CanActivate {
     const [scheme, token] = (req.headers?.authorization ?? '').split(' ');
     if (scheme !== 'Bearer' || !token) throw new UnauthorizedException('Missing bearer token');
 
-    req.user = await this.strategy.validate(token);
+    try {
+      req.user = await this.jwt.verifyAsync<JwtPayload>(token, {
+        secret: this.config.getOrThrow<string>('JWT_SECRET'),
+        issuer: this.config.get<string>('JWT_ISSUER') ?? 'skillsync',
+        audience: this.config.get<string>('JWT_AUDIENCE') ?? 'skillsync-api',
+        algorithms: ['HS256'],
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+
+    // Reject tokens belonging to accounts that are no longer active.
+    if (req.user.status && req.user.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException('Account is not active');
+    }
     return true;
   }
 }
