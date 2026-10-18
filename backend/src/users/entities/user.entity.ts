@@ -45,9 +45,17 @@ export class User {
   @Column({ type: 'int', default: 0 })
   tokenVersion!: number;
 
-  /** IANA timezone name (e.g. 'America/New_York'); used to render date/time responses. */
-  @Column({ type: 'varchar', length: 64, default: 'UTC' })
-  timezone!: string;
+  @Column({ name: 'avatarUrl', type: 'varchar', length: 2048, nullable: true })
+  avatarUrl!: string | null;
+
+  @Column({ name: 'avatarThumbnailUrl', type: 'varchar', length: 2048, nullable: true })
+  avatarThumbnailUrl!: string | null;
+
+  @Column({ name: 'avatarSmallUrl', type: 'varchar', length: 2048, nullable: true })
+  avatarSmallUrl!: string | null;
+
+  @Column({ name: 'avatarMediumUrl', type: 'varchar', length: 2048, nullable: true })
+  avatarMediumUrl!: string | null;
 
   @ManyToMany(() => Role, (r) => r.users)
   @JoinTable({

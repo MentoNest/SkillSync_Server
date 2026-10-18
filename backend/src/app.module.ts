@@ -13,10 +13,8 @@ import { MentorVerificationModule } from './mentor-verification/mentor-verificat
 import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { RbacModule } from './rbac/rbac.module';
 import { RedisModule } from './redis/redis.module';
-import { CompletenessModule } from './users/completeness/profile-completeness.module';
-import { SuspensionModule } from './users/suspension/suspension.module';
-import { UserStatusModule } from './users/user-status/user-status.module';
-import { UsernameModule } from './users/username/username.module';
+import { AvatarModule } from './users/avatar/avatar.module';
+import { PortfolioLinksModule } from './users/portfolio-links/portfolio-links.module';
 
 @Module({
   imports: [
@@ -24,11 +22,11 @@ import { UsernameModule } from './users/username/username.module';
     RedisModule,
     AuditModule,
     AuthGuardsModule,
+    AuditModule,
     RateLimitModule,
     SecurityModule,
-    TimezoneModule,
-    AvailabilityModule,
-    MentorVerificationModule,
+    AvatarModule,
+    PortfolioLinksModule,
   ],
   controllers: [AppController],
   providers: [
