@@ -1,7 +1,15 @@
-import { CanActivate, ExecutionContext, Injectable, SetMetadata, UnauthorizedException } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+  SetMetadata,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
+import { UserStatus } from '../../users/user-status/user-status.enum';
 
 export const IS_PUBLIC_KEY = 'isPublic';
 /** Mark a route as not requiring a token. */
@@ -12,6 +20,7 @@ export interface JwtPayload {
   wallet: string;
   roles: string[];
   permissions: string[];
+  status?: UserStatus;
   jti: string;
   ver?: number;
   iat: number;
@@ -21,9 +30,8 @@ export interface JwtPayload {
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
-    private readonly jwt: JwtService,
+    private readonly strategy: JwtStrategy,
     private readonly reflector: Reflector,
-    private readonly config: ConfigService,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -43,6 +51,11 @@ export class JwtAuthGuard implements CanActivate {
       });
     } catch {
       throw new UnauthorizedException('Invalid or expired token');
+    }
+
+    // Reject tokens belonging to accounts that are no longer active.
+    if (req.user.status && req.user.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException('Account is not active');
     }
     return true;
   }

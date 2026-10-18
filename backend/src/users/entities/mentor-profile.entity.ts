@@ -85,6 +85,22 @@ export class MentorProfile {
   @Column({ name: 'is_verified', type: 'boolean', default: false })
   isVerified!: boolean;
 
+  /** When an admin last verified the mentor (null when unverified). */
+  @Column({ name: 'verified_at', type: 'timestamptz', nullable: true })
+  verifiedAt!: Date | null;
+
+  /** Admin user id that performed the last verification/revocation. */
+  @Column({ name: 'verified_by', type: 'uuid', nullable: true })
+  verifiedBy!: string | null;
+
+  /** Internal-only notes captured during verification. */
+  @Column({ name: 'verification_notes', type: 'varchar', length: 1000, nullable: true })
+  verificationNotes!: string | null;
+
+  /** One of: email, id, credential. */
+  @Column({ name: 'verification_method', type: 'varchar', length: 32, nullable: true })
+  verificationMethod!: string | null;
+
   @Column({ name: 'total_mentoring_hours', type: 'decimal', precision: 10, scale: 2, default: 0 })
   totalMentoringHours!: number;
 
@@ -93,6 +109,9 @@ export class MentorProfile {
 
   @Column({ name: 'review_count', type: 'int', default: 0 })
   reviewCount!: number;
+
+  @Column({ name: 'profile_version', type: 'int', default: 1 })
+  profileVersion!: number;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
