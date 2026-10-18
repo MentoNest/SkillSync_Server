@@ -4,6 +4,8 @@ import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 @Entity('user_suspensions')
 @Index('IDX_user_suspensions_user_id', ['userId'])
 @Index('IDX_user_suspensions_active', ['active'])
+// Login check: "is this user currently suspended?" (#1463).
+@Index('IDX_user_suspensions_user_active', ['userId', 'active'])
 export class UserSuspension {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

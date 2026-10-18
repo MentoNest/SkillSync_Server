@@ -36,6 +36,8 @@ export const MAX_BIO_LENGTH = 1000;
 @Index('IDX_mentor_profiles_user_id', ['userId'], { unique: true })
 @Index('IDX_mentor_profiles_hourly_rate', ['hourlyRate'])
 @Index('IDX_mentor_profiles_average_rating', ['averageRating'])
+// Discovery ranking: "verified mentors, highest rated first" (#1463).
+@Index('IDX_mentor_profiles_verified_rating', ['isVerified', 'averageRating'])
 @Check('CHK_mentor_profiles_hourly_rate', `"hourly_rate" >= ${MIN_HOURLY_RATE} AND "hourly_rate" <= ${MAX_HOURLY_RATE}`)
 export class MentorProfile {
   @PrimaryGeneratedColumn('uuid')
