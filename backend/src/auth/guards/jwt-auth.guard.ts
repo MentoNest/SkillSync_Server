@@ -1,7 +1,6 @@
 import { CanActivate, ExecutionContext, Injectable, SetMetadata, UnauthorizedException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
-import { JwtService } from '@nestjs/jwt';
+import { JwtStrategy } from '../strategies/jwt.strategy';
 
 export const IS_PUBLIC_KEY = 'isPublic';
 /** Mark a route as not requiring a token. */
@@ -21,9 +20,8 @@ export interface JwtPayload {
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
-    private readonly jwt: JwtService,
+    private readonly strategy: JwtStrategy,
     private readonly reflector: Reflector,
-    private readonly config: ConfigService,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -34,16 +32,7 @@ export class JwtAuthGuard implements CanActivate {
     const [scheme, token] = (req.headers?.authorization ?? '').split(' ');
     if (scheme !== 'Bearer' || !token) throw new UnauthorizedException('Missing bearer token');
 
-    try {
-      req.user = await this.jwt.verifyAsync<JwtPayload>(token, {
-        secret: this.config.getOrThrow<string>('JWT_SECRET'),
-        issuer: this.config.get<string>('JWT_ISSUER') ?? 'skillsync',
-        audience: this.config.get<string>('JWT_AUDIENCE') ?? 'skillsync-api',
-        algorithms: ['HS256'],
-      });
-    } catch {
-      throw new UnauthorizedException('Invalid or expired token');
-    }
+    req.user = await this.strategy.validate(token);
     return true;
   }
 }
