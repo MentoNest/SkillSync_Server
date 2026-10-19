@@ -2,7 +2,7 @@ use soroban_sdk::{contractimpl, Address, Env};
 
 use crate::errors::ContractError;
 use crate::{admin, events, storage};
-use crate::{SkillSyncEscrow, SkillSyncEscrowClient};
+use crate::{SkillSyncEscrow, SkillSyncEscrowArgs, SkillSyncEscrowClient};
 
 /// Platform fee ceiling: 1000 bps = 10%.
 pub const MAX_PLATFORM_FEE_BPS: u32 = 1000;

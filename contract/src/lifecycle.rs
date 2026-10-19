@@ -2,14 +2,14 @@ use soroban_sdk::{contractimpl, BytesN, Env};
 
 use crate::errors::ContractError;
 use crate::types::{Session, SessionStatus};
-use crate::{admin, events, payments, storage};
-use crate::{SkillSyncEscrow, SkillSyncEscrowClient};
+use crate::{events, fees, payments, storage};
+use crate::{SkillSyncEscrow, SkillSyncEscrowArgs, SkillSyncEscrowClient};
 
-fn load(env: &Env, id: &BytesN<32>) -> Result<Session, ContractError> {
+pub(crate) fn load(env: &Env, id: &BytesN<32>) -> Result<Session, ContractError> {
     storage::get_session(env, id).ok_or(ContractError::SessionNotFound)
 }
 
-fn require_status(session: &Session, expected: SessionStatus) -> Result<(), ContractError> {
+pub(crate) fn require_status(session: &Session, expected: SessionStatus) -> Result<(), ContractError> {
     if session.status == expected {
         Ok(())
     } else {
@@ -41,26 +41,11 @@ impl SkillSyncEscrow {
         session.buyer.require_auth();
         require_status(&session, SessionStatus::Completed)?;
 
-        let fee_bps = storage::get_platform_fee(&env) as i128;
-        let fee = session
-            .amount
-            .checked_mul(fee_bps)
-            .ok_or(ContractError::ArithmeticOverflow)?
-            / 10_000;
-        let payout = session
-            .amount
-            .checked_sub(fee)
-            .ok_or(ContractError::ArithmeticOverflow)?;
-
         // State first, transfers after: a failing transfer reverts everything.
         session.status = SessionStatus::Approved;
         storage::save_session(&env, &session_id, &session);
 
-        payments::pay_out(&env, &session.seller, payout)?;
-        if fee > 0 {
-            let treasury = admin::require_treasury(&env)?;
-            payments::pay_out(&env, &treasury, fee)?;
-        }
+        let (payout, fee) = fees::settle_with_fee(&env, &session.seller, session.amount)?;
 
         events::emit_session_approved(&env, &session_id, payout, fee);
         Ok(())

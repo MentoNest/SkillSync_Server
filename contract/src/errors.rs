@@ -29,4 +29,10 @@ pub enum ContractError {
     DisputeWindowOpen = 11,
     /// A fee calculation overflowed.
     ArithmeticOverflow = 12,
+    /// `resolution` is not a known outcome, or does not match the shares.
+    InvalidResolution = 13,
+    /// Dispute shares are negative or do not add up to the session amount.
+    InvalidShares = 14,
+    /// Only the session's buyer or seller may do this.
+    NotAParticipant = 15,
 }

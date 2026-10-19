@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, BytesN, Env, Symbol};
+use soroban_sdk::{Address, BytesN, Env, String, Symbol};
 
 /// Emit `Initialized(admin, treasury)` - exactly once, from `initialize`.
 pub fn emit_initialized(env: &Env, admin: &Address, treasury: &Address) {
@@ -74,5 +74,26 @@ pub fn emit_dispute_window_updated(env: &Env, old_ledgers: u32, new_ledgers: u32
     env.events().publish(
         (Symbol::new(env, "DisputeWindowUpdated"),),
         (old_ledgers, new_ledgers),
+    );
+}
+
+pub fn emit_dispute_opened(env: &Env, session_id: &BytesN<32>, opened_by: &Address, reason: &String) {
+    env.events().publish(
+        (Symbol::new(env, "DisputeOpened"), session_id.clone()),
+        (opened_by.clone(), reason.clone()),
+    );
+}
+
+pub fn emit_dispute_resolved(
+    env: &Env,
+    session_id: &BytesN<32>,
+    resolution: u32,
+    buyer_payout: i128,
+    seller_payout: i128,
+    fee: i128,
+) {
+    env.events().publish(
+        (Symbol::new(env, "DisputeResolved"), session_id.clone()),
+        (resolution, buyer_payout, seller_payout, fee),
     );
 }

@@ -3,7 +3,7 @@ use soroban_sdk::{contractimpl, Address, BytesN, Env};
 use crate::errors::ContractError;
 use crate::types::{Session, SessionStatus};
 use crate::{admin, events, payments, storage};
-use crate::{SkillSyncEscrow, SkillSyncEscrowClient};
+use crate::{SkillSyncEscrow, SkillSyncEscrowArgs, SkillSyncEscrowClient};
 
 #[contractimpl]
 impl SkillSyncEscrow {
@@ -46,6 +46,7 @@ impl SkillSyncEscrow {
             status: SessionStatus::Locked,
             created_at: env.ledger().sequence() as u64,
             completed_at: 0,
+            dispute_opened_at: 0,
             dispute_resolved_at: 0,
         };
         storage::save_session(&env, &session_id, &session);
@@ -150,7 +151,8 @@ mod tests {
             status: SessionStatus::Disputed,
             created_at: 1,
             completed_at: 2,
-            dispute_resolved_at: 3,
+            dispute_opened_at: 3,
+            dispute_resolved_at: 4,
         };
         f.env.as_contract(&f.contract_id, || {
             storage::save_session(&f.env, &id, &session);

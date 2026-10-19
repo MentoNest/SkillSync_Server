@@ -2,7 +2,7 @@ use soroban_sdk::{contractimpl, BytesN, Env};
 
 use crate::errors::ContractError;
 use crate::{admin, events, storage};
-use crate::{SkillSyncEscrow, SkillSyncEscrowClient};
+use crate::{SkillSyncEscrow, SkillSyncEscrowArgs, SkillSyncEscrowClient};
 
 #[contractimpl]
 impl SkillSyncEscrow {

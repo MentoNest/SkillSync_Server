@@ -9,16 +9,25 @@ export abstract class StorageService {
   abstract delete(url: string | null | undefined): Promise<void>;
 }
 
-/** Development driver: stores files on the local filesystem under `UPLOAD_DIR`. */
+/** Where a local storage driver writes files and the URL path it serves them from. */
+export interface LocalStorageLocation {
+  dir: string;
+  publicPath: string;
+}
+
+/**
+ * Development driver: stores files on the local filesystem under `UPLOAD_DIR`,
+ * or under `location` when one is given (e.g. chat attachments).
+ */
 @Injectable()
 export class LocalStorageService extends StorageService {
   private readonly dir: string;
   private readonly publicBase: string;
 
-  constructor(config: ConfigService) {
+  constructor(config: ConfigService, location?: LocalStorageLocation) {
     super();
-    this.dir = config.get<string>('UPLOAD_DIR') ?? 'uploads/avatars';
-    this.publicBase = config.get<string>('UPLOAD_PUBLIC_PATH') ?? '/uploads/avatars';
+    this.dir = location?.dir ?? config.get<string>('UPLOAD_DIR') ?? 'uploads/avatars';
+    this.publicBase = location?.publicPath ?? config.get<string>('UPLOAD_PUBLIC_PATH') ?? '/uploads/avatars';
   }
 
   async save(buffer: Buffer, filename: string): Promise<string> {
