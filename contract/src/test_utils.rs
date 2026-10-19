@@ -68,6 +68,7 @@ pub fn seed_session(
         status,
         created_at: 1,
         completed_at,
+        dispute_opened_at: 0,
         dispute_resolved_at: 0,
     };
     f.env

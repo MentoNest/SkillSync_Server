@@ -25,5 +25,6 @@ pub struct Session {
     pub status: SessionStatus,
     pub created_at: u64,
     pub completed_at: u64,
+    pub dispute_opened_at: u64,
     pub dispute_resolved_at: u64,
 }

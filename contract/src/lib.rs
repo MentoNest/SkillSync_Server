@@ -1,16 +1,22 @@
 #![no_std]
 
 mod admin;
+mod config;
+mod disputes;
 mod errors;
 mod events;
+mod fees;
+mod lifecycle;
 mod payments;
+mod sessions;
 mod storage;
 mod types;
-mod config;
+mod upgrade;
 
 #[cfg(test)]
 mod test_utils;
 
+pub use disputes::{RESOLUTION_PAY_SELLER, RESOLUTION_REFUND_BUYER, RESOLUTION_SPLIT};
 pub use errors::ContractError;
 pub use types::{Session, SessionStatus};
 
