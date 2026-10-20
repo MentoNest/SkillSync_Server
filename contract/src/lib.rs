@@ -6,6 +6,7 @@ mod disputes;
 mod errors;
 mod events;
 mod fees;
+mod insurance;
 mod lifecycle;
 mod payments;
 mod sessions;

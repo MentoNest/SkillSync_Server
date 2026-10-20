@@ -213,3 +213,73 @@ pub fn emit_dispute_resolved(
         ),
     );
 }
+
+pub fn emit_insurance_purchased(
+    env: &Env,
+    session_id: &BytesN<32>,
+    buyer: &Address,
+    amount: i128,
+    premium: i128,
+) {
+    env.events().publish(
+        (Symbol::new(env, "InsurancePurchased"), session_id.clone()),
+        (
+            buyer.clone(),
+            amount,
+            premium,
+            env.ledger().timestamp(),
+        ),
+    );
+}
+
+pub fn emit_insurance_claim_paid(
+    env: &Env,
+    session_id: &BytesN<32>,
+    buyer: &Address,
+    claim_amount: i128,
+) {
+    env.events().publish(
+        (Symbol::new(env, "InsuranceClaimPaid"), session_id.clone()),
+        (
+            buyer.clone(),
+            claim_amount,
+            env.ledger().timestamp(),
+        ),
+    );
+}
+
+pub fn emit_insurance_premium_rate_updated(
+    env: &Env,
+    old_bps: u32,
+    new_bps: u32,
+    updated_by: &Address,
+) {
+    env.events().publish(
+        (Symbol::new(env, "InsurancePremiumRateUpdated"),),
+        (old_bps, new_bps, updated_by.clone()),
+    );
+}
+
+pub fn emit_insurance_coverage_percentage_updated(
+    env: &Env,
+    old_pct: u32,
+    new_pct: u32,
+    updated_by: &Address,
+) {
+    env.events().publish(
+        (Symbol::new(env, "InsuranceCoveragePercentageUpdated"),),
+        (old_pct, new_pct, updated_by.clone()),
+    );
+}
+
+pub fn emit_insurance_pool_updated(
+    env: &Env,
+    old_pool: Option<&Address>,
+    new_pool: &Address,
+    updated_by: &Address,
+) {
+    env.events().publish(
+        (Symbol::new(env, "InsurancePoolUpdated"),),
+        (old_pool.cloned(), new_pool.clone(), updated_by.clone()),
+    );
+}

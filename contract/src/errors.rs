@@ -76,6 +76,10 @@ pub enum ContractError {
     SessionAlreadyRefunded = 305,
     /// The session is in dispute, so no normal settlement path may touch it.
     SessionInDispute = 306,
+    /// The session was locked without insurance, so insurance cannot be claimed.
+    NotInsured = 307,
+    /// Insurance has already been claimed for this session.
+    InsuranceAlreadyClaimed = 308,
 
     // ── Financial validation (400-419) ───────────────────────────────────
     // Errors raised when amounts, balances, fees or arithmetic are invalid.
@@ -92,10 +96,14 @@ pub enum ContractError {
     Overflow = 404,
     /// `resolution` is not a known outcome, or does not match the shares.
     InvalidResolution = 405,
+    /// Insurance pool balance is insufficient to cover the claim.
+    InsufficientInsurancePool = 406,
 
     // ── Timeout and dispute (500-519) ────────────────────────────────────
     /// The dispute window has not elapsed yet, so `auto_refund` is refused.
     DisputeWindowOpen = 500,
+    /// Dispute resolution gave the buyer >= 80% of the amount, so the buyer is not eligible for insurance.
+    NotEligibleForInsurance = 501,
 
     // ── Configuration (700-719) ──────────────────────────────────────────
     // Errors raised when the stored contract configuration is missing or
@@ -104,6 +112,8 @@ pub enum ContractError {
     InvalidWindow = 700,
     /// The payment token has not been configured by the admin.
     TokenNotConfigured = 701,
+    /// The insurance premium rate or coverage percentage is invalid.
+    InvalidInsuranceRate = 702,
 }
 
 // Compiled only when running `cargo test`; not part of the deployed contract.
@@ -117,7 +127,7 @@ mod tests {
     /// The array length is part of the type, so adding a variant to the enum
     /// without updating this list and the `25` will not go unnoticed by
     /// reviewers: update both together.
-    const ALL: [ContractError; 25] = [
+    const ALL: [ContractError; 29] = [
         ContractError::AlreadyInitialized,
         ContractError::NotInitialized,
         ContractError::InvalidAdmin,
@@ -134,15 +144,20 @@ mod tests {
         ContractError::SessionAlreadyApproved,
         ContractError::SessionAlreadyRefunded,
         ContractError::SessionInDispute,
+        ContractError::NotInsured,
+        ContractError::InsuranceAlreadyClaimed,
         ContractError::InvalidAmount,
         ContractError::InsufficientBalance,
         ContractError::FeeTooHigh,
         ContractError::InvalidSplit,
         ContractError::Overflow,
         ContractError::InvalidResolution,
+        ContractError::InsufficientInsurancePool,
         ContractError::DisputeWindowOpen,
+        ContractError::NotEligibleForInsurance,
         ContractError::InvalidWindow,
         ContractError::TokenNotConfigured,
+        ContractError::InvalidInsuranceRate,
     ];
 
     /// The bands a code may live in, as `(first, last)` inclusive ranges.
@@ -222,6 +237,15 @@ mod tests {
         assert_eq!(ContractError::InvalidSplit as u32, 403);
         assert_eq!(ContractError::Overflow as u32, 404);
         assert_eq!(ContractError::InvalidResolution as u32, 405);
+        assert_eq!(ContractError::InsufficientInsurancePool as u32, 406);
+    }
+
+    #[test]
+    fn insurance_codes_match_the_spec() {
+        assert_eq!(ContractError::NotInsured as u32, 307);
+        assert_eq!(ContractError::InsuranceAlreadyClaimed as u32, 308);
+        assert_eq!(ContractError::NotEligibleForInsurance as u32, 501);
+        assert_eq!(ContractError::InvalidInsuranceRate as u32, 702);
     }
 
     // Verifies the macro-generated conversion: each error must become a

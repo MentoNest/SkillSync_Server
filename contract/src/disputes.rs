@@ -116,6 +116,7 @@ impl SkillSyncEscrow {
         // State first, transfers after: a failing transfer reverts everything.
         session.status = SessionStatus::Resolved;
         session.dispute_resolved_at = env.ledger().sequence() as u64;
+        session.dispute_buyer_share = buyer_share;
         storage::save_session(&env, &session_id, &session);
 
         // Each side is paid net of fees; the fees stay in the contract for now
