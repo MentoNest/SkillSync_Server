@@ -1,0 +1,68 @@
+{
+  "name": "@nestjs/mapped-types",
+  "version": "2.1.1",
+  "description": "Nest - modern, fast, powerful node.js web framework (@mapped-types)",
+  "author": "Kamil Mysliwiec",
+  "license": "MIT",
+  "url": "https://github.com/nestjs/mapped-types#readme",
+  "scripts": {
+    "build": "rimraf -rf dist && tsc -p tsconfig.json",
+    "lint": "eslint 'lib/**/*.ts' --fix",
+    "format": "prettier \"{lib,tests}/**/*.ts\" --write",
+    "prepublish:npm": "npm run build",
+    "publish:npm": "npm publish --access public",
+    "prepublish:next": "npm run build",
+    "publish:next": "npm publish --access public --tag next",
+    "test:e2e": "jest --config ./tests/jest-e2e.json --runInBand",
+    "test:e2e:dev": "jest --config ./tests/jest-e2e.json --runInBand --watch",
+    "prerelease": "npm run build",
+    "release": "release-it",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "20.5.0",
+    "@commitlint/config-angular": "20.5.0",
+    "@eslint/eslintrc": "3.3.5",
+    "@eslint/js": "10.0.1",
+    "@nestjs/common": "11.1.17",
+    "@types/jest": "30.0.0",
+    "@types/node": "24.12.0",
+    "class-transformer": "0.5.1",
+    "class-validator": "0.15.1",
+    "eslint": "10.1.0",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-prettier": "5.5.5",
+    "globals": "17.4.0",
+    "husky": "9.1.7",
+    "jest": "30.3.0",
+    "lint-staged": "16.4.0",
+    "prettier": "3.8.1",
+    "reflect-metadata": "0.2.2",
+    "release-it": "19.2.4",
+    "rimraf": "6.1.3",
+    "ts-jest": "29.4.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.57.2"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^10.0.0 || ^11.0.0",
+    "class-transformer": "^0.4.0 || ^0.5.0",
+    "class-validator": "^0.13.0 || ^0.14.0 || ^0.15.0",
+    "reflect-metadata": "^0.1.12 || ^0.2.0"
+  },
+  "peerDependenciesMeta": {
+    "class-validator": {
+      "optional": true
+    },
+    "class-transformer": {
+      "optional": true
+    }
+  },
+  "lint-staged": {
+    "**/*.{ts,json}": []
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nestjs/mapped-types"
+  }
+}
