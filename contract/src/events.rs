@@ -1,10 +1,16 @@
 use soroban_sdk::{Address, BytesN, Env, String, Symbol};
 
-/// Emit `Initialized(admin, treasury)` - exactly once, from `initialize`.
-pub fn emit_initialized(env: &Env, admin: &Address, treasury: &Address) {
+/// Emit `Initialized(admin, treasury, dispute_window)` - exactly once, from
+/// `initialize`.
+///
+/// Clients subscribe to this event to detect that the contract is ready and to
+/// learn the configuration it started with. `dispute_window` is the window in
+/// ledgers that is in effect at that moment: `initialize` takes no window
+/// argument, so this is the default until an admin calls `set_dispute_window`.
+pub fn emit_initialized(env: &Env, admin: &Address, treasury: &Address, dispute_window: u32) {
     env.events().publish(
         (Symbol::new(env, "Initialized"),),
-        (admin.clone(), treasury.clone()),
+        (admin.clone(), treasury.clone(), dispute_window),
     );
 }
 
@@ -29,6 +35,10 @@ pub fn emit_contract_upgraded(
     );
 }
 
+/// Emit `FundsLocked(session_id, buyer, seller, amount, timestamp)`.
+///
+/// `timestamp` is the ledger timestamp of the locking ledger, so indexers can
+/// order escrows without resolving the ledger header themselves.
 pub fn emit_funds_locked(
     env: &Env,
     session_id: &BytesN<32>,
@@ -38,7 +48,12 @@ pub fn emit_funds_locked(
 ) {
     env.events().publish(
         (Symbol::new(env, "FundsLocked"), session_id.clone()),
-        (buyer.clone(), seller.clone(), amount),
+        (
+            buyer.clone(),
+            seller.clone(),
+            amount,
+            env.ledger().timestamp(),
+        ),
     );
 }
 
@@ -56,17 +71,42 @@ pub fn emit_session_approved(env: &Env, session_id: &BytesN<32>, payout: i128, f
     );
 }
 
-pub fn emit_session_refunded(env: &Env, session_id: &BytesN<32>, amount: i128) {
+/// Emit `SessionRefunded(session_id, buyer, amount, timestamp)`.
+///
+/// Both refund paths emit it - the buyer's manual `refund_session` and the
+/// timeout-based `auto_refund` - so a single subscription sees every refund,
+/// whichever path paid it out.
+pub fn emit_session_refunded(env: &Env, session_id: &BytesN<32>, buyer: &Address, amount: i128) {
     env.events().publish(
         (Symbol::new(env, "SessionRefunded"), session_id.clone()),
-        amount,
+        (buyer.clone(), amount, env.ledger().timestamp()),
     );
 }
 
-pub fn emit_auto_refund_executed(env: &Env, session_id: &BytesN<32>, amount: i128) {
+/// Emit `AutoRefundExecuted(session_id, buyer, amount, completed_at, refunded_at)`.
+///
+/// The distinct event for timeout-based refunds: it carries both the moment the
+/// seller marked the session complete and the moment the refund fired, so a
+/// failed completion can be tracked without reading the session back. Both
+/// times are ledger sequence numbers - the unit `Session::completed_at` uses,
+/// not the ledger timestamp `SessionRefunded` carries - so
+/// `refunded_at - completed_at` is exactly the number of ledgers the completion
+/// sat past the dispute window.
+pub fn emit_auto_refund_executed(
+    env: &Env,
+    session_id: &BytesN<32>,
+    buyer: &Address,
+    amount: i128,
+    completed_at: u64,
+) {
     env.events().publish(
         (Symbol::new(env, "AutoRefundExecuted"), session_id.clone()),
-        amount,
+        (
+            buyer.clone(),
+            amount,
+            completed_at,
+            env.ledger().sequence() as u64,
+        ),
     );
 }
 

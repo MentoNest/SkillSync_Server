@@ -65,7 +65,8 @@ impl SkillSyncEscrow {
 mod tests {
     use super::*;
     use crate::test_utils::{balance, session_id, setup};
-    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::testutils::{Address as _, Ledger};
+    use soroban_sdk::{Address, IntoVal, Symbol};
 
     #[test]
     fn lock_funds_stores_a_locked_session_and_moves_tokens() {
@@ -80,6 +81,26 @@ mod tests {
         assert_eq!(session.seller, f.seller);
         assert_eq!(balance(&f, &f.contract_id), 500);
         assert_eq!(balance(&f, &f.buyer), 1_000_000 - 500);
+    }
+
+    #[test]
+    fn lock_funds_emits_funds_locked_with_the_session_metadata() {
+        let f = setup();
+        f.env.ledger().with_mut(|l| l.timestamp = 1_700_000_000);
+        let id = session_id(&f.env, 7);
+
+        f.client.lock_funds(&id, &f.buyer, &f.seller, &500);
+
+        let (topics, data) = crate::test_utils::event(&f.env, "FundsLocked");
+        assert_eq!(
+            topics,
+            (Symbol::new(&f.env, "FundsLocked"), id.clone()).into_val(&f.env)
+        );
+        let data: (Address, Address, i128, u64) = data.into_val(&f.env);
+        assert_eq!(
+            data,
+            (f.buyer.clone(), f.seller.clone(), 500, 1_700_000_000)
+        );
     }
 
     #[test]

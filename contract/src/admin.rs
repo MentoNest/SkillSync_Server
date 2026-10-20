@@ -40,7 +40,8 @@ fn only_once(env: &Env) -> Result<(), ContractError> {
 /// On success:
 /// - Stores `admin` and `treasury` in instance storage.
 /// - Sets the `Initialized` flag (the only-once latch).
-/// - Emits `Initialized(admin, treasury)`.
+/// - Emits `Initialized(admin, treasury, dispute_window)`, where the window is
+///   the effective one (the default, since `initialize` cannot set it).
 ///
 /// # Errors
 /// - [`ContractError::AlreadyInitialized`] — any call after the first.
@@ -71,7 +72,7 @@ pub fn initialize(
     storage::set_initialized(env);
 
     // ── event ───────────────────────────────────────────────────────────
-    events::emit_initialized(env, &admin, &treasury);
+    events::emit_initialized(env, &admin, &treasury, storage::get_dispute_window(env));
 
     Ok(())
 }
@@ -94,7 +95,7 @@ mod tests {
     use super::*;
     use crate::{SkillSyncEscrow, SkillSyncEscrowClient};
     use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::Env;
+    use soroban_sdk::{Env, IntoVal, Symbol};
 
     fn fresh() -> (Env, Address, SkillSyncEscrowClient<'static>, Address) {
         let env = Env::default();
@@ -103,6 +104,35 @@ mod tests {
         let client = SkillSyncEscrowClient::new(&env, &id);
         let signer = Address::generate(&env);
         (env, id, client, signer)
+    }
+
+    #[test]
+    fn initialize_emits_the_admin_the_treasury_and_the_dispute_window() {
+        let (env, _id, client, admin) = fresh();
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
+
+        let (topics, data) = crate::test_utils::event(&env, "Initialized");
+        assert_eq!(topics, (Symbol::new(&env, "Initialized"),).into_val(&env));
+        let data: (Address, Address, u32) = data.into_val(&env);
+        assert_eq!(
+            data,
+            (admin, treasury, storage::DEFAULT_DISPUTE_WINDOW_LEDGERS)
+        );
+    }
+
+    #[test]
+    fn initialized_is_emitted_exactly_once() {
+        let (env, _, client, admin) = fresh();
+        client.initialize(&admin, &Address::generate(&env));
+        assert_eq!(crate::test_utils::event_count(&env, "Initialized"), 1);
+
+        // A second call reverts on the only-once latch before it reaches the
+        // event, so a ready contract never announces itself twice.
+        assert_eq!(
+            client.try_initialize(&admin, &Address::generate(&env)),
+            Err(Ok(ContractError::AlreadyInitialized))
+        );
     }
 
     #[test]

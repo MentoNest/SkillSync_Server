@@ -77,7 +77,7 @@ impl SkillSyncEscrow {
         // Full amount back to the buyer, no fee taken
         payments::pay_out(&env, &session.buyer, session.amount)?;
 
-        events::emit_session_refunded(&env, &session_id, session.amount);
+        events::emit_session_refunded(&env, &session_id, &session.buyer, session.amount);
         Ok(())
     }
 
@@ -101,7 +101,16 @@ impl SkillSyncEscrow {
 
         payments::pay_out(&env, &session.buyer, session.amount)?;
 
-        events::emit_auto_refund_executed(&env, &session_id, session.amount);
+        // The refund itself, plus the timeout-specific event that also records
+        // when the seller had completed the session.
+        events::emit_session_refunded(&env, &session_id, &session.buyer, session.amount);
+        events::emit_auto_refund_executed(
+            &env,
+            &session_id,
+            &session.buyer,
+            session.amount,
+            session.completed_at,
+        );
         Ok(())
     }
 }
@@ -109,8 +118,9 @@ impl SkillSyncEscrow {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{balance, seed_session, session_id, setup};
+    use crate::test_utils::{balance, event, seed_session, session_id, setup};
     use soroban_sdk::testutils::Ledger;
+    use soroban_sdk::{Address, IntoVal, Symbol};
 
     // Helper: sets the mock ledger's sequence number (the contract's notion of "time")
     fn set_ledger(f: &crate::test_utils::Fixture, sequence: u32) {
@@ -246,6 +256,61 @@ mod tests {
         assert_eq!(f.client.get_session(&id).status, SessionStatus::Refunded);
         // No fee is charged on an auto-refund
         assert_eq!(balance(&f, &f.treasury), 0);
+    }
+
+    // A manual refund publishes the buyer, the amount and the ledger timestamp
+    #[test]
+    fn refund_session_emits_session_refunded_with_the_buyer_and_amount() {
+        let f = setup();
+        f.env.ledger().with_mut(|l| l.timestamp = 1_700_000_000);
+        let id = session_id(&f.env, 13);
+        seed_session(&f, &id, SessionStatus::Locked, 1_000, 0);
+
+        f.client.refund_session(&id);
+
+        let (topics, data) = event(&f.env, "SessionRefunded");
+        assert_eq!(
+            topics,
+            (Symbol::new(&f.env, "SessionRefunded"), id.clone()).into_val(&f.env)
+        );
+        let data: (Address, i128, u64) = data.into_val(&f.env);
+        assert_eq!(data, (f.buyer.clone(), 1_000, 1_700_000_000));
+    }
+
+    // A timeout refund publishes the shared refund event and the timeout-specific one
+    #[test]
+    fn auto_refund_emits_session_refunded_and_auto_refund_executed() {
+        let f = setup();
+        let id = session_id(&f.env, 14);
+        seed_session(&f, &id, SessionStatus::Completed, 1_000, 100);
+        f.env.ledger().with_mut(|l| {
+            l.sequence_number = 1_500;
+            l.timestamp = 1_700_000_000;
+        });
+
+        f.client.auto_refund(&id);
+
+        // The shared refund event fires too, so one subscription sees every
+        // refund whichever path paid it out.
+        let (refund_topics, refund_data) = event(&f.env, "SessionRefunded");
+        assert_eq!(
+            refund_topics,
+            (Symbol::new(&f.env, "SessionRefunded"), id.clone()).into_val(&f.env)
+        );
+        let refund_data: (Address, i128, u64) = refund_data.into_val(&f.env);
+        assert_eq!(refund_data, (f.buyer.clone(), 1_000, 1_700_000_000));
+
+        let (topics, data) = event(&f.env, "AutoRefundExecuted");
+        assert_eq!(
+            topics,
+            (
+                Symbol::new(&f.env, "AutoRefundExecuted"),
+                id.clone()
+            )
+                .into_val(&f.env)
+        );
+        let data: (Address, i128, u64, u64) = data.into_val(&f.env);
+        assert_eq!(data, (f.buyer.clone(), 1_000, 100, 1_500));
     }
 
     // Auto-refund is only for Completed sessions, even if a lot of ledger time has passed
