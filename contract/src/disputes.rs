@@ -165,8 +165,9 @@ mod tests {
     }
 
     #[test]
-    fn open_dispute_emits_the_reason() {
+    fn open_dispute_emits_who_opened_it_why_and_when() {
         let f = setup();
+        f.env.ledger().with_mut(|l| l.timestamp = 1_700_000_000);
         let id = session_id(&f.env, 3);
         seed_session(&f, &id, SessionStatus::Completed, 1_000, 10);
         f.client.open_dispute(&id, &f.buyer, &reason(&f));
@@ -176,8 +177,8 @@ mod tests {
             topics,
             (Symbol::new(&f.env, "DisputeOpened"), id.clone()).into_val(&f.env)
         );
-        let data: (Address, String) = data.into_val(&f.env);
-        assert_eq!(data, (f.buyer.clone(), reason(&f)));
+        let data: (Address, String, u64) = data.into_val(&f.env);
+        assert_eq!(data, (f.buyer.clone(), reason(&f), 1_700_000_000));
     }
 
     #[test]

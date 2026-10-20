@@ -8,10 +8,24 @@ pub fn emit_initialized(env: &Env, admin: &Address, treasury: &Address) {
     );
 }
 
-pub fn emit_contract_upgraded(env: &Env, old_hash: &BytesN<32>, new_hash: &BytesN<32>) {
+/// Emit `ContractUpgraded(old_wasm_hash, new_wasm_hash, upgraded_by, timestamp)`.
+///
+/// Lets off-chain monitors track the deployed code hash: `old_wasm_hash` is all
+/// zeros for the first upgrade because the initial hash is only recorded here.
+pub fn emit_contract_upgraded(
+    env: &Env,
+    old_hash: &BytesN<32>,
+    new_hash: &BytesN<32>,
+    upgraded_by: &Address,
+) {
     env.events().publish(
         (Symbol::new(env, "ContractUpgraded"),),
-        (old_hash.clone(), new_hash.clone()),
+        (
+            old_hash.clone(),
+            new_hash.clone(),
+            upgraded_by.clone(),
+            env.ledger().timestamp(),
+        ),
     );
 }
 
@@ -77,10 +91,14 @@ pub fn emit_dispute_window_updated(env: &Env, old_ledgers: u32, new_ledgers: u32
     );
 }
 
+/// Emit `DisputeOpened(session_id, opened_by, reason, timestamp)`.
+///
+/// Records who opened the dispute and why, so indexers can surface the reason
+/// without reading the session back.
 pub fn emit_dispute_opened(env: &Env, session_id: &BytesN<32>, opened_by: &Address, reason: &String) {
     env.events().publish(
         (Symbol::new(env, "DisputeOpened"), session_id.clone()),
-        (opened_by.clone(), reason.clone()),
+        (opened_by.clone(), reason.clone(), env.ledger().timestamp()),
     );
 }
 
