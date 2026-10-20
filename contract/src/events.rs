@@ -77,10 +77,15 @@ pub fn emit_platform_fee_updated(env: &Env, old_bps: u32, new_bps: u32) {
     );
 }
 
-pub fn emit_treasury_updated(env: &Env, old: &Address, new: &Address) {
+/// Emit `TreasuryUpdated(old_treasury, new_treasury, updated_by)`.
+///
+/// `updated_by` is the admin whose signature authorised the change, so an
+/// off-chain monitor can attribute every treasury move to an account without
+/// replaying the transaction envelope.
+pub fn emit_treasury_updated(env: &Env, old: &Address, new: &Address, updated_by: &Address) {
     env.events().publish(
         (Symbol::new(env, "TreasuryUpdated"),),
-        (old.clone(), new.clone()),
+        (old.clone(), new.clone(), updated_by.clone()),
     );
 }
 

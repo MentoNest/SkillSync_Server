@@ -15,11 +15,11 @@ pub fn split_fee(amount: i128, fee_bps: u32) -> Result<(i128, i128), ContractErr
         return Err(ContractError::InvalidAmount);
     }
     if fee_bps as i128 > BPS_DENOMINATOR {
-        return Err(ContractError::InvalidFee);
+        return Err(ContractError::FeeTooHigh);
     }
     let fee = amount
         .checked_mul(fee_bps as i128)
-        .ok_or(ContractError::ArithmeticOverflow)?
+        .ok_or(ContractError::Overflow)?
         / BPS_DENOMINATOR;
     Ok((amount - fee, fee))
 }
@@ -101,10 +101,10 @@ mod tests {
     #[test]
     fn invalid_inputs_are_rejected() {
         assert_eq!(split_fee(-1, 100), Err(ContractError::InvalidAmount));
-        assert_eq!(split_fee(100, 10_001), Err(ContractError::InvalidFee));
+        assert_eq!(split_fee(100, 10_001), Err(ContractError::FeeTooHigh));
         assert_eq!(
             split_fee(i128::MAX, 2),
-            Err(ContractError::ArithmeticOverflow)
+            Err(ContractError::Overflow)
         );
     }
 
