@@ -1,6 +1,9 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, token, Address, BytesN, Env};
+use soroban_sdk::{
+    testutils::Address as _, testutils::Events, token, Address, BytesN, Env, Symbol, TryFromVal,
+    Val, Vec,
+};
 
 use crate::storage;
 use crate::types::{Session, SessionStatus};
@@ -45,6 +48,46 @@ pub fn setup() -> Fixture {
 
 pub fn session_id(env: &Env, seed: u8) -> BytesN<32> {
     BytesN::from_array(env, &[seed; 32])
+}
+
+/// True when the event's first topic is the symbol `name` - the contract's own
+/// events put the event name there.
+fn is_named(env: &Env, topics: &Vec<Val>, name: &str) -> bool {
+    match topics.first() {
+        Some(topic) => Symbol::try_from_val(env, &topic)
+            .map(|symbol| symbol == Symbol::new(env, name))
+            .unwrap_or(false),
+        None => false,
+    }
+}
+
+/// The `(topics, data)` of the first event named `name`; panics when the
+/// contract emitted no such event.
+///
+/// Filters by name because a call may also publish events from other contracts
+/// (token transfers, for instance) alongside the contract's own.
+pub fn event(env: &Env, name: &str) -> (Vec<Val>, Val) {
+    let all = env.events().all();
+    for i in 0..all.len() {
+        let (_, topics, data) = all.get(i).unwrap();
+        if is_named(env, &topics, name) {
+            return (topics, data);
+        }
+    }
+    panic!("event {} was never emitted", name);
+}
+
+/// How many times the contract emitted the event named `name`.
+pub fn event_count(env: &Env, name: &str) -> usize {
+    let all = env.events().all();
+    let mut count = 0;
+    for i in 0..all.len() {
+        let (_, topics, _) = all.get(i).unwrap();
+        if is_named(env, &topics, name) {
+            count += 1;
+        }
+    }
+    count
 }
 
 pub fn balance(f: &Fixture, who: &Address) -> i128 {
