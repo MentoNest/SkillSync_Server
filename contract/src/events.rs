@@ -57,17 +57,50 @@ pub fn emit_funds_locked(
     );
 }
 
-pub fn emit_session_completed(env: &Env, session_id: &BytesN<32>, seller: &Address) {
+/// Emit `SessionCompleted(session_id, seller, completed_at)`.
+///
+/// The seller emits it by calling `complete_session`, which is what starts the
+/// buyer's dispute window. `completed_at` is the ledger sequence number the
+/// session was completed at - the same unit `auto_refund` measures the window
+/// in, and the same value stored in `Session::completed_at` - not a wall-clock
+/// timestamp.
+pub fn emit_session_completed(
+    env: &Env,
+    session_id: &BytesN<32>,
+    seller: &Address,
+    completed_at: u64,
+) {
     env.events().publish(
         (Symbol::new(env, "SessionCompleted"), session_id.clone()),
-        seller.clone(),
+        (seller.clone(), completed_at),
     );
 }
 
-pub fn emit_session_approved(env: &Env, session_id: &BytesN<32>, payout: i128, fee: i128) {
+/// Emit `SessionApproved(session_id, buyer, seller, amount, fee, timestamp)`.
+///
+/// Sent by `approve_session`, the moment the buyer releases the escrow. Both
+/// parties are named because either may be the one watching. `amount` is the
+/// gross amount that was escrowed and `fee` the platform fee the treasury
+/// received, so the seller's net payout (`amount - fee`) is derivable without
+/// reading the session back. `timestamp` is the ledger timestamp of the
+/// approving ledger.
+pub fn emit_session_approved(
+    env: &Env,
+    session_id: &BytesN<32>,
+    buyer: &Address,
+    seller: &Address,
+    amount: i128,
+    fee: i128,
+) {
     env.events().publish(
         (Symbol::new(env, "SessionApproved"), session_id.clone()),
-        (payout, fee),
+        (
+            buyer.clone(),
+            seller.clone(),
+            amount,
+            fee,
+            env.ledger().timestamp(),
+        ),
     );
 }
 
@@ -110,10 +143,15 @@ pub fn emit_auto_refund_executed(
     );
 }
 
-pub fn emit_platform_fee_updated(env: &Env, old_bps: u32, new_bps: u32) {
+/// Emit `PlatformFeeUpdated(old_fee_bps, new_fee_bps, updated_by)`.
+///
+/// `updated_by` is the admin whose signature authorised the change, so an
+/// off-chain monitor can attribute every fee change to an account without
+/// replaying the transaction envelope. Both values are in basis points.
+pub fn emit_platform_fee_updated(env: &Env, old_bps: u32, new_bps: u32, updated_by: &Address) {
     env.events().publish(
         (Symbol::new(env, "PlatformFeeUpdated"),),
-        (old_bps, new_bps),
+        (old_bps, new_bps, updated_by.clone()),
     );
 }
 
@@ -147,16 +185,31 @@ pub fn emit_dispute_opened(env: &Env, session_id: &BytesN<32>, opened_by: &Addre
     );
 }
 
+/// Emit `DisputeResolved(session_id, resolver, buyer_share, seller_share, fee, timestamp)`.
+///
+/// The closing event of a dispute: the shares are what each side actually
+/// received, already net of the platform fee taken from that share, and `fee`
+/// is the total fee the treasury received from both shares. So
+/// `buyer_share + seller_share + fee` is exactly the amount that was escrowed
+/// and the event shows the final distribution in full. `resolver` is the admin
+/// whose signature settled the dispute; `timestamp` is the ledger timestamp of
+/// the resolving ledger.
 pub fn emit_dispute_resolved(
     env: &Env,
     session_id: &BytesN<32>,
-    resolution: u32,
-    buyer_payout: i128,
-    seller_payout: i128,
+    resolver: &Address,
+    buyer_share: i128,
+    seller_share: i128,
     fee: i128,
 ) {
     env.events().publish(
         (Symbol::new(env, "DisputeResolved"), session_id.clone()),
-        (resolution, buyer_payout, seller_payout, fee),
+        (
+            resolver.clone(),
+            buyer_share,
+            seller_share,
+            fee,
+            env.ledger().timestamp(),
+        ),
     );
 }

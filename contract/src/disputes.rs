@@ -125,14 +125,9 @@ impl SkillSyncEscrow {
         let fee = buyer_fee + seller_fee;
         fees::pay_fee(&env, fee)?;
 
-        events::emit_dispute_resolved(
-            &env,
-            &session_id,
-            resolution,
-            buyer_payout,
-            seller_payout,
-            fee,
-        );
+        // The event reports who resolved the dispute and how the escrow was
+        // finally split: what each side received, plus the fee taken from both
+        events::emit_dispute_resolved(&env, &session_id, &admin, buyer_payout, seller_payout, fee);
         Ok(())
     }
 }
@@ -140,7 +135,7 @@ impl SkillSyncEscrow {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{balance, seed_session, session_id, setup, Fixture};
+    use crate::test_utils::{balance, event, seed_session, session_id, setup, Fixture};
     use soroban_sdk::testutils::{Address as _, Events, Ledger};
     use soroban_sdk::{IntoVal, Symbol};
 
@@ -321,17 +316,21 @@ mod tests {
         set_fee(&f, 1_000); // 10%
         let id = disputed(&f, 14, 1_000);
         let buyer_before = balance(&f, &f.buyer);
+        f.env.ledger().with_mut(|l| l.timestamp = 1_700_000_000);
 
         f.client.resolve_dispute(&id, &RESOLUTION_SPLIT, &300, &700);
 
-        // The DisputeResolved event reports (resolution, buyer payout, seller payout, total fee)
-        let (_, topics, data) = f.env.events().all().last().unwrap();
+        // The DisputeResolved event names the resolver and the final
+        // distribution: what each side received plus the total fee taken
+        let (topics, data) = event(&f.env, "DisputeResolved");
         assert_eq!(
             topics,
             (Symbol::new(&f.env, "DisputeResolved"), id.clone()).into_val(&f.env)
         );
-        let data: (u32, i128, i128, i128) = data.into_val(&f.env);
-        assert_eq!(data, (RESOLUTION_SPLIT, 270, 630, 100));
+        let data: (Address, i128, i128, i128, u64) = data.into_val(&f.env);
+        assert_eq!(data, (f.admin.clone(), 270, 630, 100, 1_700_000_000));
+        // The parts add up to the escrowed amount: nothing lost, nothing created
+        assert_eq!(270 + 630 + 100, 1_000);
 
         assert_eq!(balance(&f, &f.buyer), buyer_before + 270);
         assert_eq!(balance(&f, &f.seller), 630);
