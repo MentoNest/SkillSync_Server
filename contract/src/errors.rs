@@ -7,8 +7,8 @@ use soroban_sdk::contracterror;
 ///
 /// The numeric code is part of the contract's ABI: a failed invocation surfaces
 /// it on-chain as `ScError::Contract(code)`, so a code must never be reused for
-/// a different meaning and existing values must not be renumbered. The full
-/// table is documented in `ERROR_CODES.md`; keep the two in sync.
+/// a different meaning. The full table is documented in `ERROR_CODES.md`; keep
+/// the two in sync.
 ///
 /// Codes are grouped in bands so a new error can be added without touching the
 /// codes of its neighbours:
@@ -16,10 +16,12 @@ use soroban_sdk::contracterror;
 /// | Band      | Purpose                                   |
 /// |-----------|-------------------------------------------|
 /// | 100 – 119 | initialization                            |
-/// | 120 – 139 | authorization                             |
-/// | 140 – 159 | input validation                          |
-/// | 160 – 179 | session state                             |
-/// | 180 – 199 | configuration and arithmetic              |
+/// | 200 – 219 | authorization                             |
+/// | 300 – 319 | session validation                        |
+/// | 400 – 419 | financial validation                      |
+/// | 500 – 519 | timeout and dispute                       |
+/// | 600 – 619 | upgrade                                   |
+/// | 700 – 719 | configuration                             |
 // `contracterror` must come before the derives so the macro sees the enum
 // as written and can add its own trait implementations.
 #[contracterror]
@@ -42,46 +44,66 @@ pub enum ContractError {
     /// The treasury address is the zero address, which can never receive fees.
     InvalidTreasury = 103,
 
-    // ── Authorization (120-139) ──────────────────────────────────────────
+    // ── Authorization (200-219) ──────────────────────────────────────────
     // Errors raised when the caller lacks permission for an action.
-    /// The caller is not allowed to perform this action.
-    Unauthorized = 120,
-    /// Only the session's buyer or seller may do this.
-    NotAParticipant = 121,
+    /// Generic unauthorized access: the caller may not perform this action.
+    Unauthorized = 200,
+    /// The caller is not the stored contract admin.
+    NotAdmin = 201,
+    /// The caller is not the session's buyer.
+    NotBuyer = 202,
+    /// The caller is not the session's seller.
+    NotSeller = 203,
+    /// The caller is neither the session's buyer nor its seller.
+    NotAParticipant = 204,
 
-    // ── Input validation (140-159) ───────────────────────────────────────
-    // Errors raised when arguments passed by the caller are out of range
-    // or inconsistent. These are checked before any state is changed.
-    /// An amount must be greater than zero.
-    InvalidAmount = 140,
-    /// The platform fee must be between 0 and 1000 basis points.
-    /// (1000 bps = 10%, so this caps the fee at 10% of the session amount.)
-    InvalidFee = 141,
-    /// The dispute window must be greater than zero ledgers.
-    InvalidWindow = 142,
-    /// Dispute shares are negative or do not add up to the session amount.
-    InvalidShares = 143,
-    /// `resolution` is not a known outcome, or does not match the shares.
-    InvalidResolution = 144,
-
-    // ── Session state (160-179) ──────────────────────────────────────────
-    // Errors raised when an action does not fit the current state of a
-    // session (or the session does not exist at all).
-    /// A session with this id already exists (ids are never reused).
-    DuplicateSessionId = 160,
+    // ── Session validation (300-319) ─────────────────────────────────────
+    // Errors raised when an operation does not fit the session it targets:
+    // the session is missing, duplicated, or in the wrong state, or it has
+    // already reached the state the operation tries to reach. These are all
+    // detected before any state is changed.
     /// No session exists for this id.
-    SessionNotFound = 161,
-    /// The session is not in the status this action requires.
-    InvalidStatus = 162,
-    /// The dispute window has not elapsed yet.
-    DisputeWindowOpen = 163,
+    SessionNotFound = 300,
+    /// A session with this id already exists (ids are never reused).
+    DuplicateSessionId = 301,
+    /// The operation is not allowed in the session's current state.
+    InvalidSessionState = 302,
+    /// The session was already completed and cannot be completed again.
+    SessionAlreadyCompleted = 303,
+    /// The session was already approved and cannot be approved again.
+    SessionAlreadyApproved = 304,
+    /// The session was already refunded and cannot be refunded again.
+    SessionAlreadyRefunded = 305,
+    /// The session is in dispute, so no normal settlement path may touch it.
+    SessionInDispute = 306,
 
-    // ── Configuration and arithmetic (180-199) ───────────────────────────
-    // Errors raised by missing admin configuration or failed safe math.
+    // ── Financial validation (400-419) ───────────────────────────────────
+    // Errors raised when amounts, balances, fees or arithmetic are invalid.
+    // These are checked before any token leaves the contract.
+    /// An amount must be greater than zero.
+    InvalidAmount = 400,
+    /// The payer does not hold enough of the payment token.
+    InsufficientBalance = 401,
+    /// The fee exceeds the maximum of 1000 basis points (10%).
+    FeeTooHigh = 402,
+    /// Dispute shares are negative or do not add up to the session amount.
+    InvalidSplit = 403,
+    /// An arithmetic operation overflowed instead of wrapping.
+    Overflow = 404,
+    /// `resolution` is not a known outcome, or does not match the shares.
+    InvalidResolution = 405,
+
+    // ── Timeout and dispute (500-519) ────────────────────────────────────
+    /// The dispute window has not elapsed yet, so `auto_refund` is refused.
+    DisputeWindowOpen = 500,
+
+    // ── Configuration (700-719) ──────────────────────────────────────────
+    // Errors raised when the stored contract configuration is missing or
+    // the value an admin tries to store is invalid.
+    /// The dispute window must be greater than zero ledgers.
+    InvalidWindow = 700,
     /// The payment token has not been configured by the admin.
-    TokenNotConfigured = 180,
-    /// A fee calculation overflowed.
-    ArithmeticOverflow = 181,
+    TokenNotConfigured = 701,
 }
 
 // Compiled only when running `cargo test`; not part of the deployed contract.
@@ -93,40 +115,60 @@ mod tests {
 
     /// Every variant, so the tests below cannot silently miss a new one.
     /// The array length is part of the type, so adding a variant to the enum
-    /// without updating this list and the `17` will not go unnoticed by
+    /// without updating this list and the `25` will not go unnoticed by
     /// reviewers: update both together.
-    const ALL: [ContractError; 17] = [
+    const ALL: [ContractError; 25] = [
         ContractError::AlreadyInitialized,
         ContractError::NotInitialized,
         ContractError::InvalidAdmin,
         ContractError::InvalidTreasury,
         ContractError::Unauthorized,
+        ContractError::NotAdmin,
+        ContractError::NotBuyer,
+        ContractError::NotSeller,
         ContractError::NotAParticipant,
-        ContractError::InvalidAmount,
-        ContractError::InvalidFee,
-        ContractError::InvalidWindow,
-        ContractError::InvalidShares,
-        ContractError::InvalidResolution,
-        ContractError::DuplicateSessionId,
         ContractError::SessionNotFound,
-        ContractError::InvalidStatus,
+        ContractError::DuplicateSessionId,
+        ContractError::InvalidSessionState,
+        ContractError::SessionAlreadyCompleted,
+        ContractError::SessionAlreadyApproved,
+        ContractError::SessionAlreadyRefunded,
+        ContractError::SessionInDispute,
+        ContractError::InvalidAmount,
+        ContractError::InsufficientBalance,
+        ContractError::FeeTooHigh,
+        ContractError::InvalidSplit,
+        ContractError::Overflow,
+        ContractError::InvalidResolution,
         ContractError::DisputeWindowOpen,
+        ContractError::InvalidWindow,
         ContractError::TokenNotConfigured,
-        ContractError::ArithmeticOverflow,
+    ];
+
+    /// The bands a code may live in, as `(first, last)` inclusive ranges.
+    /// A new band must be added here together with the enum and the spec.
+    const BANDS: [(u32, u32); 7] = [
+        (100, 119), // initialization
+        (200, 219), // authorization
+        (300, 319), // session validation
+        (400, 419), // financial validation
+        (500, 519), // timeout and dispute
+        (600, 619), // upgrade
+        (700, 719), // configuration
     ];
 
     // Guards against two errors accidentally sharing a code, which would make
-    // them indistinguishable to clients, and against codes leaving the range
-    // this project allows (0-255).
+    // them indistinguishable to clients, and against codes drifting outside
+    // the documented bands.
     #[test]
-    fn every_code_is_unique_and_fits_in_a_u8() {
+    fn every_code_is_unique_and_lies_in_its_band() {
         for (i, error) in ALL.iter().enumerate() {
             // Casting a fieldless `#[repr(u32)]` enum with `as` yields its
             // discriminant, i.e. the on-chain code.
             let code = *error as u32;
             assert!(
-                code <= u8::MAX as u32,
-                "{error:?} code {code} is out of 0-255"
+                BANDS.iter().any(|&(first, last)| (first..=last).contains(&code)),
+                "{error:?} code {code} is outside every documented band"
             );
             // Compare only against later entries (`i + 1..`) so each pair is
             // checked exactly once and no variant is compared with itself.
@@ -147,6 +189,39 @@ mod tests {
         assert_eq!(ContractError::NotInitialized as u32, 101);
         assert_eq!(ContractError::InvalidAdmin as u32, 102);
         assert_eq!(ContractError::InvalidTreasury as u32, 103);
+    }
+
+    // Error codes 200-204: who is allowed to make the call.
+    #[test]
+    fn authorization_codes_match_the_spec() {
+        assert_eq!(ContractError::Unauthorized as u32, 200);
+        assert_eq!(ContractError::NotAdmin as u32, 201);
+        assert_eq!(ContractError::NotBuyer as u32, 202);
+        assert_eq!(ContractError::NotSeller as u32, 203);
+        assert_eq!(ContractError::NotAParticipant as u32, 204);
+    }
+
+    // Error codes 300-306: the session does not exist or is in the wrong state.
+    #[test]
+    fn session_codes_match_the_spec() {
+        assert_eq!(ContractError::SessionNotFound as u32, 300);
+        assert_eq!(ContractError::DuplicateSessionId as u32, 301);
+        assert_eq!(ContractError::InvalidSessionState as u32, 302);
+        assert_eq!(ContractError::SessionAlreadyCompleted as u32, 303);
+        assert_eq!(ContractError::SessionAlreadyApproved as u32, 304);
+        assert_eq!(ContractError::SessionAlreadyRefunded as u32, 305);
+        assert_eq!(ContractError::SessionInDispute as u32, 306);
+    }
+
+    // Error codes 400-405: amounts, balances, fees, splits and arithmetic.
+    #[test]
+    fn financial_codes_match_the_spec() {
+        assert_eq!(ContractError::InvalidAmount as u32, 400);
+        assert_eq!(ContractError::InsufficientBalance as u32, 401);
+        assert_eq!(ContractError::FeeTooHigh as u32, 402);
+        assert_eq!(ContractError::InvalidSplit as u32, 403);
+        assert_eq!(ContractError::Overflow as u32, 404);
+        assert_eq!(ContractError::InvalidResolution as u32, 405);
     }
 
     // Verifies the macro-generated conversion: each error must become a

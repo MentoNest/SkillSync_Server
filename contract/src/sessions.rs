@@ -117,6 +117,23 @@ mod tests {
         );
     }
 
+    // The buyer's balance is checked before any transfer, so an underfunded
+    // escrow reports the contract's own code and moves nothing
+    #[test]
+    fn lock_funds_reports_an_insufficient_balance() {
+        let f = setup();
+        let id = session_id(&f.env, 7);
+        assert_eq!(
+            f.client.try_lock_funds(&id, &f.buyer, &f.seller, &1_000_001),
+            Err(Ok(ContractError::InsufficientBalance))
+        );
+        assert_eq!(balance(&f, &f.buyer), 1_000_000);
+        assert_eq!(
+            f.client.try_get_session(&id),
+            Err(Ok(ContractError::SessionNotFound))
+        );
+    }
+
     #[test]
     fn duplicate_session_ids_are_rejected() {
         let f = setup();

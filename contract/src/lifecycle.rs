@@ -12,12 +12,28 @@ pub(crate) fn load(env: &Env, id: &BytesN<32>) -> Result<Session, ContractError>
     storage::get_session(env, id).ok_or(ContractError::SessionNotFound)
 }
 
+// Picks the error that explains why a status check failed.
+//
+// A session that has already reached a final state gets its own code, so a
+// client can tell "this was already done" (303-305) apart from "this step is
+// out of order" (302). A disputed session reports 306, because no normal
+// settlement path may touch it while the admin is deciding the outcome.
+pub(crate) fn status_error(current: SessionStatus) -> ContractError {
+    match current {
+        SessionStatus::Completed => ContractError::SessionAlreadyCompleted,
+        SessionStatus::Approved => ContractError::SessionAlreadyApproved,
+        SessionStatus::Refunded => ContractError::SessionAlreadyRefunded,
+        SessionStatus::Disputed => ContractError::SessionInDispute,
+        SessionStatus::Locked | SessionStatus::Resolved => ContractError::InvalidSessionState,
+    }
+}
+
 // Guard used by every state transition: the session must currently be in the expected status
 pub(crate) fn require_status(session: &Session, expected: SessionStatus) -> Result<(), ContractError> {
     if session.status == expected {
         Ok(())
     } else {
-        Err(ContractError::InvalidStatus)
+        Err(status_error(session.status))
     }
 }
 
@@ -149,7 +165,11 @@ mod tests {
         let id = session_id(&f.env, 2);
         seed_session(&f, &id, SessionStatus::Locked, 1_000, 0);
         f.client.complete_session(&id);
-        assert_eq!(f.client.try_complete_session(&id), Err(Ok(ContractError::InvalidStatus)));
+        // A second completion reports the dedicated "already completed" code
+        assert_eq!(
+            f.client.try_complete_session(&id),
+            Err(Ok(ContractError::SessionAlreadyCompleted))
+        );
     }
 
     // Clearing all mocked auths removes the seller's signature, so the call must fail
@@ -196,7 +216,24 @@ mod tests {
         let f = setup();
         let id = session_id(&f.env, 6);
         seed_session(&f, &id, SessionStatus::Locked, 1_000, 0);
-        assert_eq!(f.client.try_approve_session(&id), Err(Ok(ContractError::InvalidStatus)));
+        // Out of order rather than already done, so the generic state code applies
+        assert_eq!(
+            f.client.try_approve_session(&id),
+            Err(Ok(ContractError::InvalidSessionState))
+        );
+    }
+
+    // Approving twice reports the dedicated "already approved" code
+    #[test]
+    fn approve_session_cannot_repeat() {
+        let f = setup();
+        let id = session_id(&f.env, 13);
+        seed_session(&f, &id, SessionStatus::Completed, 1_000, 10);
+        f.client.approve_session(&id);
+        assert_eq!(
+            f.client.try_approve_session(&id),
+            Err(Ok(ContractError::SessionAlreadyApproved))
+        );
     }
 
     // With no fee configured (the fixture's default), the seller gets the full amount
@@ -230,12 +267,18 @@ mod tests {
         let f = setup();
         let completed = session_id(&f.env, 9);
         seed_session(&f, &completed, SessionStatus::Completed, 1_000, 10);
-        assert_eq!(f.client.try_refund_session(&completed), Err(Ok(ContractError::InvalidStatus)));
+        assert_eq!(
+            f.client.try_refund_session(&completed),
+            Err(Ok(ContractError::SessionAlreadyCompleted))
+        );
 
         let locked = session_id(&f.env, 10);
         seed_session(&f, &locked, SessionStatus::Locked, 1_000, 0);
         f.client.refund_session(&locked);
-        assert_eq!(f.client.try_refund_session(&locked), Err(Ok(ContractError::InvalidStatus)));
+        assert_eq!(
+            f.client.try_refund_session(&locked),
+            Err(Ok(ContractError::SessionAlreadyRefunded))
+        );
     }
 
     // Boundary test for the dispute window (the 1,000-ledger window is the fixture default)
@@ -320,6 +363,9 @@ mod tests {
         let id = session_id(&f.env, 12);
         seed_session(&f, &id, SessionStatus::Locked, 1_000, 0);
         set_ledger(&f, 100_000);
-        assert_eq!(f.client.try_auto_refund(&id), Err(Ok(ContractError::InvalidStatus)));
+        assert_eq!(
+            f.client.try_auto_refund(&id),
+            Err(Ok(ContractError::InvalidSessionState))
+        );
     }
 }

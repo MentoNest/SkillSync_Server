@@ -9,8 +9,16 @@ fn token_client(env: &Env) -> Result<token::Client<'_>, ContractError> {
 }
 
 /// Moves `amount` of the payment token from `from` into the contract.
+///
+/// The balance is checked first so an underfunded payer gets the contract's
+/// own `InsufficientBalance` code instead of an opaque abort raised from
+/// inside the token contract.
 pub fn pull_in(env: &Env, from: &Address, amount: i128) -> Result<(), ContractError> {
-    token_client(env)?.transfer(from, &env.current_contract_address(), &amount);
+    let client = token_client(env)?;
+    if client.balance(from) < amount {
+        return Err(ContractError::InsufficientBalance);
+    }
+    client.transfer(from, &env.current_contract_address(), &amount);
     Ok(())
 }
 

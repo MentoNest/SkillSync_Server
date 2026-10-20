@@ -7,44 +7,82 @@ of `skillsync-escrow` returns. Because `#[contracterror]` derives
 
 The numeric codes are part of the public ABI:
 
-- every code is unique and fits in a `u8` (0–255);
-- a code is never renumbered or reused for a different meaning — add a new
-  variant in the matching band instead.
+- every code is unique;
+- a code is never reused for a different meaning — add a new variant in the
+  matching band instead;
+- renumbering an existing variant is a breaking change for every client.
 
 ## Bands
 
 | Range     | Purpose                      |
 |-----------|------------------------------|
 | 100 – 119 | initialization               |
-| 120 – 139 | authorization                |
-| 140 – 159 | input validation             |
-| 160 – 179 | session state                |
-| 180 – 199 | configuration and arithmetic |
+| 200 – 219 | authorization                |
+| 300 – 319 | session validation           |
+| 400 – 419 | financial validation         |
+| 500 – 519 | timeout and dispute          |
+| 600 – 619 | upgrade                      |
+| 700 – 719 | configuration                |
 
 ## Codes
 
-| Code | Variant               | Meaning                                                                 | Returned by                                                     |
-|------|-----------------------|-------------------------------------------------------------------------|-----------------------------------------------------------------|
-| 100  | `AlreadyInitialized`  | `initialize` has already been called; re-initialization is rejected.    | `initialize`                                                    |
-| 101  | `NotInitialized`      | An admin-gated entry point ran before `initialize`.                     | `upgrade`, `set_platform_fee`, `set_treasury`, `set_dispute_window`, `get_treasury`, `set_token`, `resolve_dispute` |
-| 102  | `InvalidAdmin`        | The admin address is the zero address, so it could never sign.          | `initialize`                                                    |
-| 103  | `InvalidTreasury`     | The treasury address is the zero address, so fees would be unclaimable. | `initialize`                                                    |
-| 120  | `Unauthorized`        | The caller is not allowed to perform the action.                        | reserved for auth helpers                                       |
-| 121  | `NotAParticipant`     | Only the session's buyer or seller may do this.                         | `open_dispute`                                                  |
-| 140  | `InvalidAmount`       | An amount must be greater than zero.                                    | `lock_funds`                                                    |
-| 141  | `InvalidFee`          | The platform fee must be between 0 and 1000 bps.                        | `set_platform_fee`                                              |
-| 142  | `InvalidWindow`       | The dispute window must be greater than zero ledgers.                   | `set_dispute_window`                                            |
-| 143  | `InvalidShares`       | Dispute shares are negative or do not add up to the escrowed amount.    | `resolve_dispute`                                               |
-| 144  | `InvalidResolution`   | `resolution` is unknown or does not match the shares.                   | `resolve_dispute`                                               |
-| 160  | `DuplicateSessionId`  | A session with this id already exists (ids are never reused).           | `lock_funds`                                                    |
-| 161  | `SessionNotFound`     | No session exists for this id.                                          | `get_session`, lifecycle and dispute entry points               |
-| 162  | `InvalidStatus`       | The session is not in the status the action requires.                   | `complete_session`, `approve_session`, `refund_session`, `auto_refund`, `open_dispute`, `resolve_dispute` |
-| 163  | `DisputeWindowOpen`   | The dispute window has not elapsed yet.                                 | `auto_refund`                                                   |
-| 180  | `TokenNotConfigured`  | The payment token has not been configured by the admin.                 | `lock_funds` and payout paths                                   |
-| 181  | `ArithmeticOverflow`  | A fee or payout calculation overflowed.                                 | fee helpers, `resolve_dispute`                                  |
+| Code | Variant                     | Meaning                                                                 | Returned by                                                     |
+|------|-----------------------------|-------------------------------------------------------------------------|-----------------------------------------------------------------|
+| 100  | `AlreadyInitialized`        | `initialize` has already been called; re-initialization is rejected.    | `initialize`                                                    |
+| 101  | `NotInitialized`            | An admin-gated entry point ran before `initialize`.                     | `upgrade`, `set_platform_fee`, `set_treasury`, `set_dispute_window`, `get_treasury`, `resolve_dispute` |
+| 102  | `InvalidAdmin`              | The admin address is the zero address, so it could never sign.          | `initialize`                                                    |
+| 103  | `InvalidTreasury`           | The treasury address is the zero address, so fees would be unclaimable. | `initialize`                                                    |
+| 200  | `Unauthorized`              | Generic unauthorized access: the caller may not perform the action.     | role guards                                                     |
+| 201  | `NotAdmin`                  | The caller is not the stored contract admin.                            | role guards                                                     |
+| 202  | `NotBuyer`                  | The caller is not the session's buyer.                                  | role guards                                                     |
+| 203  | `NotSeller`                 | The caller is not the session's seller.                                 | role guards                                                     |
+| 204  | `NotAParticipant`           | The caller is neither the session's buyer nor its seller.               | `open_dispute`                                                  |
+| 300  | `SessionNotFound`           | No session exists for this id.                                          | `get_session`, lifecycle and dispute entry points               |
+| 301  | `DuplicateSessionId`        | A session with this id already exists (ids are never reused).           | `lock_funds`                                                    |
+| 302  | `InvalidSessionState`       | The operation is not allowed in the session's current state.            | lifecycle and dispute entry points, `validate_resolution` callers |
+| 303  | `SessionAlreadyCompleted`   | The session was already completed and cannot be completed again.        | `complete_session`, `refund_session`, `resolve_dispute`, `open_dispute` |
+| 304  | `SessionAlreadyApproved`    | The session was already approved and cannot be approved again.          | `approve_session`, `open_dispute`                               |
+| 305  | `SessionAlreadyRefunded`    | The session was already refunded and cannot be refunded again.          | `refund_session`, `auto_refund`, `open_dispute`                 |
+| 306  | `SessionInDispute`          | The session is in dispute, so no normal settlement path may touch it.   | `complete_session`, `approve_session`, `refund_session`, `auto_refund`, `open_dispute` |
+| 400  | `InvalidAmount`             | An amount is zero or negative.                                          | `lock_funds`, `split_fee`                                       |
+| 401  | `InsufficientBalance`       | The payer does not hold enough of the payment token.                    | `lock_funds` (checked before the transfer)                      |
+| 402  | `FeeTooHigh`                | The fee exceeds the maximum of 1000 basis points (10%).                 | `set_platform_fee`, `split_fee`                                 |
+| 403  | `InvalidSplit`              | Dispute shares are negative or do not add up to the session amount.     | `resolve_dispute`                                               |
+| 404  | `Overflow`                  | An arithmetic operation overflowed instead of wrapping.                 | fee helpers, `resolve_dispute`                                  |
+| 405  | `InvalidResolution`         | `resolution` is unknown or does not match the shares.                   | `resolve_dispute`                                               |
+| 500  | `DisputeWindowOpen`         | The dispute window has not elapsed yet.                                 | `auto_refund`                                                   |
+| 700  | `InvalidWindow`             | The dispute window must be greater than zero ledgers.                   | `set_dispute_window`                                            |
+| 701  | `TokenNotConfigured`        | The payment token has not been configured by the admin.                 | `lock_funds` and payout paths                                   |
 
-Codes 0–99 and 104–119, 122–139, 145–159, 164–179 and 182–199 are reserved for
-future errors in their band and must not be assigned ad hoc.
+Codes 0–99, 104–119, 205–219, 307–319, 406–419, 501–519, 600–699 and 702–719
+are reserved for future errors in their band and must not be assigned ad hoc.
+
+## Authorization errors
+
+Codes 200–203 belong to the ABI so a client can tell "wrong role" apart from a
+plain signature failure. Entry points that know which address must have signed
+authenticate with `require_auth` on that stored address (`admin.require_auth()`,
+`session.buyer.require_auth()`, ...): a missing signature is rejected by the
+host as an authorization failure and never reaches contract code, so those
+paths cannot return a contract error code. `open_dispute` is the entry point
+that receives the caller explicitly and it uses 204 when the caller is neither
+party to the session.
+
+## Session state errors
+
+`require_status` picks the most specific code for a failed transition:
+
+| Current status | Code returned                          |
+|----------------|----------------------------------------|
+| `Completed`    | 303 `SessionAlreadyCompleted`          |
+| `Approved`     | 304 `SessionAlreadyApproved`           |
+| `Refunded`     | 305 `SessionAlreadyRefunded`           |
+| `Disputed`     | 306 `SessionInDispute`                 |
+| `Locked`       | 302 `InvalidSessionState`              |
+| `Resolved`     | 302 `InvalidSessionState`              |
+
+This lets a client tell "already done" apart from "this step is out of order"
+without parsing an error string.
 
 ## Zero address
 

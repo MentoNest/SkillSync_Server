@@ -20,7 +20,7 @@ impl SkillSyncEscrow {
         let admin = admin::require_admin(&env)?;
         admin.require_auth();
         if new_fee_bps > MAX_PLATFORM_FEE_BPS {
-            return Err(ContractError::InvalidFee);
+            return Err(ContractError::FeeTooHigh);
         }
         // Read the previous value so the event can report the change
         let old = storage::get_platform_fee(&env);
@@ -42,7 +42,8 @@ impl SkillSyncEscrow {
         // Also doubles as an initialization check: errors if no treasury was ever set
         let old = admin::require_treasury(&env)?;
         storage::set_treasury(&env, &new_treasury);
-        events::emit_treasury_updated(&env, &old, &new_treasury);
+        // The event records the signing admin as well as both wallets
+        events::emit_treasury_updated(&env, &old, &new_treasury, &admin);
         Ok(())
     }
 
@@ -76,7 +77,8 @@ impl SkillSyncEscrow {
 mod tests {
     use super::*;
     use crate::test_utils::setup;
-    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::testutils::{Address as _, Events};
+    use soroban_sdk::{IntoVal, Symbol};
 
     // A freshly initialized contract charges no fee until the admin sets one
     #[test]
@@ -92,7 +94,10 @@ mod tests {
     fn platform_fee_is_capped_at_ten_percent() {
         let f = setup();
         f.client.set_platform_fee(&1000);
-        assert_eq!(f.client.try_set_platform_fee(&1001), Err(Ok(ContractError::InvalidFee)));
+        assert_eq!(
+            f.client.try_set_platform_fee(&1001),
+            Err(Ok(ContractError::FeeTooHigh))
+        );
         assert_eq!(f.client.get_platform_fee(), 1000);
     }
 
@@ -114,6 +119,23 @@ mod tests {
         let next = Address::generate(&f.env);
         f.client.set_treasury(&next);
         assert_eq!(f.client.get_treasury(), next);
+    }
+
+    // The TreasuryUpdated event names both wallets and the admin who signed the change
+    #[test]
+    fn set_treasury_emits_both_wallets_and_the_admin() {
+        let f = setup();
+        let old = f.treasury.clone();
+        let next = Address::generate(&f.env);
+        f.client.set_treasury(&next);
+
+        let (_, topics, data) = f.env.events().all().last().unwrap();
+        assert_eq!(
+            topics,
+            (Symbol::new(&f.env, "TreasuryUpdated"),).into_val(&f.env)
+        );
+        let data: (Address, Address, Address) = data.into_val(&f.env);
+        assert_eq!(data, (old, next, f.admin.clone()));
     }
 
     // Default is 1000 ledgers (about 83 minutes); the admin can change it
