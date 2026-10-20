@@ -55,7 +55,9 @@ impl SkillSyncEscrow {
         session.completed_at = env.ledger().sequence() as u64;
         storage::save_session(&env, &session_id, &session);
 
-        events::emit_session_completed(&env, &session_id, &session.seller);
+        // The event carries the ledger sequence just recorded, so subscribers
+        // can compute when the dispute window closes without reading storage
+        events::emit_session_completed(&env, &session_id, &session.seller, session.completed_at);
         Ok(())
     }
 
@@ -72,10 +74,21 @@ impl SkillSyncEscrow {
         session.status = SessionStatus::Approved;
         storage::save_session(&env, &session_id, &session);
 
-        // Pays the seller net of fee and sends the fee to the treasury
-        let (payout, fee) = fees::settle_with_fee(&env, &session.seller, session.amount)?;
+        // Pays the seller net of fee and sends the fee to the treasury. The
+        // event publishes the gross amount and the fee, so the seller's net
+        // payout (`amount - fee`) is derivable off-chain.
+        let (_, fee) = fees::settle_with_fee(&env, &session.seller, session.amount)?;
 
-        events::emit_session_approved(&env, &session_id, payout, fee);
+        // Both parties, the gross amount, the fee and the net payout the seller
+        // was actually paid are all published by the event
+        events::emit_session_approved(
+            &env,
+            &session_id,
+            &session.buyer,
+            &session.seller,
+            session.amount,
+            fee,
+        );
         Ok(())
     }
 
@@ -172,6 +185,27 @@ mod tests {
         );
     }
 
+    // Completing publishes the seller and the ledger sequence the session completed at
+    #[test]
+    fn complete_session_emits_the_seller_and_the_completion_sequence() {
+        let f = setup();
+        let id = session_id(&f.env, 15);
+        seed_session(&f, &id, SessionStatus::Locked, 1_000, 0);
+        set_ledger(&f, 50);
+
+        f.client.complete_session(&id);
+
+        let (topics, data) = event(&f.env, "SessionCompleted");
+        assert_eq!(
+            topics,
+            (Symbol::new(&f.env, "SessionCompleted"), id.clone()).into_val(&f.env)
+        );
+        // What the event reports is exactly what the session stored
+        let data: (Address, u64) = data.into_val(&f.env);
+        assert_eq!(data, (f.seller.clone(), 50));
+        assert_eq!(f.client.get_session(&id).completed_at, 50);
+    }
+
     // Clearing all mocked auths removes the seller's signature, so the call must fail
     #[test]
     fn only_the_seller_can_complete() {
@@ -208,6 +242,39 @@ mod tests {
         assert_eq!(balance(&f, &f.treasury), 250);
         assert_eq!(balance(&f, &f.contract_id), 0);
         assert_eq!(f.client.get_session(&id).status, SessionStatus::Approved);
+    }
+
+    // Approving publishes both parties, the gross amount, the fee and the timestamp
+    #[test]
+    fn approve_session_emits_both_parties_the_gross_amount_and_the_fee() {
+        let f = setup();
+        f.env
+            .as_contract(&f.contract_id, || storage::set_platform_fee(&f.env, 250)); // 2.5%
+        f.env.ledger().with_mut(|l| l.timestamp = 1_700_000_000);
+        let id = session_id(&f.env, 16);
+        seed_session(&f, &id, SessionStatus::Completed, 10_000, 10);
+
+        f.client.approve_session(&id);
+
+        let (topics, data) = event(&f.env, "SessionApproved");
+        assert_eq!(
+            topics,
+            (Symbol::new(&f.env, "SessionApproved"), id.clone()).into_val(&f.env)
+        );
+        // 10,000 gross minus the 250 fee leaves the seller 9,750, which is
+        // what the transfer above actually paid out
+        let data: (Address, Address, i128, i128, u64) = data.into_val(&f.env);
+        assert_eq!(
+            data,
+            (
+                f.buyer.clone(),
+                f.seller.clone(),
+                10_000,
+                250,
+                1_700_000_000
+            )
+        );
+        assert_eq!(balance(&f, &f.seller), 10_000 - 250);
     }
 
     // The seller hasn't delivered yet (still Locked), so approval is rejected

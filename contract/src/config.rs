@@ -25,7 +25,8 @@ impl SkillSyncEscrow {
         // Read the previous value so the event can report the change
         let old = storage::get_platform_fee(&env);
         storage::set_platform_fee(&env, new_fee_bps);
-        events::emit_platform_fee_updated(&env, old, new_fee_bps);
+        // The event names the signing admin as well as both fee values
+        events::emit_platform_fee_updated(&env, old, new_fee_bps, &admin);
         Ok(())
     }
 
@@ -87,6 +88,23 @@ mod tests {
         assert_eq!(f.client.get_platform_fee(), 0);
         f.client.set_platform_fee(&250);
         assert_eq!(f.client.get_platform_fee(), 250);
+    }
+
+    // The PlatformFeeUpdated event reports both fee values and the admin who signed
+    #[test]
+    fn set_platform_fee_emits_both_values_and_the_admin() {
+        let f = setup();
+        f.client.set_platform_fee(&250);
+        f.client.set_platform_fee(&100);
+
+        let (_, topics, data) = f.env.events().all().last().unwrap();
+        assert_eq!(
+            topics,
+            (Symbol::new(&f.env, "PlatformFeeUpdated"),).into_val(&f.env)
+        );
+        // (old_fee_bps, new_fee_bps, updated_by)
+        let data: (u32, u32, Address) = data.into_val(&f.env);
+        assert_eq!(data, (250, 100, f.admin.clone()));
     }
 
     // Boundary test: exactly 1000 bps is allowed, 1001 is rejected and the old value is kept
