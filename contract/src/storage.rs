@@ -1,5 +1,6 @@
 use soroban_sdk::{contracttype, Address, BytesN, Env};
 
+use crate::errors::ContractError;
 use crate::types::Session;
 
 /// Default dispute window, in ledgers.
@@ -20,6 +21,10 @@ pub enum DataKey {
     DisputeWindow,
     WasmHash,
     Session(BytesN<32>),
+    InsurancePool,
+    InsurancePremiumRate,
+    InsuranceCoveragePercentage,
+    InsurancePoolBalance,
 }
 
 fn bump_instance(env: &Env) {
@@ -83,6 +88,73 @@ pub fn set_dispute_window(env: &Env, window_ledgers: u32) {
         .instance()
         .set(&DataKey::DisputeWindow, &window_ledgers);
     bump_instance(env);
+}
+
+pub fn get_insurance_premium_rate(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::InsurancePremiumRate)
+        .unwrap_or(100) // 100 bps = 1% default
+}
+
+pub fn set_insurance_premium_rate(env: &Env, rate_bps: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::InsurancePremiumRate, &rate_bps);
+    bump_instance(env);
+}
+
+pub fn get_insurance_coverage_percentage(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::InsuranceCoveragePercentage)
+        .unwrap_or(100) // 100% default
+}
+
+pub fn set_insurance_coverage_percentage(env: &Env, percentage: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::InsuranceCoveragePercentage, &percentage);
+    bump_instance(env);
+}
+
+pub fn get_insurance_pool(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::InsurancePool)
+}
+
+pub fn set_insurance_pool(env: &Env, pool: &Address) {
+    env.storage().instance().set(&DataKey::InsurancePool, pool);
+    bump_instance(env);
+}
+
+pub fn get_insurance_pool_balance(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::InsurancePoolBalance)
+        .unwrap_or(0)
+}
+
+pub fn add_insurance_pool_balance(env: &Env, amount: i128) -> Result<(), ContractError> {
+    let current = get_insurance_pool_balance(env);
+    let new_balance = current.checked_add(amount).ok_or(ContractError::Overflow)?;
+    env.storage()
+        .instance()
+        .set(&DataKey::InsurancePoolBalance, &new_balance);
+    bump_instance(env);
+    Ok(())
+}
+
+pub fn sub_insurance_pool_balance(env: &Env, amount: i128) -> Result<(), ContractError> {
+    let current = get_insurance_pool_balance(env);
+    let new_balance = current.checked_sub(amount).ok_or(ContractError::Overflow)?;
+    if new_balance < 0 {
+        return Err(ContractError::InsufficientInsurancePool);
+    }
+    env.storage()
+        .instance()
+        .set(&DataKey::InsurancePoolBalance, &new_balance);
+    bump_instance(env);
+    Ok(())
 }
 
 /// Hash of the currently deployed wasm as recorded by `upgrade`; all zeros

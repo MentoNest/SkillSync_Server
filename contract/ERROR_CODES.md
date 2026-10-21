@@ -44,17 +44,22 @@ The numeric codes are part of the public ABI:
 | 304  | `SessionAlreadyApproved`    | The session was already approved and cannot be approved again.          | `approve_session`, `open_dispute`                               |
 | 305  | `SessionAlreadyRefunded`    | The session was already refunded and cannot be refunded again.          | `refund_session`, `auto_refund`, `open_dispute`                 |
 | 306  | `SessionInDispute`          | The session is in dispute, so no normal settlement path may touch it.   | `complete_session`, `approve_session`, `refund_session`, `auto_refund`, `open_dispute` |
+| 307  | `NotInsured`                | Session was locked without insurance, so insurance cannot be claimed.    | `claim_insurance`                                               |
+| 308  | `InsuranceAlreadyClaimed`   | Insurance has already been claimed for this session.                    | `claim_insurance`                                               |
 | 400  | `InvalidAmount`             | An amount is zero or negative.                                          | `lock_funds`, `split_fee`                                       |
 | 401  | `InsufficientBalance`       | The payer does not hold enough of the payment token.                    | `lock_funds` (checked before the transfer)                      |
 | 402  | `FeeTooHigh`                | The fee exceeds the maximum of 1000 basis points (10%).                 | `set_platform_fee`, `split_fee`                                 |
 | 403  | `InvalidSplit`              | Dispute shares are negative or do not add up to the session amount.     | `resolve_dispute`                                               |
 | 404  | `Overflow`                  | An arithmetic operation overflowed instead of wrapping.                 | fee helpers, `resolve_dispute`                                  |
 | 405  | `InvalidResolution`         | `resolution` is unknown or does not match the shares.                   | `resolve_dispute`                                               |
+| 406  | `InsufficientInsurancePool` | Insurance pool balance is insufficient to cover the claim.              | `claim_insurance`                                               |
 | 500  | `DisputeWindowOpen`         | The dispute window has not elapsed yet.                                 | `auto_refund`                                                   |
+| 501  | `NotEligibleForInsurance`   | Dispute resolution gave the buyer >= 80% of amount, not eligible.       | `claim_insurance`                                               |
 | 700  | `InvalidWindow`             | The dispute window must be greater than zero ledgers.                   | `set_dispute_window`                                            |
 | 701  | `TokenNotConfigured`        | The payment token has not been configured by the admin.                 | `lock_funds` and payout paths                                   |
+| 702  | `InvalidInsuranceRate`      | Insurance premium rate or coverage percentage is invalid.               | admin insurance setters                                         |
 
-Codes 0–99, 104–119, 205–219, 307–319, 406–419, 501–519, 600–699 and 702–719
+Codes 0–99, 104–119, 205–219, 309–319, 407–419, 502–519, 600–699 and 703–719
 are reserved for future errors in their band and must not be assigned ad hoc.
 
 ## Authorization errors

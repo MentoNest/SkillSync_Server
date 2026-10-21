@@ -27,4 +27,8 @@ pub struct Session {
     pub completed_at: u64,
     pub dispute_opened_at: u64,
     pub dispute_resolved_at: u64,
+    pub insured: bool,
+    pub premium_paid: i128,
+    pub insurance_claimed: bool,
+    pub dispute_buyer_share: i128,
 }
