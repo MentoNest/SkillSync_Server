@@ -123,38 +123,37 @@ impl SkillssyncEscrow {
         read_payment_token(&env)
     }
 
-    pub fn set_dispute_window(env: Env, window_ledgers: u32) -> Result<(), ContractError> {
+    pub fn set_platform_fee(env: Env, new_fee_bps: u32) -> Result<(), ContractError> {
+        require_admin(&env)?;
+        if new_fee_bps > MAX_PLATFORM_FEE_BPS {
+            return Err(ContractError::InvalidPlatformFee);
+        }
+        env.storage()
+            .persistent()
+            .set(&DataKey::PlatformFeeBps, &new_fee_bps);
+        env.events().publish(
+            (Symbol::new(&env, "platform_fee_updated"),),
+            new_fee_bps,
+        );
+        Ok(())
+    }
+
+    pub fn get_platform_fee(env: Env) -> u32 {
+        read_platform_fee(&env)
+    }
+
+    pub fn set_treasury(env: Env, new_treasury: Address) -> Result<(), ContractError> {
         require_admin(&env)?;
         env.storage()
             .persistent()
-            .set(&DataKey::DisputeWindow, &window_ledgers);
-        env.events().publish(
-            (Symbol::new(&env, "dispute_window_updated"),),
-            window_ledgers,
-        );
+            .set(&DataKey::Treasury, &new_treasury);
+        env.events()
+            .publish((Symbol::new(&env, "treasury_updated"),), new_treasury);
         Ok(())
     }
 
-    pub fn get_dispute_window(env: Env) -> u32 {
-        read_dispute_window(&env)
-    }
-
-    pub fn upgrade(env: Env, new_wasm_hash: Bytes32) -> Result<(), ContractError> {
-        require_admin(&env)?;
-        let old_hash = env
-            .storage()
-            .instance()
-            .get::<_, Bytes32>(&DataKey::WasmHash)
-            .unwrap_or_else(|| Bytes32::from_array(&env, &[0u8; 32]));
-        env.events().publish(
-            (Symbol::new(&env, "contract_upgraded"),),
-            (old_hash, new_wasm_hash.clone()),
-        );
-        env.storage()
-            .instance()
-            .set(&DataKey::WasmHash, &new_wasm_hash);
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
-        Ok(())
+    pub fn get_treasury(env: Env) -> Option<Address> {
+        read_treasury(&env)
     }
 
     pub fn lock_funds(
@@ -188,6 +187,76 @@ impl SkillssyncEscrow {
         env.events().publish(
             (Symbol::new(&env, "funds_locked"),),
             (session_id, buyer, seller, amount),
+        );
+        Ok(())
+    }
+
+    pub fn complete_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        let mut session =
+            load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
+        session.seller.require_auth();
+        if session.status != SessionStatus::Locked {
+            return Err(ContractError::DuplicateSessionId);
+        }
+        session.status = SessionStatus::Completed;
+        session.completed_at = env.ledger().timestamp();
+        save_session(&env, session_id.clone(), &session);
+        env.events()
+            .publish((Symbol::new(&env, "session_completed"),), session_id);
+        Ok(())
+    }
+
+    pub fn approve_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        let mut session =
+            load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
+        session.buyer.require_auth();
+        if session.status != SessionStatus::Completed {
+            return Err(ContractError::InvalidSessionStatus);
+        }
+        let fee_bps = read_platform_fee(&env);
+        let fee = (session.amount * fee_bps as i128) / 10_000;
+        let payout = session.amount - fee;
+        let token_addr =
+            read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
+        let treasury = read_treasury(&env).ok_or(ContractError::Unauthorized)?;
+        let token = token::Client::new(&env, &token_addr);
+        let contract = env.current_contract_address();
+        token.transfer(&contract, &session.seller, &payout);
+        if fee > 0 {
+            token.transfer(&contract, &treasury, &fee);
+        }
+        session.status = SessionStatus::Approved;
+        save_session(&env, session_id.clone(), &session);
+        env.events().publish(
+            (Symbol::new(&env, "session_approved"),),
+            (session_id, payout, fee),
+        );
+        Ok(())
+    }
+
+    pub fn refund_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        let mut session =
+            load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
+        session.buyer.require_auth();
+        if session.status == SessionStatus::Refunded {
+            return Err(ContractError::DuplicateSessionId);
+        }
+        if session.status != SessionStatus::Locked {
+            return Err(ContractError::InvalidSessionStatus);
+        }
+        let token_addr =
+            read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
+        let token = token::Client::new(&env, &token_addr);
+        token.transfer(
+            &env.current_contract_address(),
+            &session.buyer,
+            &session.amount,
+        );
+        session.status = SessionStatus::Refunded;
+        save_session(&env, session_id.clone(), &session);
+        env.events().publish(
+            (Symbol::new(&env, "session_refunded"),),
+            (session_id, session.amount),
         );
         Ok(())
     }
