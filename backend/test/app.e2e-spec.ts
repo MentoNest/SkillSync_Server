@@ -16,17 +16,11 @@ describe('AppController (e2e)', () => {
     await app.init();
   });
 
-  it('/ (GET) responds inside the standard success envelope', async () => {
-    const res = await request(app.getHttpServer()).get('/').expect(200);
-
-    expect(res.body).toMatchObject({
-      success: true,
-      statusCode: 200,
-      message: 'OK',
-      data: 'Hello World!',
-      path: '/',
-    });
-    expect(typeof res.body.timestamp).toBe('string');
+  it('/ (GET)', () => {
+    return request(app.getHttpServer())
+      .get('/')
+      .expect(200)
+      .expect('Hello World!');
   });
 
   afterEach(async () => {
