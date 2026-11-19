@@ -111,58 +111,6 @@ fn session_exists(env: &Env, session_id: Bytes32) -> bool {
 
 #[contractimpl]
 impl SkillssyncEscrow {
-    pub fn initialize(env: Env, admin: Address, treasury: Address) -> Result<(), ContractError> {
-        if env.storage().instance().has(&DataKey::Initialized) {
-            return Err(ContractError::AlreadyInitialized);
-        }
-        admin.require_auth();
-        env.storage().persistent().set(&DataKey::Admin, &admin);
-        env.storage().persistent().set(&DataKey::Treasury, &treasury);
-        env.storage()
-            .persistent()
-            .set(&DataKey::PlatformFeeBps, &DEFAULT_PLATFORM_FEE_BPS);
-        env.storage()
-            .persistent()
-            .set(&DataKey::DisputeWindow, &DEFAULT_DISPUTE_WINDOW_LEDGERS);
-        env.storage().instance().set(&DataKey::Initialized, &true);
-        env.events()
-            .publish((Symbol::new(&env, "initialized"),), (admin, treasury));
-        Ok(())
-    }
-
-    pub fn set_platform_fee(env: Env, new_fee_bps: u32) -> Result<(), ContractError> {
-        require_admin(&env)?;
-        if new_fee_bps > MAX_PLATFORM_FEE_BPS {
-            return Err(ContractError::InvalidPlatformFee);
-        }
-        env.storage()
-            .persistent()
-            .set(&DataKey::PlatformFeeBps, &new_fee_bps);
-        env.events().publish(
-            (Symbol::new(&env, "platform_fee_updated"),),
-            new_fee_bps,
-        );
-        Ok(())
-    }
-
-    pub fn get_platform_fee(env: Env) -> u32 {
-        read_platform_fee(&env)
-    }
-
-    pub fn set_treasury(env: Env, new_treasury: Address) -> Result<(), ContractError> {
-        require_admin(&env)?;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Treasury, &new_treasury);
-        env.events()
-            .publish((Symbol::new(&env, "treasury_updated"),), new_treasury);
-        Ok(())
-    }
-
-    pub fn get_treasury(env: Env) -> Option<Address> {
-        read_treasury(&env)
-    }
-
     pub fn set_payment_token(env: Env, token: Address) -> Result<(), ContractError> {
         require_admin(&env)?;
         env.storage().persistent().set(&DataKey::PaymentToken, &token);
@@ -173,5 +121,78 @@ impl SkillssyncEscrow {
 
     pub fn get_payment_token(env: Env) -> Option<Address> {
         read_payment_token(&env)
+    }
+
+    pub fn set_dispute_window(env: Env, window_ledgers: u32) -> Result<(), ContractError> {
+        require_admin(&env)?;
+        env.storage()
+            .persistent()
+            .set(&DataKey::DisputeWindow, &window_ledgers);
+        env.events().publish(
+            (Symbol::new(&env, "dispute_window_updated"),),
+            window_ledgers,
+        );
+        Ok(())
+    }
+
+    pub fn get_dispute_window(env: Env) -> u32 {
+        read_dispute_window(&env)
+    }
+
+    pub fn upgrade(env: Env, new_wasm_hash: Bytes32) -> Result<(), ContractError> {
+        require_admin(&env)?;
+        let old_hash = env
+            .storage()
+            .instance()
+            .get::<_, Bytes32>(&DataKey::WasmHash)
+            .unwrap_or_else(|| Bytes32::from_array(&env, &[0u8; 32]));
+        env.events().publish(
+            (Symbol::new(&env, "contract_upgraded"),),
+            (old_hash, new_wasm_hash.clone()),
+        );
+        env.storage()
+            .instance()
+            .set(&DataKey::WasmHash, &new_wasm_hash);
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        Ok(())
+    }
+
+    pub fn lock_funds(
+        env: Env,
+        session_id: Bytes32,
+        buyer: Address,
+        seller: Address,
+        amount: i128,
+    ) -> Result<(), ContractError> {
+        if amount <= 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+        if session_exists(&env, session_id.clone()) {
+            return Err(ContractError::DuplicateSessionId);
+        }
+        buyer.require_auth();
+        let token_addr =
+            read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
+        let token = token::Client::new(&env, &token_addr);
+        token.transfer(&buyer, &env.current_contract_address(), &amount);
+        let session = Session {
+            buyer: buyer.clone(),
+            seller: seller.clone(),
+            amount,
+            status: SessionStatus::Locked,
+            created_at: env.ledger().timestamp(),
+            completed_at: 0,
+            dispute_resolved_at: 0,
+        };
+        save_session(&env, session_id.clone(), &session);
+        env.events().publish(
+            (Symbol::new(&env, "funds_locked"),),
+            (session_id, buyer, seller, amount),
+        );
+        Ok(())
+    }
+
+    pub fn get_session(env: Env, session_id: Bytes32) -> Option<Session> {
+        load_session(&env, session_id)
     }
 }
