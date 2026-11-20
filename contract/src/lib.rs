@@ -111,9 +111,11 @@ fn save_session(env: &Env, session_id: Bytes32, session: &Session) {
 }
 
 fn session_exists(env: &Env, session_id: Bytes32) -> bool {
-    env.storage()
-        .persistent()
-        .has(&DataKey::Session(session_id))
+    archive::is_archived(env, &session_id)
+        || env
+            .storage()
+            .persistent()
+            .has(&DataKey::Session(session_id))
 }
 
 fn apply_fee(env: &Env, amount: i128) -> (i128, i128) {
@@ -157,6 +159,7 @@ impl SkillssyncEscrow {
     }
 
     pub fn set_platform_fee(env: Env, new_fee_bps: u32) -> Result<(), ContractError> {
+        governance::require_no_multisig(&env);
         require_admin(&env)?;
         if new_fee_bps > MAX_PLATFORM_FEE_BPS {
             return Err(ContractError::InvalidPlatformFee);
@@ -176,6 +179,7 @@ impl SkillssyncEscrow {
     }
 
     pub fn set_treasury(env: Env, new_treasury: Address) -> Result<(), ContractError> {
+        governance::require_no_multisig(&env);
         require_admin(&env)?;
         env.storage()
             .persistent()
@@ -203,6 +207,7 @@ impl SkillssyncEscrow {
             return Err(ContractError::DuplicateSessionId);
         }
         buyer.require_auth();
+        session_limits::enforce_rate_limit(&env, &buyer);
         let token_addr =
             read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
         let token = token::Client::new(&env, &token_addr);
@@ -218,6 +223,7 @@ impl SkillssyncEscrow {
             dispute_resolved_at: 0,
         };
         save_session(&env, session_id.clone(), &session);
+        session_limits::record_expiry(&env, &session_id);
         env.events().publish(
             (Symbol::new(&env, "funds_locked"),),
             (session_id, buyer, seller, amount),
@@ -232,6 +238,7 @@ impl SkillssyncEscrow {
         if session.status != SessionStatus::Locked {
             return Err(ContractError::DuplicateSessionId);
         }
+        session_limits::ensure_not_expired(&env, &session_id);
         session.status = SessionStatus::Completed;
         session.completed_at = env.ledger().timestamp();
         save_session(&env, session_id.clone(), &session);
@@ -269,6 +276,7 @@ impl SkillssyncEscrow {
     }
 
     pub fn refund_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        conditional::reject_conditional(&env, &session_id);
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
         session.buyer.require_auth();
@@ -330,6 +338,7 @@ impl SkillssyncEscrow {
         buyer_share: i128,
         seller_share: i128,
     ) -> Result<(), ContractError> {
+        governance::require_no_multisig(&env);
         require_admin(&env)?;
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
