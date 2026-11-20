@@ -6,6 +6,10 @@ use soroban_sdk::{
 };
 type Bytes32 = BytesN<32>;
 
+mod archive;
+mod conditional;
+mod dao;
+
 #[contract]
 pub struct SkillssyncEscrow;
 
@@ -109,9 +113,11 @@ fn save_session(env: &Env, session_id: Bytes32, session: &Session) {
 }
 
 fn session_exists(env: &Env, session_id: Bytes32) -> bool {
-    env.storage()
-        .persistent()
-        .has(&DataKey::Session(session_id))
+    archive::is_archived(env, &session_id)
+        || env
+            .storage()
+            .persistent()
+            .has(&DataKey::Session(session_id))
 }
 
 fn apply_fee(env: &Env, amount: i128) -> (i128, i128) {
@@ -216,6 +222,7 @@ impl SkillssyncEscrow {
             dispute_resolved_at: 0,
         };
         save_session(&env, session_id.clone(), &session);
+        archive::track_session(&env, &session_id);
         env.events().publish(
             (Symbol::new(&env, "funds_locked"),),
             (session_id, buyer, seller, amount),
@@ -262,6 +269,7 @@ impl SkillssyncEscrow {
     }
 
     pub fn refund_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        conditional::reject_conditional(&env, &session_id);
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
         session.buyer.require_auth();
@@ -318,6 +326,7 @@ impl SkillssyncEscrow {
         buyer_share: i128,
         seller_share: i128,
     ) -> Result<(), ContractError> {
+        dao::ensure_admin_may_resolve(&env, &session_id);
         require_admin(&env)?;
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
