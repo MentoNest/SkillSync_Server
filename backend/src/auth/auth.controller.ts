@@ -1,39 +1,164 @@
-import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import {
+  ErrorResponseDto,
+  ForbiddenResponseDto,
+  InternalServerErrorResponseDto,
+  TooManyRequestsResponseDto,
+  UnauthorizedResponseDto,
+} from '../common/dto/error-response.dto';
 import { AuthService } from './auth.service';
 import { AuthUser } from './auth.types';
 import { CurrentUser } from './decorators/current-user.decorator';
-import { LoginDto, NonceDto, RefreshDto } from './dto';
+import {
+  LoginDto,
+  NonceDto,
+  NonceResponseDto,
+  RefreshDto,
+  TokenPairResponseDto,
+} from './dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { WalletAuthGuard } from './guards/wallet-auth.guard';
 
+@ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
+  // ─── Wallet ─────────────────────────────────────────────────────────────────
+
+  @ApiTags('Wallet')
+  @ApiOperation({
+    summary: 'Request a login nonce',
+    description:
+      'Issues a single-use nonce tied to the given Stellar wallet address. ' +
+      'The response includes the exact UTF-8 message the wallet must sign with its ED25519 private key. ' +
+      'The nonce expires after 5 minutes (configurable) and is consumed on the first login attempt, ' +
+      'whether or not the signature is valid.',
+    operationId: 'requestNonce',
+  })
+  @ApiBody({ type: NonceDto })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Nonce issued successfully.',
+    type: NonceResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Request body failed validation (e.g. address is not a valid Stellar public key).',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
   @Post('nonce')
-  @HttpCode(200)
-  nonce(@Body() dto: NonceDto) {
+  @HttpCode(HttpStatus.OK)
+  nonce(@Body() dto: NonceDto): Promise<NonceResponseDto> {
     return this.auth.createNonce(dto.address);
   }
 
-  /** The wallet guard verifies the signature (consuming the nonce); the DTO validates the body shape. */
+  // ─── Authentication ──────────────────────────────────────────────────────────
+
+  @ApiOperation({
+    summary: 'Log in with a wallet signature',
+    description:
+      'Authenticates a Stellar wallet by verifying the ED25519 signature over the nonce message ' +
+      'returned by POST /auth/nonce. On success, issues an access/refresh token pair. ' +
+      'The nonce is consumed regardless of outcome and cannot be reused.',
+    operationId: 'login',
+  })
+  @ApiBody({ type: LoginDto })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Authentication successful. Returns a short-lived access token and a single-use refresh token.',
+    type: TokenPairResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Request body failed validation.',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Signature is invalid, the nonce has already been used, or no nonce exists for this address.',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
   @Post('login')
-  @HttpCode(200)
+  @HttpCode(HttpStatus.OK)
   @UseGuards(WalletAuthGuard)
-  login(@Body() _dto: LoginDto, @CurrentUser() user: AuthUser) {
+  login(@Body() _dto: LoginDto, @CurrentUser() user: AuthUser): Promise<TokenPairResponseDto> {
     return this.auth.issueForUser(user);
   }
 
+  // ─── Session Management ──────────────────────────────────────────────────────
+
+  @ApiTags('Session Management')
+  @ApiOperation({
+    summary: 'Rotate tokens',
+    description:
+      'Exchanges a valid refresh token for a new access/refresh token pair. ' +
+      'The presented refresh token is immediately invalidated (single-use rotation), ' +
+      'so concurrent refresh calls with the same token will result in one success and one 401.',
+    operationId: 'refreshTokens',
+  })
+  @ApiBody({ type: RefreshDto })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Token pair rotated successfully.',
+    type: TokenPairResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'refreshToken is not a valid JWT string.',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Refresh token is expired, has already been used, or was issued for a different token type.',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
   @Post('refresh')
-  @HttpCode(200)
-  refresh(@Body() dto: RefreshDto) {
+  @HttpCode(HttpStatus.OK)
+  refresh(@Body() dto: RefreshDto): Promise<TokenPairResponseDto> {
     return this.auth.refresh(dto.refreshToken);
   }
 
+  @ApiTags('Session Management')
+  @ApiBearerAuth('Bearer Auth')
+  @ApiOperation({
+    summary: 'Log out',
+    description:
+      'Revokes the caller\'s current access token by adding its JTI to the blacklist, and ' +
+      'optionally invalidates the accompanying refresh token if supplied in the body. ' +
+      'Requires a valid Bearer access token in the Authorization header.',
+    operationId: 'logout',
+  })
+  @ApiBody({ type: RefreshDto, required: false, description: 'Optionally supply the refresh token to invalidate it immediately.' })
+  @ApiResponse({ status: HttpStatus.NO_CONTENT, description: 'Logged out successfully. No response body.' })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Access token is missing, expired, or already revoked.',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Insufficient role.', type: ForbiddenResponseDto })
+  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
   @Post('logout')
-  @HttpCode(204)
+  @HttpCode(HttpStatus.NO_CONTENT)
   @UseGuards(JwtAuthGuard)
-  async logout(@CurrentUser() user: AuthUser, @Body() body: Partial<RefreshDto>) {
+  async logout(
+    @CurrentUser() user: AuthUser,
+    @Body() body: Partial<RefreshDto>,
+  ): Promise<void> {
     await this.auth.logout(user, body?.refreshToken);
   }
 }
