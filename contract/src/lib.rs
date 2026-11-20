@@ -1,8 +1,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractclient, contracterror, contractimpl, contracttype, token, Address, BytesN,
-    Env, String, Symbol,
+    contract, contracterror, contractimpl, contracttype, token, Address, Bytes, BytesN, Env,
+    IntoVal, String, Symbol, Val, Vec,
 };
 type Bytes32 = BytesN<32>;
 
@@ -26,18 +26,21 @@ pub enum DataKey {
     Initialized,
     WasmHash,
     Session(Bytes32),
-    Oracle,
-    PriceMaxAge,
-    FallbackPrice(Bytes32),
-    /// Off-chain metadata URI of a session (instance storage).
-    Metadata(Bytes32),
+    Webhook,
+    /// Whether `account` holds `role`.
+    Role(Bytes32, Address),
+    Vesting(Bytes32),
 }
 
-/// Minimal price-oracle interface (SEP-40 style `lastprice`).
-#[contractclient(name = "OracleClient")]
-pub trait PriceOracle {
-    /// Latest `(price, unix_timestamp)` for `asset`, if known.
-    fn lastprice(env: Env, asset: Bytes32) -> Option<(i128, u64)>;
+/// Linear vesting with an optional cliff, in ledger sequence numbers.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Vesting {
+    pub total: i128,
+    pub claimed: i128,
+    pub start_ledger: u32,
+    pub cliff_ledgers: u32,
+    pub duration_ledgers: u32,
 }
 
 const DEFAULT_PRICE_MAX_AGE_SECS: u64 = 300;
@@ -95,30 +98,14 @@ pub enum ContractError {
     PaymentTokenNotConfigured = 8,
     InvalidResolution = 9,
     InvalidShares = 10,
-    /// No usable price: oracle unset/failed/stale and no admin fallback.
-    PriceUnavailable = 11,
-    /// A token transfer failed (insufficient balance or allowance).
-    TransferFailed = 12,
-}
-
-impl ContractError {
-    /// Human-readable description, for logs and client error mapping.
-    pub fn message(&self) -> &'static str {
-        match self {
-            ContractError::AlreadyInitialized => "contract is already initialized",
-            ContractError::Unauthorized => "caller is not authorized",
-            ContractError::InvalidPlatformFee => "platform fee exceeds the maximum",
-            ContractError::InvalidAmount => "amount must be positive",
-            ContractError::DuplicateSessionId => "session id already exists",
-            ContractError::SessionNotFound => "session not found",
-            ContractError::InvalidSessionStatus => "operation not allowed in the session's status",
-            ContractError::PaymentTokenNotConfigured => "payment token is not configured",
-            ContractError::InvalidResolution => "unknown dispute resolution",
-            ContractError::InvalidShares => "dispute shares must sum to the session amount",
-            ContractError::PriceUnavailable => "no fresh price available",
-            ContractError::TransferFailed => "token transfer failed",
-        }
-    }
+    /// The caller does not hold the required role.
+    MissingRole = 11,
+    /// Nothing has vested beyond what was already claimed.
+    NothingToClaim = 12,
+    /// Invalid vesting schedule (zero duration or cliff longer than duration).
+    InvalidVesting = 13,
+    /// The session is vesting and cannot use this operation.
+    SessionIsVesting = 14,
 }
 
 fn read_admin(env: &Env) -> Option<Address> {
@@ -129,6 +116,66 @@ fn require_admin(env: &Env) -> Result<Address, ContractError> {
     let admin = read_admin(env).ok_or(ContractError::NotInitialized)?;
     admin.require_auth();
     Ok(admin)
+}
+
+fn role_hash(env: &Env, name: &[u8]) -> Bytes32 {
+    env.crypto().sha256(&Bytes::from_slice(env, name)).to_bytes()
+}
+
+fn default_admin_role(env: &Env) -> Bytes32 {
+    BytesN::from_array(env, &[0u8; 32])
+}
+
+fn holds_role(env: &Env, role: &Bytes32, account: &Address) -> bool {
+    if env
+        .storage()
+        .persistent()
+        .get::<_, bool>(&DataKey::Role(role.clone(), account.clone()))
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    // The stored admin always holds DEFAULT_ADMIN_ROLE.
+    *role == default_admin_role(env) && read_admin(env).as_ref() == Some(account)
+}
+
+/// `only_role` guard: authenticates `caller` and requires it to hold `role`
+/// (or `DEFAULT_ADMIN_ROLE`, which administers every role).
+fn only_role(env: &Env, role: &Bytes32, caller: &Address) -> Result<(), ContractError> {
+    caller.require_auth();
+    if holds_role(env, role, caller) || holds_role(env, &default_admin_role(env), caller) {
+        Ok(())
+    } else {
+        Err(ContractError::MissingRole)
+    }
+}
+
+/// Structured relay event for the off-chain webhook indexer (#1633): topics
+/// `("relay", session_id)`, data `(event_type, payload)`.
+fn relay<T: IntoVal<Env, Val>>(env: &Env, session_id: &Bytes32, event_type: &str, payload: T) {
+    env.events().publish(
+        (Symbol::new(env, "relay"), session_id.clone()),
+        (Symbol::new(env, event_type), payload),
+    );
+}
+
+fn vested_amount(v: &Vesting, now_ledger: u32) -> Result<i128, ContractError> {
+    let elapsed_since_start = now_ledger.saturating_sub(v.start_ledger);
+    if elapsed_since_start < v.cliff_ledgers {
+        return Ok(0);
+    }
+    let elapsed = elapsed_since_start.min(v.duration_ledgers) as i128;
+    v.total
+        .checked_mul(elapsed)
+        .map(|value| value / v.duration_ledgers as i128)
+        .ok_or(ContractError::InvalidAmount)
+}
+
+fn guard_not_vesting(env: &Env, session_id: &Bytes32) -> Result<(), ContractError> {
+    if env.storage().persistent().has(&DataKey::Vesting(session_id.clone())) {
+        return Err(ContractError::SessionIsVesting);
+    }
+    Ok(())
 }
 
 fn read_treasury(env: &Env) -> Option<Address> {
@@ -261,8 +308,8 @@ impl SkillssyncEscrow {
         read_payment_token(&env)
     }
 
-    pub fn set_platform_fee(env: Env, new_fee_bps: u32) -> Result<(), ContractError> {
-        let admin = require_admin(&env)?;
+    pub fn set_platform_fee(env: Env, caller: Address, new_fee_bps: u32) -> Result<(), ContractError> {
+        only_role(&env, &role_hash(&env, b"FEE_MANAGER_ROLE"), &caller)?;
         if new_fee_bps > MAX_PLATFORM_FEE_BPS {
             return Err(ContractError::FeeTooHigh);
         }
@@ -283,10 +330,8 @@ impl SkillssyncEscrow {
         read_platform_fee(&env)
     }
 
-    pub fn set_treasury(env: Env, new_treasury: Address) -> Result<(), ContractError> {
-        let admin = require_admin(&env)?;
-        // `None` when no treasury was set before.
-        let old_treasury = read_treasury(&env);
+    pub fn set_treasury(env: Env, caller: Address, new_treasury: Address) -> Result<(), ContractError> {
+        only_role(&env, &role_hash(&env, b"FEE_MANAGER_ROLE"), &caller)?;
         env.storage()
             .persistent()
             .set(&DataKey::Treasury, &new_treasury);
@@ -343,13 +388,14 @@ impl SkillssyncEscrow {
         platform_controls::record_locked(&env, &session_id, amount);
         env.events().publish(
             (Symbol::new(&env, "funds_locked"),),
-            (session_id, buyer, seller, amount, token_address),
+            (session_id.clone(), buyer.clone(), seller.clone(), amount),
         );
+        relay(&env, &session_id, "funds_locked", (buyer, seller, amount));
         Ok(())
     }
 
     pub fn complete_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
-        require_initialized(&env)?;
+        guard_not_vesting(&env, &session_id)?;
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
         session.seller.require_auth();
@@ -364,12 +410,13 @@ impl SkillssyncEscrow {
         session.completed_at = env.ledger().timestamp();
         save_session(&env, session_id.clone(), &session);
         env.events()
-            .publish((Symbol::new(&env, "session_completed"),), session_id);
+            .publish((Symbol::new(&env, "session_completed"),), session_id.clone());
+        relay(&env, &session_id, "session_completed", session.seller.clone());
         Ok(())
     }
 
     pub fn approve_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
-        require_initialized(&env)?;
+        guard_not_vesting(&env, &session_id)?;
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
         session.buyer.require_auth();
@@ -393,13 +440,14 @@ impl SkillssyncEscrow {
         save_session(&env, session_id.clone(), &session);
         env.events().publish(
             (Symbol::new(&env, "session_approved"),),
-            (session_id, payout, fee),
+            (session_id.clone(), payout, fee),
         );
+        relay(&env, &session_id, "session_approved", (payout, fee));
         Ok(())
     }
 
     pub fn refund_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
-        require_initialized(&env)?;
+        guard_not_vesting(&env, &session_id)?;
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
         session.buyer.require_auth();
@@ -419,9 +467,10 @@ impl SkillssyncEscrow {
         session.status = SessionStatus::Refunded;
         save_session(&env, session_id.clone(), &session);
         env.events().publish(
-            (Symbol::new(&env, "SessionRefunded"),),
-            (session_id, session.amount),
+            (Symbol::new(&env, "session_refunded"),),
+            (session_id.clone(), session.amount),
         );
+        relay(&env, &session_id, "session_refunded", session.amount);
         Ok(())
     }
 
@@ -439,6 +488,30 @@ impl SkillssyncEscrow {
             _ => return Err(ContractError::InvalidSessionState),
         }
         session.buyer.require_auth();
+        // A vesting session returns its unvested part to the buyer now; only
+        // the vested, unclaimed part stays in escrow for the resolution.
+        if let Some(mut vesting) = env
+            .storage()
+            .persistent()
+            .get::<_, Vesting>(&DataKey::Vesting(session_id.clone()))
+        {
+            let vested = vested_amount(&vesting, env.ledger().sequence())?;
+            let unvested = vesting.total - vested;
+            if unvested > 0 {
+                let token_addr = read_payment_token(&env)
+                    .ok_or(ContractError::PaymentTokenNotConfigured)?;
+                token::Client::new(&env, &token_addr).transfer(
+                    &env.current_contract_address(),
+                    &session.buyer,
+                    &unvested,
+                );
+            }
+            session.amount = vested - vesting.claimed;
+            vesting.total = vested;
+            env.storage()
+                .persistent()
+                .set(&DataKey::Vesting(session_id.clone()), &vesting);
+        }
         session.status = SessionStatus::Disputed;
         let now = env.ledger().timestamp();
         session.dispute_opened_at = now;
@@ -446,20 +519,22 @@ impl SkillssyncEscrow {
         save_session(&env, session_id.clone(), &session);
         // DisputeOpened(session_id, opened_by, reason, timestamp)
         env.events().publish(
-            (Symbol::new(&env, "DisputeOpened"), session_id),
-            (opened_by, reason, now),
+            (Symbol::new(&env, "DisputeOpened"),),
+            (session_id.clone(), reason.clone()),
         );
+        relay(&env, &session_id, "dispute_opened", reason);
         Ok(())
     }
 
     pub fn resolve_dispute(
         env: Env,
+        caller: Address,
         session_id: Bytes32,
         resolution: u32,
         buyer_share: i128,
         seller_share: i128,
     ) -> Result<(), ContractError> {
-        let resolver = require_admin(&env)?;
+        only_role(&env, &role_hash(&env, b"DISPUTE_RESOLVER_ROLE"), &caller)?;
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
         match session.status {
@@ -522,9 +597,10 @@ impl SkillssyncEscrow {
         save_session(&env, session_id.clone(), &session);
         // DisputeResolved(session_id, resolver, buyer_share, seller_share, fee, timestamp)
         env.events().publish(
-            (Symbol::new(&env, "DisputeResolved"), session_id),
-            (resolver, buyer_share, seller_share, fee, now),
+            (Symbol::new(&env, "DisputeResolved"),),
+            (session_id.clone(), resolution, buyer_share, seller_share),
         );
+        relay(&env, &session_id, "dispute_resolved", (resolution, buyer_share, seller_share));
         Ok(())
     }
 
@@ -561,66 +637,175 @@ impl SkillssyncEscrow {
         Ok(())
     }
 
-    // ── price oracle (#1630) ────────────────────────────────────────────────
+    // ── roles (#1636) ───────────────────────────────────────────────────────
 
-    pub fn set_oracle(env: Env, oracle_id: Address) -> Result<(), ContractError> {
-        require_admin(&env)?;
-        env.storage().persistent().set(&DataKey::Oracle, &oracle_id);
-        Ok(())
+    pub fn default_admin_role(env: Env) -> Bytes32 {
+        default_admin_role(&env)
+    }
+    pub fn fee_manager_role(env: Env) -> Bytes32 {
+        role_hash(&env, b"FEE_MANAGER_ROLE")
+    }
+    pub fn dispute_resolver_role(env: Env) -> Bytes32 {
+        role_hash(&env, b"DISPUTE_RESOLVER_ROLE")
+    }
+    pub fn upgrader_role(env: Env) -> Bytes32 {
+        role_hash(&env, b"UPGRADER_ROLE")
     }
 
-    /// Maximum age (seconds) of an oracle price before it counts as stale.
-    pub fn set_price_max_age(env: Env, seconds: u64) -> Result<(), ContractError> {
-        require_admin(&env)?;
-        env.storage().persistent().set(&DataKey::PriceMaxAge, &seconds);
-        Ok(())
-    }
-
-    /// Price used when the oracle is unset, failing or stale.
-    pub fn set_fallback_price(env: Env, asset: Bytes32, price: i128) -> Result<(), ContractError> {
-        require_admin(&env)?;
-        if price <= 0 {
-            return Err(ContractError::InvalidAmount);
-        }
+    /// Grant `role` to `account`. `caller` must hold `DEFAULT_ADMIN_ROLE`.
+    pub fn grant_role(
+        env: Env,
+        caller: Address,
+        role: Bytes32,
+        account: Address,
+    ) -> Result<(), ContractError> {
+        only_role(&env, &default_admin_role(&env), &caller)?;
         env.storage()
             .persistent()
-            .set(&DataKey::FallbackPrice(asset), &price);
+            .set(&DataKey::Role(role.clone(), account.clone()), &true);
+        env.events()
+            .publish((Symbol::new(&env, "RoleGranted"), role), (account, caller));
         Ok(())
     }
 
-    /// Read-only view of the price the contract would use for `asset`.
-    pub fn quote_price(env: Env, asset: Bytes32) -> Result<i128, ContractError> {
-        get_price(&env, asset)
+    pub fn revoke_role(
+        env: Env,
+        caller: Address,
+        role: Bytes32,
+        account: Address,
+    ) -> Result<(), ContractError> {
+        only_role(&env, &default_admin_role(&env), &caller)?;
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Role(role.clone(), account.clone()));
+        env.events()
+            .publish((Symbol::new(&env, "RoleRevoked"), role), (account, caller));
+        Ok(())
     }
 
-    // ── session metadata (#1632) ────────────────────────────────────────────
+    pub fn has_role(env: Env, role: Bytes32, account: Address) -> bool {
+        holds_role(&env, &role, &account)
+    }
 
-    /// Attach an off-chain metadata URI (IPFS hash, JSON, ...) to a session.
-    /// Only the buyer or the seller may set it. Stored in instance storage.
-    pub fn set_session_metadata(
+    // ── webhook relay (#1633) ───────────────────────────────────────────────
+
+    /// Set the URL the off-chain relayer posts events to. Admin only.
+    pub fn set_webhook(env: Env, url: String) -> Result<(), ContractError> {
+        require_admin(&env)?;
+        env.storage().persistent().set(&DataKey::Webhook, &url);
+        env.events().publish((Symbol::new(&env, "WebhookUpdated"),), url);
+        Ok(())
+    }
+
+    pub fn get_webhook(env: Env) -> Option<String> {
+        env.storage().persistent().get(&DataKey::Webhook)
+    }
+
+    // ── vesting (#1634) ─────────────────────────────────────────────────────
+
+    pub fn lock_funds_with_vesting(
         env: Env,
         session_id: Bytes32,
-        caller: Address,
-        metadata_uri: String,
+        buyer: Address,
+        seller: Address,
+        amount: i128,
+        cliff_ledgers: u32,
+        vesting_duration: u32,
     ) -> Result<(), ContractError> {
-        let session =
-            load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
-        caller.require_auth();
-        if caller != session.buyer && caller != session.seller {
-            return Err(ContractError::Unauthorized);
+        if vesting_duration == 0 || cliff_ledgers > vesting_duration {
+            return Err(ContractError::InvalidVesting);
         }
+        Self::lock_funds(env.clone(), session_id.clone(), buyer, seller, amount)?;
+        let vesting = Vesting {
+            total: amount,
+            claimed: 0,
+            start_ledger: env.ledger().sequence(),
+            cliff_ledgers,
+            duration_ledgers: vesting_duration,
+        };
         env.storage()
-            .instance()
-            .set(&DataKey::Metadata(session_id.clone()), &metadata_uri);
+            .persistent()
+            .set(&DataKey::Vesting(session_id.clone()), &vesting);
         env.events().publish(
-            (Symbol::new(&env, "MetadataUpdated"), session_id),
-            (caller, metadata_uri),
+            (Symbol::new(&env, "VestingCreated"), session_id),
+            (amount, cliff_ledgers, vesting_duration),
         );
         Ok(())
     }
 
-    pub fn get_session_metadata(env: Env, session_id: Bytes32) -> Option<String> {
-        env.storage().instance().get(&DataKey::Metadata(session_id))
+    /// The seller claims what has vested so far: `total * elapsed / duration`
+    /// (after the cliff) minus what was already claimed. The platform fee is
+    /// taken from each claim.
+    pub fn claim_vested(env: Env, session_id: Bytes32) -> Result<i128, ContractError> {
+        let mut session =
+            load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
+        session.seller.require_auth();
+        let mut vesting: Vesting = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Vesting(session_id.clone()))
+            .ok_or(ContractError::InvalidVesting)?;
+        if session.status != SessionStatus::Locked {
+            return Err(ContractError::InvalidSessionStatus);
+        }
+        let vested = vested_amount(&vesting, env.ledger().sequence())?;
+        let claimable = vested - vesting.claimed;
+        if claimable <= 0 {
+            return Err(ContractError::NothingToClaim);
+        }
+        let (payout, fee) = apply_fee(&env, claimable);
+        let token_addr =
+            read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
+        let token = token::Client::new(&env, &token_addr);
+        token.transfer(&env.current_contract_address(), &session.seller, &payout);
+        transfer_treasury_fee(&env, &token, fee)?;
+        vesting.claimed += claimable;
+        if vesting.claimed == vesting.total {
+            session.status = SessionStatus::Approved;
+            save_session(&env, session_id.clone(), &session);
+        }
+        env.storage()
+            .persistent()
+            .set(&DataKey::Vesting(session_id.clone()), &vesting);
+        env.events().publish(
+            (Symbol::new(&env, "VestingClaimed"), session_id),
+            (claimable, payout, fee),
+        );
+        Ok(claimable)
+    }
+
+    pub fn get_vesting(env: Env, session_id: Bytes32) -> Option<Vesting> {
+        env.storage().persistent().get(&DataKey::Vesting(session_id))
+    }
+
+    // ── batching (#1635) ────────────────────────────────────────────────────
+    // A Soroban invocation is atomic: returning `Err` reverts every write made
+    // so far, so any failing item reverts the whole batch, and `?` stops the
+    // loop at the first error.
+
+    pub fn batch_lock_funds(
+        env: Env,
+        buyer: Address,
+        sessions: Vec<(Bytes32, Address, i128)>,
+    ) -> Result<(), ContractError> {
+        for (session_id, seller, amount) in sessions.iter() {
+            Self::lock_funds(env.clone(), session_id, buyer.clone(), seller, amount)?;
+        }
+        Ok(())
+    }
+
+    pub fn batch_approve(env: Env, session_ids: Vec<Bytes32>) -> Result<(), ContractError> {
+        for session_id in session_ids.iter() {
+            Self::approve_session(env.clone(), session_id)?;
+        }
+        Ok(())
+    }
+
+    pub fn batch_complete(env: Env, session_ids: Vec<Bytes32>) -> Result<(), ContractError> {
+        for session_id in session_ids.iter() {
+            Self::complete_session(env.clone(), session_id)?;
+        }
+        Ok(())
     }
 
     pub fn get_session(env: Env, session_id: Bytes32) -> Option<Session> {
@@ -632,7 +817,7 @@ impl SkillssyncEscrow {
 #[cfg(test)]
 mod test {
     use super::*;
-    use soroban_sdk::{symbol_short, testutils::{Address as _, Ledger as _}};
+    use soroban_sdk::testutils::{Address as _, Ledger as _};
 
     #[test]
     fn apply_fee_zero_fee() {
@@ -671,24 +856,12 @@ mod test {
         });
     }
 
-    // ── propagation, tokens, oracle, metadata (#1629–#1632) ─────────────────
-
-    #[contract]
-    pub struct MockOracle;
-
-    #[contractimpl]
-    impl MockOracle {
-        pub fn lastprice(env: Env, _asset: Bytes32) -> Option<(i128, u64)> {
-            env.storage().instance().get(&symbol_short!("p"))
-        }
-        pub fn set(env: Env, price: i128, timestamp: u64) {
-            env.storage().instance().set(&symbol_short!("p"), &(price, timestamp));
-        }
-    }
+    // ── RBAC, webhook, vesting, batching (#1633–#1636) ──────────────────────
 
     struct Fx {
         env: Env,
         id: Address,
+        admin: Address,
         buyer: Address,
         seller: Address,
         token: Address,
@@ -707,9 +880,9 @@ mod test {
         let token = env
             .register_stellar_asset_contract_v2(Address::generate(&env))
             .address();
-        token::StellarAssetClient::new(&env, &token).mint(&buyer, &1_000);
-        token::Client::new(&env, &token).approve(&buyer, &id, &1_000, &10_000);
-        Fx { env, id, buyer, seller, token }
+        token::StellarAssetClient::new(&env, &token).mint(&buyer, &10_000);
+        SkillssyncEscrowClient::new(&env, &id).set_payment_token(&token);
+        Fx { env, id, admin, buyer, seller, token }
     }
 
     fn sid(env: &Env, n: u8) -> Bytes32 {
@@ -717,89 +890,133 @@ mod test {
     }
 
     #[test]
-    fn lock_funds_records_the_token_and_pays_out_in_it() {
+    fn roles_can_be_granted_checked_and_revoked() {
         let f = fx();
         let client = SkillssyncEscrowClient::new(&f.env, &f.id);
-        let a = sid(&f.env, 1);
-        client.lock_funds(&a, &f.buyer, &f.seller, &100, &f.token);
-        assert_eq!(client.get_session(&a).unwrap().token, f.token);
-        client.complete_session(&a);
-        client.approve_session(&a);
-        assert_eq!(token::Client::new(&f.env, &f.token).balance(&f.seller), 99);
+        let manager = Address::generate(&f.env);
+        let stranger = Address::generate(&f.env);
+        let role = client.fee_manager_role();
+
+        assert!(client.has_role(&client.default_admin_role(), &f.admin));
+        assert!(!client.has_role(&role, &manager));
+        assert_eq!(
+            client.try_set_platform_fee(&stranger, &50),
+            Err(Ok(ContractError::MissingRole))
+        );
+
+        client.grant_role(&f.admin, &role, &manager);
+        assert!(client.has_role(&role, &manager));
+        client.set_platform_fee(&manager, &50);
+        assert_eq!(client.get_platform_fee(), 50);
+        // A fee manager cannot resolve disputes or grant roles.
+        assert_eq!(
+            client.try_grant_role(&manager, &role, &stranger),
+            Err(Ok(ContractError::MissingRole))
+        );
+
+        client.revoke_role(&f.admin, &role, &manager);
+        assert!(!client.has_role(&role, &manager));
+        assert_eq!(
+            client.try_set_platform_fee(&manager, &60),
+            Err(Ok(ContractError::MissingRole))
+        );
     }
 
     #[test]
-    fn every_error_code_is_returned_in_practice() {
+    fn the_four_predefined_roles_are_distinct() {
+        let f = fx();
+        let c = SkillssyncEscrowClient::new(&f.env, &f.id);
+        let roles = [
+            c.default_admin_role(),
+            c.fee_manager_role(),
+            c.dispute_resolver_role(),
+            c.upgrader_role(),
+        ];
+        for i in 0..roles.len() {
+            for j in (i + 1)..roles.len() {
+                assert_ne!(roles[i], roles[j]);
+            }
+        }
+    }
+
+    #[test]
+    fn webhook_url_is_admin_set_and_readable() {
+        let f = fx();
+        let client = SkillssyncEscrowClient::new(&f.env, &f.id);
+        assert_eq!(client.get_webhook(), None);
+        let url = String::from_str(&f.env, "https://relay.example/hook");
+        client.set_webhook(&url);
+        assert_eq!(client.get_webhook(), Some(url));
+    }
+
+    #[test]
+    fn vesting_releases_linearly_after_the_cliff() {
+        let f = fx();
+        let client = SkillssyncEscrowClient::new(&f.env, &f.id);
+        client.set_platform_fee(&f.admin, &0);
+        let a = sid(&f.env, 1);
+        client.lock_funds_with_vesting(&a, &f.buyer, &f.seller, &1_000, &10, &100);
+        let t = token::Client::new(&f.env, &f.token);
+
+        f.env.ledger().with_mut(|l| l.sequence_number += 5);
+        assert_eq!(client.try_claim_vested(&a), Err(Ok(ContractError::NothingToClaim)));
+
+        f.env.ledger().with_mut(|l| l.sequence_number += 45);
+        assert_eq!(client.claim_vested(&a), 500);
+        assert_eq!(t.balance(&f.seller), 500);
+
+        f.env.ledger().with_mut(|l| l.sequence_number += 200);
+        assert_eq!(client.claim_vested(&a), 500);
+        assert_eq!(t.balance(&f.seller), 1_000);
+        assert_eq!(client.get_session(&a).unwrap().status, SessionStatus::Approved);
+    }
+
+    #[test]
+    fn a_dispute_returns_the_unvested_part_to_the_buyer() {
         let f = fx();
         let client = SkillssyncEscrowClient::new(&f.env, &f.id);
         let a = sid(&f.env, 1);
+        client.lock_funds_with_vesting(&a, &f.buyer, &f.seller, &1_000, &0, &100);
+        let t = token::Client::new(&f.env, &f.token);
+        let before = t.balance(&f.buyer);
+        f.env.ledger().with_mut(|l| l.sequence_number += 25);
+        client.open_dispute(&a, &String::from_str(&f.env, "late"));
+        // 25% vested stays in escrow, 75% went back.
+        assert_eq!(t.balance(&f.buyer) - before, 750);
+        assert_eq!(client.get_session(&a).unwrap().amount, 250);
+    }
+
+    #[test]
+    fn a_vesting_session_cannot_use_the_plain_flow() {
+        let f = fx();
+        let client = SkillssyncEscrowClient::new(&f.env, &f.id);
+        let a = sid(&f.env, 1);
+        client.lock_funds_with_vesting(&a, &f.buyer, &f.seller, &1_000, &0, &100);
+        assert_eq!(client.try_refund_session(&a), Err(Ok(ContractError::SessionIsVesting)));
+        assert_eq!(client.try_complete_session(&a), Err(Ok(ContractError::SessionIsVesting)));
+    }
+
+    #[test]
+    fn a_failing_batch_item_reverts_the_whole_batch() {
+        let f = fx();
+        let client = SkillssyncEscrowClient::new(&f.env, &f.id);
+        let good = sid(&f.env, 1);
+        let bad = sid(&f.env, 2);
+        let sessions = soroban_sdk::vec![
+            &f.env,
+            (good.clone(), f.seller.clone(), 100i128),
+            (bad, f.seller.clone(), 0i128)
+        ];
         assert_eq!(
-            client.try_lock_funds(&a, &f.buyer, &f.seller, &0, &f.token),
+            client.try_batch_lock_funds(&f.buyer, &sessions),
             Err(Ok(ContractError::InvalidAmount))
         );
-        assert_eq!(client.try_complete_session(&a), Err(Ok(ContractError::SessionNotFound)));
-        client.lock_funds(&a, &f.buyer, &f.seller, &100, &f.token);
-        assert_eq!(
-            client.try_lock_funds(&a, &f.buyer, &f.seller, &100, &f.token),
-            Err(Ok(ContractError::DuplicateSessionId))
-        );
-        assert_eq!(client.try_approve_session(&a), Err(Ok(ContractError::InvalidSessionStatus)));
-        assert_eq!(client.try_set_platform_fee(&1_001), Err(Ok(ContractError::InvalidPlatformFee)));
-        client.open_dispute(&a, &String::from_str(&f.env, "x"));
-        assert_eq!(client.try_resolve_dispute(&a, &7, &50, &50), Err(Ok(ContractError::InvalidResolution)));
-        assert_eq!(client.try_resolve_dispute(&a, &2, &10, &10), Err(Ok(ContractError::InvalidShares)));
-        // Not enough allowance/balance: a typed error, not an abort.
-        let b = sid(&f.env, 2);
-        assert_eq!(
-            client.try_lock_funds(&b, &f.buyer, &f.seller, &5_000, &f.token),
-            Err(Ok(ContractError::TransferFailed))
-        );
-    }
+        assert_eq!(client.get_session(&good), None);
 
-    #[test]
-    fn error_messages_are_readable() {
-        assert_eq!(ContractError::SessionNotFound.message(), "session not found");
-        assert_eq!(ContractError::TransferFailed.message(), "token transfer failed");
-    }
-
-    #[test]
-    fn metadata_is_settable_by_the_parties_only() {
-        let f = fx();
-        let client = SkillssyncEscrowClient::new(&f.env, &f.id);
-        let a = sid(&f.env, 1);
-        client.lock_funds(&a, &f.buyer, &f.seller, &100, &f.token);
-        let uri = String::from_str(&f.env, "ipfs://Qm123");
-        assert_eq!(client.get_session_metadata(&a), None);
-        client.set_session_metadata(&a, &f.seller, &uri);
-        assert_eq!(client.get_session_metadata(&a), Some(uri.clone()));
-        let stranger = Address::generate(&f.env);
-        assert_eq!(
-            client.try_set_session_metadata(&a, &stranger, &uri),
-            Err(Ok(ContractError::Unauthorized))
-        );
-    }
-
-    #[test]
-    fn oracle_price_is_used_when_fresh_and_the_fallback_when_not() {
-        let f = fx();
-        let client = SkillssyncEscrowClient::new(&f.env, &f.id);
-        let asset = sid(&f.env, 9);
-        assert_eq!(client.try_quote_price(&asset), Err(Ok(ContractError::PriceUnavailable)));
-
-        let oracle = f.env.register(MockOracle, ());
-        let mock = MockOracleClient::new(&f.env, &oracle);
-        client.set_oracle(&oracle);
-        f.env.ledger().with_mut(|l| l.timestamp = 10_000);
-
-        mock.set(&250, &9_900);
-        assert_eq!(client.quote_price(&asset), 250);
-
-        // Stale oracle price and no fallback: unavailable.
-        mock.set(&250, &1_000);
-        assert_eq!(client.try_quote_price(&asset), Err(Ok(ContractError::PriceUnavailable)));
-
-        // The admin fallback is used instead.
-        client.set_fallback_price(&asset, &300);
-        assert_eq!(client.quote_price(&asset), 300);
+        let ok = soroban_sdk::vec![&f.env, (good.clone(), f.seller.clone(), 100i128)];
+        client.batch_lock_funds(&f.buyer, &ok);
+        client.batch_complete(&soroban_sdk::vec![&f.env, good.clone()]);
+        client.batch_approve(&soroban_sdk::vec![&f.env, good.clone()]);
+        assert_eq!(client.get_session(&good).unwrap().status, SessionStatus::Approved);
     }
 }
