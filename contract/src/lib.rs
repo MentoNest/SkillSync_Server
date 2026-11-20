@@ -815,6 +815,11 @@ impl SkillssyncEscrow {
 }
 
 #[cfg(test)]
+mod test_fees;
+#[cfg(test)]
+mod test_upgrade;
+
+#[cfg(test)]
 mod test {
     use super::*;
     use soroban_sdk::testutils::{Address as _, Ledger as _};
