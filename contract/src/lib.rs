@@ -155,16 +155,18 @@ impl SkillssyncEscrow {
     }
 
     pub fn set_platform_fee(env: Env, new_fee_bps: u32) -> Result<(), ContractError> {
-        require_admin(&env)?;
+        let admin = require_admin(&env)?;
         if new_fee_bps > MAX_PLATFORM_FEE_BPS {
             return Err(ContractError::InvalidPlatformFee);
         }
+        let old_fee_bps = read_platform_fee(&env);
         env.storage()
             .persistent()
             .set(&DataKey::PlatformFeeBps, &new_fee_bps);
+        // PlatformFeeUpdated(old_fee_bps, new_fee_bps, updated_by)
         env.events().publish(
-            (Symbol::new(&env, "platform_fee_updated"),),
-            new_fee_bps,
+            (Symbol::new(&env, "PlatformFeeUpdated"),),
+            (old_fee_bps, new_fee_bps, admin),
         );
         Ok(())
     }
@@ -174,12 +176,17 @@ impl SkillssyncEscrow {
     }
 
     pub fn set_treasury(env: Env, new_treasury: Address) -> Result<(), ContractError> {
-        require_admin(&env)?;
+        let admin = require_admin(&env)?;
+        // `None` when no treasury was set before.
+        let old_treasury = read_treasury(&env);
         env.storage()
             .persistent()
             .set(&DataKey::Treasury, &new_treasury);
-        env.events()
-            .publish((Symbol::new(&env, "treasury_updated"),), new_treasury);
+        // TreasuryUpdated(old_treasury, new_treasury, updated_by)
+        env.events().publish(
+            (Symbol::new(&env, "TreasuryUpdated"),),
+            (old_treasury, new_treasury, admin),
+        );
         Ok(())
     }
 
@@ -302,11 +309,14 @@ impl SkillssyncEscrow {
         }
         session.buyer.require_auth();
         session.status = SessionStatus::Disputed;
-        session.dispute_opened_at = env.ledger().timestamp();
+        let now = env.ledger().timestamp();
+        session.dispute_opened_at = now;
+        let opened_by = session.buyer.clone();
         save_session(&env, session_id.clone(), &session);
+        // DisputeOpened(session_id, opened_by, reason, timestamp)
         env.events().publish(
-            (Symbol::new(&env, "DisputeOpened"),),
-            (session_id, reason),
+            (Symbol::new(&env, "DisputeOpened"), session_id),
+            (opened_by, reason, now),
         );
         Ok(())
     }
@@ -318,7 +328,7 @@ impl SkillssyncEscrow {
         buyer_share: i128,
         seller_share: i128,
     ) -> Result<(), ContractError> {
-        require_admin(&env)?;
+        let resolver = require_admin(&env)?;
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
         if session.status != SessionStatus::Disputed {
@@ -369,11 +379,13 @@ impl SkillssyncEscrow {
         transfer_treasury_fee(&env, &token, fee)?;
 
         session.status = SessionStatus::Resolved;
-        session.dispute_resolved_at = env.ledger().timestamp();
+        let now = env.ledger().timestamp();
+        session.dispute_resolved_at = now;
         save_session(&env, session_id.clone(), &session);
+        // DisputeResolved(session_id, resolver, buyer_share, seller_share, fee, timestamp)
         env.events().publish(
-            (Symbol::new(&env, "DisputeResolved"),),
-            (session_id, resolution, buyer_share, seller_share),
+            (Symbol::new(&env, "DisputeResolved"), session_id),
+            (resolver, buyer_share, seller_share, fee, now),
         );
         Ok(())
     }
@@ -416,6 +428,10 @@ impl SkillssyncEscrow {
 #[cfg(test)]
 mod test {
     use super::*;
+    use soroban_sdk::{
+        testutils::{Address as _, Events},
+        vec, IntoVal,
+    };
 
     #[test]
     fn apply_fee_zero_fee() {
@@ -452,5 +468,56 @@ mod test {
             assert_eq!(apply_fee(&env, 49), (49, 0));
             assert_eq!(apply_fee(&env, 10_001), (9_901, 100));
         });
+    }
+
+    // ── admin events (#1619, #1620) ─────────────────────────────────────────
+
+    fn setup_admin(env: &Env) -> (Address, SkillssyncEscrowClient<'_>, Address) {
+        env.mock_all_auths();
+        let id = env.register(SkillssyncEscrow, ());
+        let client = SkillssyncEscrowClient::new(env, &id);
+        let admin = Address::generate(env);
+        env.as_contract(&id, || {
+            env.storage().persistent().set(&DataKey::Admin, &admin);
+        });
+        (id, client, admin)
+    }
+
+    #[test]
+    fn set_platform_fee_emits_platform_fee_updated() {
+        let env = Env::default();
+        let (id, client, admin) = setup_admin(&env);
+        client.set_platform_fee(&250);
+        assert_eq!(
+            env.events().all(),
+            vec![
+                &env,
+                (
+                    id.clone(),
+                    (Symbol::new(&env, "PlatformFeeUpdated"),).into_val(&env),
+                    (DEFAULT_PLATFORM_FEE_BPS, 250u32, admin).into_val(&env)
+                )
+            ]
+        );
+    }
+
+    #[test]
+    fn set_treasury_emits_treasury_updated_with_the_previous_treasury() {
+        let env = Env::default();
+        let (id, client, admin) = setup_admin(&env);
+        let first = Address::generate(&env);
+        let second = Address::generate(&env);
+        client.set_treasury(&first);
+        client.set_treasury(&second);
+        let events = env.events().all();
+        let last = events.last().unwrap();
+        assert_eq!(
+            last,
+            (
+                id,
+                (Symbol::new(&env, "TreasuryUpdated"),).into_val(&env),
+                (Some(first), second, admin).into_val(&env)
+            )
+        );
     }
 }
