@@ -18,6 +18,7 @@ async function bootstrap() {
       .addTag('Authentication', 'Wallet login and token lifecycle endpoints.')
       .addTag('Wallet', 'Nonce issuance for Stellar wallet sign-in.')
       .addTag('Session Management', 'Token refresh and revocation.')
+      .addTag('Users', 'Username, display name, and public profile endpoints.')
       .addBearerAuth(
         {
           type: 'http',
