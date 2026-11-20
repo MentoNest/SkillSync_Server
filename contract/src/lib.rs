@@ -414,6 +414,11 @@ impl SkillssyncEscrow {
 }
 
 #[cfg(test)]
+mod test_fees;
+#[cfg(test)]
+mod test_upgrade;
+
+#[cfg(test)]
 mod test {
     use super::*;
 
