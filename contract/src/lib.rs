@@ -253,29 +253,18 @@ fn transfer_treasury_fee(
     Ok(())
 }
 
-/// Price of `asset` from the oracle when it answers with a fresh value,
-/// otherwise the admin-provided fallback price.
-fn get_price(env: &Env, asset: Bytes32) -> Result<i128, ContractError> {
-    if let Some(oracle) = env.storage().persistent().get::<_, Address>(&DataKey::Oracle) {
-        let max_age = env
-            .storage()
-            .persistent()
-            .get(&DataKey::PriceMaxAge)
-            .unwrap_or(DEFAULT_PRICE_MAX_AGE_SECS);
-        if let Ok(Ok(Some((price, timestamp)))) =
-            OracleClient::new(env, &oracle).try_lastprice(&asset)
-        {
-            let now = env.ledger().timestamp();
-            if price > 0 && timestamp <= now && now - timestamp <= max_age {
-                return Ok(price);
-            }
-        }
-    }
-    env.storage()
-        .persistent()
-        .get::<_, i128>(&DataKey::FallbackPrice(asset))
-        .filter(|price| *price > 0)
-        .ok_or(ContractError::PriceUnavailable)
+/// SessionRefunded(session_id, buyer, amount, timestamp).
+/// Emitted for both manual refunds and timeout-based auto-refunds.
+fn emit_session_refunded(env: &Env, session_id: &Bytes32, session: &Session, timestamp: u64) {
+    env.events().publish(
+        (Symbol::new(env, "SessionRefunded"),),
+        (
+            session_id.clone(),
+            session.buyer.clone(),
+            session.amount,
+            timestamp,
+        ),
+    );
 }
 
 #[contractimpl]
@@ -466,11 +455,7 @@ impl SkillssyncEscrow {
         )?;
         session.status = SessionStatus::Refunded;
         save_session(&env, session_id.clone(), &session);
-        env.events().publish(
-            (Symbol::new(&env, "session_refunded"),),
-            (session_id.clone(), session.amount),
-        );
-        relay(&env, &session_id, "session_refunded", session.amount);
+        emit_session_refunded(&env, &session_id, &session, env.ledger().timestamp());
         Ok(())
     }
 
@@ -630,9 +615,17 @@ impl SkillssyncEscrow {
         )?;
         session.status = SessionStatus::Refunded;
         save_session(&env, session_id.clone(), &session);
+        let refunded_at = env.ledger().timestamp();
+        emit_session_refunded(&env, &session_id, &session, refunded_at);
         env.events().publish(
             (Symbol::new(&env, "AutoRefundExecuted"),),
-            (session_id, session.amount),
+            (
+                session_id,
+                session.buyer.clone(),
+                session.amount,
+                session.completed_at,
+                refunded_at,
+            ),
         );
         Ok(())
     }
