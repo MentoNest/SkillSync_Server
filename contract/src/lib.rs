@@ -6,6 +6,8 @@ use soroban_sdk::{
 };
 type Bytes32 = BytesN<32>;
 
+mod settlement_extras;
+
 #[contract]
 pub struct SkillssyncEscrow;
 
@@ -245,6 +247,11 @@ impl SkillssyncEscrow {
         if session.status != SessionStatus::Completed {
             return Err(ContractError::InvalidSessionStatus);
         }
+        let _guard = settlement_extras::before_payout(
+            &env,
+            &session_id,
+            settlement_extras::Payout::Approve,
+        );
         let (payout, fee) = apply_fee(&env, session.amount);
         let token_addr =
             read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
@@ -271,6 +278,11 @@ impl SkillssyncEscrow {
         if session.status != SessionStatus::Locked {
             return Err(ContractError::InvalidSessionStatus);
         }
+        let _guard = settlement_extras::before_payout(
+            &env,
+            &session_id,
+            settlement_extras::Payout::Refund,
+        );
         let token_addr =
             read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
         let token = token::Client::new(&env, &token_addr);
@@ -348,6 +360,11 @@ impl SkillssyncEscrow {
         let token = token::Client::new(&env, &token_addr);
         let contract = env.current_contract_address();
 
+        let _guard = settlement_extras::before_payout(
+            &env,
+            &session_id,
+            settlement_extras::Payout::Resolve,
+        );
         let (settlement, fee) = apply_fee(&env, session.amount);
         let buyer_payout = if buyer_share == session.amount {
             settlement
@@ -360,6 +377,7 @@ impl SkillssyncEscrow {
                 .unwrap_or(0)
         };
         let seller_payout = settlement - buyer_payout;
+        settlement_extras::record_buyer_payout(&env, &session_id, buyer_payout);
         if buyer_payout > 0 {
             token.transfer(&contract, &session.buyer, &buyer_payout);
         }
@@ -391,6 +409,11 @@ impl SkillssyncEscrow {
         if env.ledger().timestamp() <= deadline {
             return Err(ContractError::InvalidSessionStatus);
         }
+        let _guard = settlement_extras::before_payout(
+            &env,
+            &session_id,
+            settlement_extras::Payout::Refund,
+        );
         let token_addr =
             read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
         let token = token::Client::new(&env, &token_addr);
