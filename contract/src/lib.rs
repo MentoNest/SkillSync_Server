@@ -112,9 +112,11 @@ fn save_session(env: &Env, session_id: Bytes32, session: &Session) {
 }
 
 fn session_exists(env: &Env, session_id: Bytes32) -> bool {
-    env.storage()
-        .persistent()
-        .has(&DataKey::Session(session_id))
+    archive::is_archived(env, &session_id)
+        || env
+            .storage()
+            .persistent()
+            .has(&DataKey::Session(session_id))
 }
 
 fn apply_fee(env: &Env, amount: i128) -> (i128, i128) {
@@ -271,6 +273,7 @@ impl SkillssyncEscrow {
     }
 
     pub fn refund_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        conditional::reject_conditional(&env, &session_id);
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
         session.buyer.require_auth();
