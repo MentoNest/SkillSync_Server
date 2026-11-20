@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { buildDatabaseSettings } from './database.config';
 import { DatabaseHealthService } from './database-health.service';
+import { AdminSeedService } from './admin-seed.service';
 
 /**
  * PostgreSQL through TypeORM. The connection is retried (5 attempts by default) while the
@@ -26,7 +27,7 @@ import { DatabaseHealthService } from './database-health.service';
       },
     }),
   ],
-  providers: [DatabaseHealthService],
+  providers: [DatabaseHealthService, AdminSeedService],
   exports: [DatabaseHealthService],
 })
 export class DatabaseModule {}

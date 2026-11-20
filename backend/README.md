@@ -57,6 +57,18 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## Admin startup seed
+
+Before starting the server, apply database migrations (`npm run migration:run`) so the
+`roles`, `users`, and `user_roles` tables exist. On application bootstrap, the server
+creates the `admin` role with wildcard (`*`) permissions if missing, creates the user
+configured by `DEFAULT_ADMIN_WALLET` if missing, and assigns that user the admin role.
+These operations run in one transaction and can be safely repeated.
+
+Set `DISABLE_SEED=true` to skip this step. When seeding is enabled,
+`DEFAULT_ADMIN_WALLET` is required. Configure a test-only wallet in test environments;
+the seed reads the same variable there and never supplies a production-wallet fallback.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
