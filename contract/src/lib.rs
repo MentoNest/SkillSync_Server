@@ -113,9 +113,11 @@ fn save_session(env: &Env, session_id: Bytes32, session: &Session) {
 }
 
 fn session_exists(env: &Env, session_id: Bytes32) -> bool {
-    env.storage()
-        .persistent()
-        .has(&DataKey::Session(session_id))
+    archive::is_archived(env, &session_id)
+        || env
+            .storage()
+            .persistent()
+            .has(&DataKey::Session(session_id))
 }
 
 fn apply_fee(env: &Env, amount: i128) -> (i128, i128) {
@@ -160,6 +162,7 @@ impl SkillssyncEscrow {
     }
 
     pub fn set_platform_fee(env: Env, new_fee_bps: u32) -> Result<(), ContractError> {
+        governance::require_no_multisig(&env);
         require_admin(&env)?;
         if new_fee_bps > MAX_PLATFORM_FEE_BPS {
             return Err(ContractError::InvalidPlatformFee);
@@ -179,6 +182,7 @@ impl SkillssyncEscrow {
     }
 
     pub fn set_treasury(env: Env, new_treasury: Address) -> Result<(), ContractError> {
+        governance::require_no_multisig(&env);
         require_admin(&env)?;
         env.storage()
             .persistent()
@@ -207,6 +211,7 @@ impl SkillssyncEscrow {
             return Err(ContractError::DuplicateSessionId);
         }
         buyer.require_auth();
+        session_limits::enforce_rate_limit(&env, &buyer);
         let token_addr =
             read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
         let token = token::Client::new(&env, &token_addr);
@@ -240,6 +245,7 @@ impl SkillssyncEscrow {
         if session.status != SessionStatus::Locked {
             return Err(ContractError::DuplicateSessionId);
         }
+        session_limits::ensure_not_expired(&env, &session_id);
         session.status = SessionStatus::Completed;
         session.completed_at = env.ledger().timestamp();
         save_session(&env, session_id.clone(), &session);
@@ -256,6 +262,11 @@ impl SkillssyncEscrow {
         if session.status != SessionStatus::Completed {
             return Err(ContractError::InvalidSessionStatus);
         }
+        let _guard = settlement_extras::before_payout(
+            &env,
+            &session_id,
+            settlement_extras::Payout::Approve,
+        );
         let (payout, fee) = apply_fee(&env, session.amount);
         let token_addr =
             read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
@@ -284,6 +295,11 @@ impl SkillssyncEscrow {
         if session.status != SessionStatus::Locked {
             return Err(ContractError::InvalidSessionStatus);
         }
+        let _guard = settlement_extras::before_payout(
+            &env,
+            &session_id,
+            settlement_extras::Payout::Refund,
+        );
         let token_addr =
             read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
         let token = token::Client::new(&env, &token_addr);
@@ -363,6 +379,11 @@ impl SkillssyncEscrow {
         let token = token::Client::new(&env, &token_addr);
         let contract = env.current_contract_address();
 
+        let _guard = settlement_extras::before_payout(
+            &env,
+            &session_id,
+            settlement_extras::Payout::Resolve,
+        );
         let (settlement, fee) = apply_fee(&env, session.amount);
         let buyer_payout = if buyer_share == session.amount {
             settlement
@@ -375,6 +396,7 @@ impl SkillssyncEscrow {
                 .unwrap_or(0)
         };
         let seller_payout = settlement - buyer_payout;
+        settlement_extras::record_buyer_payout(&env, &session_id, buyer_payout);
         if buyer_payout > 0 {
             token.transfer(&contract, &session.buyer, &buyer_payout);
         }
@@ -408,6 +430,11 @@ impl SkillssyncEscrow {
         if env.ledger().timestamp() <= deadline {
             return Err(ContractError::InvalidSessionStatus);
         }
+        let _guard = settlement_extras::before_payout(
+            &env,
+            &session_id,
+            settlement_extras::Payout::Refund,
+        );
         let token_addr =
             read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
         let token = token::Client::new(&env, &token_addr);
