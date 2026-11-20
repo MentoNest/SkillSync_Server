@@ -5,6 +5,7 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { DatabaseModule } from './database/database.module';
 import { ProfileHistoryModule } from './profile-history/profile-history.module';
+import { ProfileModule } from './profile/profile.module';
 import { UserModule } from './user/user.module';
 
 @Module({
@@ -14,6 +15,7 @@ import { UserModule } from './user/user.module';
     AuthModule,
     UserModule,
     ProfileHistoryModule,
+    ProfileModule,
   ],
   controllers: [AppController],
   providers: [AppService],
