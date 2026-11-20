@@ -374,10 +374,10 @@ impl SkillssyncEscrow {
                 + platform_controls::DEFAULT_SESSION_DEADLINE_LEDGERS,
         };
         save_session(&env, session_id.clone(), &session);
-        platform_controls::record_locked(&env, &session_id, amount);
+        // FundsLocked(session_id, buyer, seller, amount, timestamp)
         env.events().publish(
-            (Symbol::new(&env, "funds_locked"),),
-            (session_id.clone(), buyer.clone(), seller.clone(), amount),
+            (Symbol::new(&env, "FundsLocked"),),
+            (session_id, buyer, seller, amount, session.created_at),
         );
         relay(&env, &session_id, "funds_locked", (buyer, seller, amount));
         Ok(())
@@ -427,9 +427,19 @@ impl SkillssyncEscrow {
         transfer_treasury_fee(&env, &token, fee)?;
         session.status = SessionStatus::Approved;
         save_session(&env, session_id.clone(), &session);
+        // SessionApproved(session_id, buyer, seller, amount, fee, timestamp)
+        // `amount` is the gross escrowed amount; the net paid to the seller is
+        // `amount - fee`.
         env.events().publish(
-            (Symbol::new(&env, "session_approved"),),
-            (session_id.clone(), payout, fee),
+            (Symbol::new(&env, "SessionApproved"),),
+            (
+                session_id,
+                session.buyer.clone(),
+                session.seller.clone(),
+                session.amount,
+                fee,
+                env.ledger().timestamp(),
+            ),
         );
         relay(&env, &session_id, "session_approved", (payout, fee));
         Ok(())
