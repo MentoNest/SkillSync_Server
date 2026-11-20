@@ -140,6 +140,20 @@ fn transfer_treasury_fee(
     Ok(())
 }
 
+/// SessionRefunded(session_id, buyer, amount, timestamp).
+/// Emitted for both manual refunds and timeout-based auto-refunds.
+fn emit_session_refunded(env: &Env, session_id: &Bytes32, session: &Session, timestamp: u64) {
+    env.events().publish(
+        (Symbol::new(env, "SessionRefunded"),),
+        (
+            session_id.clone(),
+            session.buyer.clone(),
+            session.amount,
+            timestamp,
+        ),
+    );
+}
+
 #[contractimpl]
 impl SkillssyncEscrow {
     pub fn set_payment_token(env: Env, token: Address) -> Result<(), ContractError> {
@@ -281,10 +295,7 @@ impl SkillssyncEscrow {
         );
         session.status = SessionStatus::Refunded;
         save_session(&env, session_id.clone(), &session);
-        env.events().publish(
-            (Symbol::new(&env, "session_refunded"),),
-            (session_id, session.amount),
-        );
+        emit_session_refunded(&env, &session_id, &session, env.ledger().timestamp());
         Ok(())
     }
 
@@ -401,9 +412,17 @@ impl SkillssyncEscrow {
         );
         session.status = SessionStatus::Refunded;
         save_session(&env, session_id.clone(), &session);
+        let refunded_at = env.ledger().timestamp();
+        emit_session_refunded(&env, &session_id, &session, refunded_at);
         env.events().publish(
             (Symbol::new(&env, "AutoRefundExecuted"),),
-            (session_id, session.amount),
+            (
+                session_id,
+                session.buyer.clone(),
+                session.amount,
+                session.completed_at,
+                refunded_at,
+            ),
         );
         Ok(())
     }
