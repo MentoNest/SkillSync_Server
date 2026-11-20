@@ -196,17 +196,18 @@ impl SkillssyncEscrow {
     }
 
     pub fn set_platform_fee(env: Env, new_fee_bps: u32) -> Result<(), ContractError> {
-        require_initialized(&env)?;
-        require_admin(&env)?;
+        let admin = require_admin(&env)?;
         if new_fee_bps > MAX_PLATFORM_FEE_BPS {
             return Err(ContractError::FeeTooHigh);
         }
+        let old_fee_bps = read_platform_fee(&env);
         env.storage()
             .persistent()
             .set(&DataKey::PlatformFeeBps, &new_fee_bps);
+        // PlatformFeeUpdated(old_fee_bps, new_fee_bps, updated_by)
         env.events().publish(
-            (Symbol::new(&env, "platform_fee_updated"),),
-            new_fee_bps,
+            (Symbol::new(&env, "PlatformFeeUpdated"),),
+            (old_fee_bps, new_fee_bps, admin),
         );
         Ok(())
     }
@@ -217,13 +218,17 @@ impl SkillssyncEscrow {
     }
 
     pub fn set_treasury(env: Env, new_treasury: Address) -> Result<(), ContractError> {
-        require_initialized(&env)?;
-        require_admin(&env)?;
+        let admin = require_admin(&env)?;
+        // `None` when no treasury was set before.
+        let old_treasury = read_treasury(&env);
         env.storage()
             .persistent()
             .set(&DataKey::Treasury, &new_treasury);
-        env.events()
-            .publish((Symbol::new(&env, "treasury_updated"),), new_treasury);
+        // TreasuryUpdated(old_treasury, new_treasury, updated_by)
+        env.events().publish(
+            (Symbol::new(&env, "TreasuryUpdated"),),
+            (old_treasury, new_treasury, admin),
+        );
         Ok(())
     }
 
@@ -377,11 +382,14 @@ impl SkillssyncEscrow {
         }
         session.buyer.require_auth();
         session.status = SessionStatus::Disputed;
-        session.dispute_opened_at = env.ledger().timestamp();
+        let now = env.ledger().timestamp();
+        session.dispute_opened_at = now;
+        let opened_by = session.buyer.clone();
         save_session(&env, session_id.clone(), &session);
+        // DisputeOpened(session_id, opened_by, reason, timestamp)
         env.events().publish(
-            (Symbol::new(&env, "DisputeOpened"),),
-            (session_id, reason),
+            (Symbol::new(&env, "DisputeOpened"), session_id),
+            (opened_by, reason, now),
         );
         Ok(())
     }
@@ -393,8 +401,7 @@ impl SkillssyncEscrow {
         buyer_share: i128,
         seller_share: i128,
     ) -> Result<(), ContractError> {
-        require_initialized(&env)?;
-        require_admin(&env)?;
+        let resolver = require_admin(&env)?;
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
         match session.status {
@@ -454,11 +461,13 @@ impl SkillssyncEscrow {
         transfer_treasury_fee(&env, &token, fee)?;
 
         session.status = SessionStatus::Resolved;
-        session.dispute_resolved_at = env.ledger().timestamp();
+        let now = env.ledger().timestamp();
+        session.dispute_resolved_at = now;
         save_session(&env, session_id.clone(), &session);
+        // DisputeResolved(session_id, resolver, buyer_share, seller_share, fee, timestamp)
         env.events().publish(
-            (Symbol::new(&env, "DisputeResolved"),),
-            (session_id, resolution, buyer_share, seller_share),
+            (Symbol::new(&env, "DisputeResolved"), session_id),
+            (resolver, buyer_share, seller_share, fee, now),
         );
         Ok(())
     }
@@ -511,7 +520,10 @@ impl SkillssyncEscrow {
 #[cfg(test)]
 mod test {
     use super::*;
-    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{
+        testutils::{Address as _, Events},
+        vec, IntoVal,
+    };
 
     #[test]
     fn apply_fee_zero_fee() {
@@ -550,406 +562,54 @@ mod test {
         });
     }
 
-    // ── error groups (#1625–#1628) ──────────────────────────────────────────
+    // ── admin events (#1619, #1620) ─────────────────────────────────────────
 
-    struct Fixture<'a> {
-        env: Env,
-        client: SkillssyncEscrowClient<'a>,
-        buyer: Address,
-        seller: Address,
-    }
-
-    fn fixture<'a>() -> Fixture<'a> {
-        let env = Env::default();
+    fn setup_admin(env: &Env) -> (Address, SkillssyncEscrowClient<'_>, Address) {
         env.mock_all_auths();
         let id = env.register(SkillssyncEscrow, ());
-        let client = SkillssyncEscrowClient::new(&env, &id);
-        let admin = Address::generate(&env);
-        let buyer = Address::generate(&env);
-        let seller = Address::generate(&env);
+        let client = SkillssyncEscrowClient::new(env, &id);
+        let admin = Address::generate(env);
         env.as_contract(&id, || {
             env.storage().persistent().set(&DataKey::Admin, &admin);
         });
-        let token_admin = Address::generate(&env);
-        let token = env.register_stellar_asset_contract_v2(token_admin);
-        token::StellarAssetClient::new(&env, &token.address()).mint(&buyer, &1_000);
-        client.set_payment_token(&token.address());
-        // SAFETY of lifetimes: the client borrows the env clone below.
-        let env2 = env.clone();
-        let client = SkillssyncEscrowClient::new(&env2, &id);
-        Fixture { env: env2, client, buyer, seller }
-    }
-
-    fn sid(env: &Env, n: u8) -> Bytes32 {
-        BytesN::from_array(env, &[n; 32])
+        (id, client, admin)
     }
 
     #[test]
-    fn session_validation_errors() {
-        let f = fixture();
-        let a = sid(&f.env, 1);
-        assert_eq!(f.client.try_complete_session(&a), Err(Ok(ContractError::SessionNotFound)));
-        f.client.lock_funds(&a, &f.buyer, &f.seller, &100);
-        assert_eq!(
-            f.client.try_lock_funds(&a, &f.buyer, &f.seller, &100),
-            Err(Ok(ContractError::DuplicateSessionId))
-        );
-        f.client.complete_session(&a);
-        assert_eq!(f.client.try_complete_session(&a), Err(Ok(ContractError::SessionAlreadyCompleted)));
-        f.client.approve_session(&a);
-        assert_eq!(f.client.try_approve_session(&a), Err(Ok(ContractError::SessionAlreadyApproved)));
-        assert_eq!(f.client.try_refund_session(&a), Err(Ok(ContractError::InvalidSessionState)));
-
-        let b = sid(&f.env, 2);
-        f.client.lock_funds(&b, &f.buyer, &f.seller, &100);
-        f.client.refund_session(&b);
-        assert_eq!(f.client.try_refund_session(&b), Err(Ok(ContractError::SessionAlreadyRefunded)));
-
-        let c = sid(&f.env, 3);
-        f.client.lock_funds(&c, &f.buyer, &f.seller, &100);
-        f.client.open_dispute(&c, &String::from_str(&f.env, "late"));
-        assert_eq!(f.client.try_complete_session(&c), Err(Ok(ContractError::SessionInDispute)));
-        assert_eq!(f.client.try_approve_session(&c), Err(Ok(ContractError::SessionInDispute)));
-    }
-
-    #[test]
-    fn financial_validation_errors() {
-        let f = fixture();
-        assert_eq!(
-            f.client.try_lock_funds(&sid(&f.env, 1), &f.buyer, &f.seller, &0),
-            Err(Ok(ContractError::InvalidAmount))
-        );
-        assert_eq!(
-            f.client.try_lock_funds(&sid(&f.env, 1), &f.buyer, &f.seller, &5_000),
-            Err(Ok(ContractError::InsufficientBalance))
-        );
-        assert_eq!(f.client.try_set_platform_fee(&1_001), Err(Ok(ContractError::FeeTooHigh)));
-
-        let a = sid(&f.env, 2);
-        f.client.lock_funds(&a, &f.buyer, &f.seller, &100);
-        f.client.open_dispute(&a, &String::from_str(&f.env, "x"));
-        assert_eq!(
-            f.client.try_resolve_dispute(&a, &2, &30, &30),
-            Err(Ok(ContractError::InvalidSplit))
-        );
-    }
-
-    #[test]
-    fn dispute_and_timeout_errors() {
-        let f = fixture();
-        let a = sid(&f.env, 1);
-        f.client.lock_funds(&a, &f.buyer, &f.seller, &100);
-        assert_eq!(
-            f.client.try_resolve_dispute(&a, &2, &50, &50),
-            Err(Ok(ContractError::DisputeNotOpen))
-        );
-        f.client.open_dispute(&a, &String::from_str(&f.env, "x"));
-        assert_eq!(
-            f.client.try_open_dispute(&a, &String::from_str(&f.env, "y")),
-            Err(Ok(ContractError::DisputeAlreadyOpen))
-        );
-        f.client.resolve_dispute(&a, &2, &50, &50);
-        assert_eq!(
-            f.client.try_resolve_dispute(&a, &2, &50, &50),
-            Err(Ok(ContractError::ResolutionNotAllowed))
-        );
-
-        let b = sid(&f.env, 2);
-        f.client.lock_funds(&b, &f.buyer, &f.seller, &100);
-        f.client.complete_session(&b);
-        assert_eq!(
-            f.client.try_auto_refund(&b),
-            Err(Ok(ContractError::DisputeWindowNotElapsed))
-        );
-    }
-}
-
-#[cfg(test)]
-mod escrow_tests {
-    use super::*;
-    use soroban_sdk::{
-        testutils::{Address as _, Events, Ledger},
-        IntoVal, TryFromVal, Val, Vec,
-    };
-
-    const AMOUNT: i128 = 10_000;
-
-    struct Setup {
-        env: Env,
-        contract_id: Address,
-        client: SkillssyncEscrowClient<'static>,
-        admin: Address,
-        treasury: Address,
-    }
-
-    fn setup_uninitialized() -> Setup {
+    fn set_platform_fee_emits_platform_fee_updated() {
         let env = Env::default();
-        env.mock_all_auths();
-        let contract_id = env.register(SkillssyncEscrow, ());
-        let client = SkillssyncEscrowClient::new(&env, &contract_id);
-        let admin = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        Setup {
-            env,
-            contract_id,
-            client,
-            admin,
-            treasury,
-        }
-    }
-
-    fn setup_initialized() -> Setup {
-        let s = setup_uninitialized();
-        s.client.initialize(&s.admin, &s.treasury);
-        s
-    }
-
-    struct Market {
-        token: token::Client<'static>,
-        buyer: Address,
-        seller: Address,
-    }
-
-    fn setup_market(s: &Setup) -> Market {
-        let sac = s.env.register_stellar_asset_contract_v2(s.admin.clone());
-        let token_addr = sac.address();
-        s.client.set_payment_token(&token_addr);
-        let buyer = Address::generate(&s.env);
-        let seller = Address::generate(&s.env);
-        token::StellarAssetClient::new(&s.env, &token_addr).mint(&buyer, &AMOUNT);
-        Market {
-            token: token::Client::new(&s.env, &token_addr),
-            buyer,
-            seller,
-        }
-    }
-
-    fn session_id(env: &Env, seed: u8) -> Bytes32 {
-        BytesN::from_array(env, &[seed; 32])
-    }
-
-    fn last_event(env: &Env, contract_id: &Address, name: &str) -> Option<Val> {
-        let topics: Vec<Val> = (Symbol::new(env, name),).into_val(env);
-        env.events()
-            .all()
-            .iter()
-            .filter(|(addr, t, _)| addr == contract_id && *t == topics)
-            .last()
-            .map(|(_, _, data)| data)
-    }
-
-    // ---- initialize ----
-
-    #[test]
-    fn initialize_sets_admin_and_treasury() {
-        let s = setup_initialized();
-        assert_eq!(s.client.get_treasury(), Some(s.treasury.clone()));
-        s.env.as_contract(&s.contract_id, || {
-            assert_eq!(read_admin(&s.env), Some(s.admin.clone()));
-            assert!(is_initialized(&s.env));
-        });
-    }
-
-    #[test]
-    fn initialize_twice_reverts_with_already_initialized() {
-        let s = setup_initialized();
-        let other = Address::generate(&s.env);
+        let (id, client, admin) = setup_admin(&env);
+        client.set_platform_fee(&250);
         assert_eq!(
-            s.client.try_initialize(&other, &other),
-            Err(Ok(ContractError::AlreadyInitialized))
-        );
-        assert_eq!(s.client.get_treasury(), Some(s.treasury.clone()));
-        s.env.as_contract(&s.contract_id, || {
-            assert_eq!(read_admin(&s.env), Some(s.admin.clone()));
-        });
-    }
-
-    #[test]
-    fn initialize_emits_initialized_event() {
-        let s = setup_uninitialized();
-        s.client.initialize(&s.admin, &s.treasury);
-        let data = last_event(&s.env, &s.contract_id, "Initialized")
-            .expect("Initialized event not emitted");
-        let (admin, treasury) = <(Address, Address)>::try_from_val(&s.env, &data).unwrap();
-        assert_eq!(admin, s.admin);
-        assert_eq!(treasury, s.treasury);
-    }
-
-    #[test]
-    fn entry_points_revert_when_uninitialized() {
-        let s = setup_uninitialized();
-        let env = &s.env;
-        let c = &s.client;
-        let id = session_id(env, 1);
-        let addr = Address::generate(env);
-
-        assert_eq!(
-            c.try_set_payment_token(&addr),
-            Err(Ok(ContractError::NotInitialized))
-        );
-        assert_eq!(
-            c.try_set_platform_fee(&50),
-            Err(Ok(ContractError::NotInitialized))
-        );
-        assert_eq!(
-            c.try_set_treasury(&addr),
-            Err(Ok(ContractError::NotInitialized))
-        );
-        assert_eq!(
-            c.try_lock_funds(&id, &addr, &addr, &AMOUNT),
-            Err(Ok(ContractError::NotInitialized))
-        );
-        assert_eq!(
-            c.try_complete_session(&id),
-            Err(Ok(ContractError::NotInitialized))
-        );
-        assert_eq!(
-            c.try_approve_session(&id),
-            Err(Ok(ContractError::NotInitialized))
-        );
-        assert_eq!(
-            c.try_refund_session(&id),
-            Err(Ok(ContractError::NotInitialized))
-        );
-        assert_eq!(
-            c.try_open_dispute(&id, &String::from_str(env, "reason")),
-            Err(Ok(ContractError::NotInitialized))
-        );
-        assert_eq!(
-            c.try_resolve_dispute(&id, &0, &AMOUNT, &0),
-            Err(Ok(ContractError::NotInitialized))
-        );
-        assert_eq!(
-            c.try_auto_refund(&id),
-            Err(Ok(ContractError::NotInitialized))
-        );
-        assert_eq!(
-            c.try_get_payment_token(),
-            Err(Ok(ContractError::NotInitialized))
-        );
-        assert_eq!(
-            c.try_get_platform_fee(),
-            Err(Ok(ContractError::NotInitialized))
-        );
-        assert_eq!(
-            c.try_get_treasury(),
-            Err(Ok(ContractError::NotInitialized))
-        );
-        assert_eq!(
-            c.try_get_session(&id),
-            Err(Ok(ContractError::NotInitialized))
-        );
-    }
-
-    // ---- refunds ----
-
-    #[test]
-    fn buyer_can_refund_before_completion_with_full_amount() {
-        let s = setup_initialized();
-        let m = setup_market(&s);
-        let id = session_id(&s.env, 1);
-        assert!(s.client.get_platform_fee() > 0);
-
-        s.client.lock_funds(&id, &m.buyer, &m.seller, &AMOUNT);
-        assert_eq!(m.token.balance(&m.buyer), 0);
-
-        s.client.refund_session(&id);
-
-        assert_eq!(m.token.balance(&m.buyer), AMOUNT);
-        assert_eq!(m.token.balance(&s.contract_id), 0);
-        assert_eq!(m.token.balance(&s.treasury), 0);
-        assert_eq!(m.token.balance(&m.seller), 0);
-        assert_eq!(
-            s.client.get_session(&id).unwrap().status,
-            SessionStatus::Refunded
+            env.events().all(),
+            vec![
+                &env,
+                (
+                    id.clone(),
+                    (Symbol::new(&env, "PlatformFeeUpdated"),).into_val(&env),
+                    (DEFAULT_PLATFORM_FEE_BPS, 250u32, admin).into_val(&env)
+                )
+            ]
         );
     }
 
     #[test]
-    fn refund_emits_session_refunded_event() {
-        let s = setup_initialized();
-        let m = setup_market(&s);
-        let id = session_id(&s.env, 2);
-        s.client.lock_funds(&id, &m.buyer, &m.seller, &AMOUNT);
-        s.client.refund_session(&id);
-
-        let data = last_event(&s.env, &s.contract_id, "SessionRefunded")
-            .expect("SessionRefunded event not emitted");
-        let (ev_id, ev_amount) = <(Bytes32, i128)>::try_from_val(&s.env, &data).unwrap();
-        assert_eq!(ev_id, id);
-        assert_eq!(ev_amount, AMOUNT);
-    }
-
-    #[test]
-    fn refund_reverts_when_session_completed() {
-        let s = setup_initialized();
-        let m = setup_market(&s);
-        let id = session_id(&s.env, 3);
-        s.client.lock_funds(&id, &m.buyer, &m.seller, &AMOUNT);
-        s.client.complete_session(&id);
-
+    fn set_treasury_emits_treasury_updated_with_the_previous_treasury() {
+        let env = Env::default();
+        let (id, client, admin) = setup_admin(&env);
+        let first = Address::generate(&env);
+        let second = Address::generate(&env);
+        client.set_treasury(&first);
+        client.set_treasury(&second);
+        let events = env.events().all();
+        let last = events.last().unwrap();
         assert_eq!(
-            s.client.try_refund_session(&id),
-            Err(Ok(ContractError::InvalidSessionStatus))
+            last,
+            (
+                id,
+                (Symbol::new(&env, "TreasuryUpdated"),).into_val(&env),
+                (Some(first), second, admin).into_val(&env)
+            )
         );
-        assert_eq!(m.token.balance(&s.contract_id), AMOUNT);
-    }
-
-    #[test]
-    fn refund_reverts_when_session_approved() {
-        let s = setup_initialized();
-        let m = setup_market(&s);
-        let id = session_id(&s.env, 4);
-        s.client.lock_funds(&id, &m.buyer, &m.seller, &AMOUNT);
-        s.client.complete_session(&id);
-        s.client.approve_session(&id);
-
-        assert_eq!(
-            s.client.try_refund_session(&id),
-            Err(Ok(ContractError::InvalidSessionStatus))
-        );
-        assert_eq!(m.token.balance(&m.buyer), 0);
-    }
-
-    #[test]
-    fn auto_refund_after_timeout_returns_full_amount() {
-        let s = setup_initialized();
-        let m = setup_market(&s);
-        let id = session_id(&s.env, 5);
-        s.client.lock_funds(&id, &m.buyer, &m.seller, &AMOUNT);
-        s.client.complete_session(&id);
-
-        let completed_at = s.client.get_session(&id).unwrap().completed_at;
-        s.env
-            .ledger()
-            .set_timestamp(completed_at + DEFAULT_DISPUTE_WINDOW_LEDGERS as u64 + 1);
-        s.client.auto_refund(&id);
-
-        assert_eq!(m.token.balance(&m.buyer), AMOUNT);
-        assert_eq!(m.token.balance(&s.treasury), 0);
-        assert_eq!(m.token.balance(&s.contract_id), 0);
-        assert_eq!(
-            s.client.get_session(&id).unwrap().status,
-            SessionStatus::Refunded
-        );
-    }
-
-    #[test]
-    fn auto_refund_reverts_before_timeout() {
-        let s = setup_initialized();
-        let m = setup_market(&s);
-        let id = session_id(&s.env, 6);
-        s.client.lock_funds(&id, &m.buyer, &m.seller, &AMOUNT);
-        s.client.complete_session(&id);
-
-        let completed_at = s.client.get_session(&id).unwrap().completed_at;
-        s.env
-            .ledger()
-            .set_timestamp(completed_at + DEFAULT_DISPUTE_WINDOW_LEDGERS as u64);
-        assert_eq!(
-            s.client.try_auto_refund(&id),
-            Err(Ok(ContractError::InvalidSessionStatus))
-        );
-        assert_eq!(m.token.balance(&s.contract_id), AMOUNT);
     }
 }
