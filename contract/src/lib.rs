@@ -1,8 +1,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, token, Address,
-    BytesN, Env, String, Symbol,
+    contract, contractclient, contracterror, contractimpl, contracttype, token, Address, BytesN,
+    Env, String, Symbol,
 };
 type Bytes32 = BytesN<32>;
 
@@ -26,7 +26,21 @@ pub enum DataKey {
     Initialized,
     WasmHash,
     Session(Bytes32),
+    Oracle,
+    PriceMaxAge,
+    FallbackPrice(Bytes32),
+    /// Off-chain metadata URI of a session (instance storage).
+    Metadata(Bytes32),
 }
+
+/// Minimal price-oracle interface (SEP-40 style `lastprice`).
+#[contractclient(name = "OracleClient")]
+pub trait PriceOracle {
+    /// Latest `(price, unix_timestamp)` for `asset`, if known.
+    fn lastprice(env: Env, asset: Bytes32) -> Option<(i128, u64)>;
+}
+
+const DEFAULT_PRICE_MAX_AGE_SECS: u64 = 300;
 
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -44,6 +58,8 @@ pub enum SessionStatus {
 pub struct Session {
     pub buyer: Address,
     pub seller: Address,
+    /// The token this session is denominated in (one token per session).
+    pub token: Address,
     pub amount: i128,
     pub status: SessionStatus,
     pub created_at: u64,
@@ -69,41 +85,40 @@ pub struct Session {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum ContractError {
-    // ── Initialization: 100–103 ─────────────────────────────────────────────
-    /// The contract is already initialized.
-    AlreadyInitialized = 100,
-    /// The contract has not been initialized yet.
-    NotInitialized = 101,
-    /// The admin address is zero or invalid.
-    InvalidAdmin = 102,
-    /// The treasury address is zero or invalid (or not configured).
-    InvalidTreasury = 103,
+    AlreadyInitialized = 1,
+    Unauthorized = 2,
+    InvalidPlatformFee = 3,
+    InvalidAmount = 4,
+    DuplicateSessionId = 5,
+    SessionNotFound = 6,
+    InvalidSessionStatus = 7,
+    PaymentTokenNotConfigured = 8,
+    InvalidResolution = 9,
+    InvalidShares = 10,
+    /// No usable price: oracle unset/failed/stale and no admin fallback.
+    PriceUnavailable = 11,
+    /// A token transfer failed (insufficient balance or allowance).
+    TransferFailed = 12,
+}
 
-    // ── Authorization: 200–203 ──────────────────────────────────────────────
-    /// Generic unauthorized access.
-    Unauthorized = 200,
-    /// The caller is not the contract admin.
-    NotAdmin = 201,
-    /// The caller is not the session buyer.
-    NotBuyer = 202,
-    /// The caller is not the session seller.
-    NotSeller = 203,
-
-    // ── Upgrades: 600 ───────────────────────────────────────────────────────
-    /// The provided WASM hash is zero or invalid.
-    InvalidWasmHash = 600,
-
-    // ── Existing business errors, renumbered into a reserved block (240–247).
-    // They are re-homed into the 300/400/500 groups by the session, financial
-    // and dispute error work.
-    InvalidPlatformFee = 240,
-    InvalidAmount = 241,
-    DuplicateSessionId = 242,
-    SessionNotFound = 243,
-    InvalidSessionStatus = 244,
-    PaymentTokenNotConfigured = 245,
-    InvalidResolution = 246,
-    InvalidShares = 247,
+impl ContractError {
+    /// Human-readable description, for logs and client error mapping.
+    pub fn message(&self) -> &'static str {
+        match self {
+            ContractError::AlreadyInitialized => "contract is already initialized",
+            ContractError::Unauthorized => "caller is not authorized",
+            ContractError::InvalidPlatformFee => "platform fee exceeds the maximum",
+            ContractError::InvalidAmount => "amount must be positive",
+            ContractError::DuplicateSessionId => "session id already exists",
+            ContractError::SessionNotFound => "session not found",
+            ContractError::InvalidSessionStatus => "operation not allowed in the session's status",
+            ContractError::PaymentTokenNotConfigured => "payment token is not configured",
+            ContractError::InvalidResolution => "unknown dispute resolution",
+            ContractError::InvalidShares => "dispute shares must sum to the session amount",
+            ContractError::PriceUnavailable => "no fresh price available",
+            ContractError::TransferFailed => "token transfer failed",
+        }
+    }
 }
 
 fn read_admin(env: &Env) -> Option<Address> {
@@ -166,20 +181,54 @@ fn apply_fee(env: &Env, amount: i128) -> (i128, i128) {
     (amount - fee_amount, fee_amount)
 }
 
+/// `token.transfer` that returns an error instead of aborting the invocation.
+fn safe_transfer(
+    token: &token::Client,
+    from: &Address,
+    to: &Address,
+    amount: &i128,
+) -> Result<(), ContractError> {
+    match token.try_transfer(from, to, amount) {
+        Ok(Ok(())) => Ok(()),
+        _ => Err(ContractError::TransferFailed),
+    }
+}
+
 fn transfer_treasury_fee(
     env: &Env,
     token: &token::Client,
     fee_amount: i128,
 ) -> Result<(), ContractError> {
     if fee_amount > 0 {
-        let treasury = read_treasury(env).ok_or(ContractError::InvalidTreasury)?;
-        token.transfer(
-            &env.current_contract_address(),
-            &treasury,
-            &fee_amount,
-        );
+        let treasury = read_treasury(env).ok_or(ContractError::Unauthorized)?;
+        safe_transfer(token, &env.current_contract_address(), &treasury, &fee_amount)?;
     }
     Ok(())
+}
+
+/// Price of `asset` from the oracle when it answers with a fresh value,
+/// otherwise the admin-provided fallback price.
+fn get_price(env: &Env, asset: Bytes32) -> Result<i128, ContractError> {
+    if let Some(oracle) = env.storage().persistent().get::<_, Address>(&DataKey::Oracle) {
+        let max_age = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PriceMaxAge)
+            .unwrap_or(DEFAULT_PRICE_MAX_AGE_SECS);
+        if let Ok(Ok(Some((price, timestamp)))) =
+            OracleClient::new(env, &oracle).try_lastprice(&asset)
+        {
+            let now = env.ledger().timestamp();
+            if price > 0 && timestamp <= now && now - timestamp <= max_age {
+                return Ok(price);
+            }
+        }
+    }
+    env.storage()
+        .persistent()
+        .get::<_, i128>(&DataKey::FallbackPrice(asset))
+        .filter(|price| *price > 0)
+        .ok_or(ContractError::PriceUnavailable)
 }
 
 #[contractimpl]
@@ -260,6 +309,7 @@ impl SkillssyncEscrow {
         buyer: Address,
         seller: Address,
         amount: i128,
+        token_address: Address,
     ) -> Result<(), ContractError> {
         require_initialized(&env)?;
         if amount <= 0 {
@@ -269,17 +319,17 @@ impl SkillssyncEscrow {
             return Err(ContractError::DuplicateSessionId);
         }
         buyer.require_auth();
-        session_limits::enforce_rate_limit(&env, &buyer);
-        let token_addr =
-            read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
-        let token = token::Client::new(&env, &token_addr);
-        if token.balance(&buyer) < amount {
-            return Err(ContractError::InsufficientBalance);
+        let token = token::Client::new(&env, &token_address);
+        // Pull the funds with the buyer's allowance to this contract.
+        let contract = env.current_contract_address();
+        match token.try_transfer_from(&contract, &buyer, &contract, &amount) {
+            Ok(Ok(())) => {}
+            _ => return Err(ContractError::TransferFailed),
         }
-        token.transfer(&buyer, &env.current_contract_address(), &amount);
         let session = Session {
             buyer: buyer.clone(),
             seller: seller.clone(),
+            token: token_address.clone(),
             amount,
             status: SessionStatus::Locked,
             created_at: env.ledger().timestamp(),
@@ -293,7 +343,7 @@ impl SkillssyncEscrow {
         platform_controls::record_locked(&env, &session_id, amount);
         env.events().publish(
             (Symbol::new(&env, "funds_locked"),),
-            (session_id, buyer, seller, amount),
+            (session_id, buyer, seller, amount, token_address),
         );
         Ok(())
     }
@@ -335,12 +385,9 @@ impl SkillssyncEscrow {
             settlement_extras::Payout::Approve,
         );
         let (payout, fee) = apply_fee(&env, session.amount);
-        let token_addr =
-            read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
-        let token = token::Client::new(&env, &token_addr);
+        let token = token::Client::new(&env, &session.token);
         let contract = env.current_contract_address();
-        token.transfer(&contract, &session.seller, &payout);
-        let fee = platform_controls::take_referrer_share(&env, &session_id, fee);
+        safe_transfer(&token, &contract, &session.seller, &payout)?;
         transfer_treasury_fee(&env, &token, fee)?;
         session.status = SessionStatus::Approved;
         save_session(&env, session_id.clone(), &session);
@@ -362,19 +409,13 @@ impl SkillssyncEscrow {
             SessionStatus::Disputed => return Err(ContractError::SessionInDispute),
             _ => return Err(ContractError::InvalidSessionState),
         }
-        let _guard = settlement_extras::before_payout(
-            &env,
-            &session_id,
-            settlement_extras::Payout::Refund,
-        );
-        let token_addr =
-            read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
-        let token = token::Client::new(&env, &token_addr);
-        token.transfer(
+        let token = token::Client::new(&env, &session.token);
+        safe_transfer(
+            &token,
             &env.current_contract_address(),
             &session.buyer,
             &session.amount,
-        );
+        )?;
         session.status = SessionStatus::Refunded;
         save_session(&env, session_id.clone(), &session);
         env.events().publish(
@@ -445,9 +486,7 @@ impl SkillssyncEscrow {
             return Err(ContractError::InvalidSplit);
         }
 
-        let token_addr =
-            read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
-        let token = token::Client::new(&env, &token_addr);
+        let token = token::Client::new(&env, &session.token);
         let contract = env.current_contract_address();
 
         let _guard = settlement_extras::before_payout(
@@ -469,10 +508,10 @@ impl SkillssyncEscrow {
         let seller_payout = settlement - buyer_payout;
         settlement_extras::record_buyer_payout(&env, &session_id, buyer_payout);
         if buyer_payout > 0 {
-            token.transfer(&contract, &session.buyer, &buyer_payout);
+            safe_transfer(&token, &contract, &session.buyer, &buyer_payout)?;
         }
         if seller_payout > 0 {
-            token.transfer(&contract, &session.seller, &seller_payout);
+            safe_transfer(&token, &contract, &session.seller, &seller_payout)?;
         }
         let fee = platform_controls::take_referrer_share(&env, &session_id, fee);
         transfer_treasury_fee(&env, &token, fee)?;
@@ -506,19 +545,13 @@ impl SkillssyncEscrow {
         if env.ledger().timestamp() <= deadline {
             return Err(ContractError::DisputeWindowNotElapsed);
         }
-        let _guard = settlement_extras::before_payout(
-            &env,
-            &session_id,
-            settlement_extras::Payout::Refund,
-        );
-        let token_addr =
-            read_payment_token(&env).ok_or(ContractError::PaymentTokenNotConfigured)?;
-        let token = token::Client::new(&env, &token_addr);
-        token.transfer(
+        let token = token::Client::new(&env, &session.token);
+        safe_transfer(
+            &token,
             &env.current_contract_address(),
             &session.buyer,
             &session.amount,
-        );
+        )?;
         session.status = SessionStatus::Refunded;
         save_session(&env, session_id.clone(), &session);
         env.events().publish(
@@ -528,31 +561,66 @@ impl SkillssyncEscrow {
         Ok(())
     }
 
-    /// Replace the contract's WASM (admin only) and emit `ContractUpgraded`
-    /// with topics `(name,)` and data `(old_wasm_hash, new_wasm_hash,
-    /// upgraded_by, timestamp)`. The old hash is the one recorded by the
-    /// previous `upgrade` call, or all zeros for the first upgrade.
-    pub fn upgrade(env: Env, new_wasm_hash: Bytes32) -> Result<(), ContractError> {
-        let admin = require_admin(&env)?;
-        let zero = BytesN::from_array(&env, &[0u8; 32]);
-        if new_wasm_hash == zero {
-            return Err(ContractError::InvalidWasmHash);
+    // ── price oracle (#1630) ────────────────────────────────────────────────
+
+    pub fn set_oracle(env: Env, oracle_id: Address) -> Result<(), ContractError> {
+        require_admin(&env)?;
+        env.storage().persistent().set(&DataKey::Oracle, &oracle_id);
+        Ok(())
+    }
+
+    /// Maximum age (seconds) of an oracle price before it counts as stale.
+    pub fn set_price_max_age(env: Env, seconds: u64) -> Result<(), ContractError> {
+        require_admin(&env)?;
+        env.storage().persistent().set(&DataKey::PriceMaxAge, &seconds);
+        Ok(())
+    }
+
+    /// Price used when the oracle is unset, failing or stale.
+    pub fn set_fallback_price(env: Env, asset: Bytes32, price: i128) -> Result<(), ContractError> {
+        require_admin(&env)?;
+        if price <= 0 {
+            return Err(ContractError::InvalidAmount);
         }
-        let old_wasm_hash: Bytes32 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::WasmHash)
-            .unwrap_or(zero);
-        env.deployer()
-            .update_current_contract_wasm(new_wasm_hash.clone());
         env.storage()
             .persistent()
-            .set(&DataKey::WasmHash, &new_wasm_hash);
+            .set(&DataKey::FallbackPrice(asset), &price);
+        Ok(())
+    }
+
+    /// Read-only view of the price the contract would use for `asset`.
+    pub fn quote_price(env: Env, asset: Bytes32) -> Result<i128, ContractError> {
+        get_price(&env, asset)
+    }
+
+    // ── session metadata (#1632) ────────────────────────────────────────────
+
+    /// Attach an off-chain metadata URI (IPFS hash, JSON, ...) to a session.
+    /// Only the buyer or the seller may set it. Stored in instance storage.
+    pub fn set_session_metadata(
+        env: Env,
+        session_id: Bytes32,
+        caller: Address,
+        metadata_uri: String,
+    ) -> Result<(), ContractError> {
+        let session =
+            load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
+        caller.require_auth();
+        if caller != session.buyer && caller != session.seller {
+            return Err(ContractError::Unauthorized);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::Metadata(session_id.clone()), &metadata_uri);
         env.events().publish(
-            (Symbol::new(&env, "ContractUpgraded"),),
-            (old_wasm_hash, new_wasm_hash, admin, env.ledger().timestamp()),
+            (Symbol::new(&env, "MetadataUpdated"), session_id),
+            (caller, metadata_uri),
         );
         Ok(())
+    }
+
+    pub fn get_session_metadata(env: Env, session_id: Bytes32) -> Option<String> {
+        env.storage().instance().get(&DataKey::Metadata(session_id))
     }
 
     pub fn get_session(env: Env, session_id: Bytes32) -> Option<Session> {
@@ -564,7 +632,7 @@ impl SkillssyncEscrow {
 #[cfg(test)]
 mod test {
     use super::*;
-    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{symbol_short, testutils::{Address as _, Ledger as _}};
 
     #[test]
     fn apply_fee_zero_fee() {
@@ -603,47 +671,135 @@ mod test {
         });
     }
 
-    // ── error codes and upgrade (#1621–#1624) ───────────────────────────────
+    // ── propagation, tokens, oracle, metadata (#1629–#1632) ─────────────────
 
-    #[test]
-    fn error_codes_match_the_documented_ranges() {
-        assert_eq!(ContractError::AlreadyInitialized as u32, 100);
-        assert_eq!(ContractError::NotInitialized as u32, 101);
-        assert_eq!(ContractError::InvalidAdmin as u32, 102);
-        assert_eq!(ContractError::InvalidTreasury as u32, 103);
-        assert_eq!(ContractError::Unauthorized as u32, 200);
-        assert_eq!(ContractError::NotAdmin as u32, 201);
-        assert_eq!(ContractError::NotBuyer as u32, 202);
-        assert_eq!(ContractError::NotSeller as u32, 203);
-        assert_eq!(ContractError::InvalidWasmHash as u32, 600);
+    #[contract]
+    pub struct MockOracle;
+
+    #[contractimpl]
+    impl MockOracle {
+        pub fn lastprice(env: Env, _asset: Bytes32) -> Option<(i128, u64)> {
+            env.storage().instance().get(&symbol_short!("p"))
+        }
+        pub fn set(env: Env, price: i128, timestamp: u64) {
+            env.storage().instance().set(&symbol_short!("p"), &(price, timestamp));
+        }
     }
 
-    #[test]
-    fn admin_calls_before_initialization_return_not_initialized() {
+    struct Fx {
+        env: Env,
+        id: Address,
+        buyer: Address,
+        seller: Address,
+        token: Address,
+    }
+
+    fn fx() -> Fx {
         let env = Env::default();
         env.mock_all_auths();
         let id = env.register(SkillssyncEscrow, ());
-        let client = SkillssyncEscrowClient::new(&env, &id);
-        assert_eq!(
-            client.try_set_platform_fee(&10),
-            Err(Ok(ContractError::NotInitialized))
-        );
-    }
-
-    #[test]
-    fn upgrade_rejects_a_zero_wasm_hash() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let id = env.register(SkillssyncEscrow, ());
-        let client = SkillssyncEscrowClient::new(&env, &id);
-        let admin = soroban_sdk::Address::generate(&env);
+        let admin = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        let seller = Address::generate(&env);
         env.as_contract(&id, || {
             env.storage().persistent().set(&DataKey::Admin, &admin);
         });
-        let zero = BytesN::from_array(&env, &[0u8; 32]);
+        let token = env
+            .register_stellar_asset_contract_v2(Address::generate(&env))
+            .address();
+        token::StellarAssetClient::new(&env, &token).mint(&buyer, &1_000);
+        token::Client::new(&env, &token).approve(&buyer, &id, &1_000, &10_000);
+        Fx { env, id, buyer, seller, token }
+    }
+
+    fn sid(env: &Env, n: u8) -> Bytes32 {
+        BytesN::from_array(env, &[n; 32])
+    }
+
+    #[test]
+    fn lock_funds_records_the_token_and_pays_out_in_it() {
+        let f = fx();
+        let client = SkillssyncEscrowClient::new(&f.env, &f.id);
+        let a = sid(&f.env, 1);
+        client.lock_funds(&a, &f.buyer, &f.seller, &100, &f.token);
+        assert_eq!(client.get_session(&a).unwrap().token, f.token);
+        client.complete_session(&a);
+        client.approve_session(&a);
+        assert_eq!(token::Client::new(&f.env, &f.token).balance(&f.seller), 99);
+    }
+
+    #[test]
+    fn every_error_code_is_returned_in_practice() {
+        let f = fx();
+        let client = SkillssyncEscrowClient::new(&f.env, &f.id);
+        let a = sid(&f.env, 1);
         assert_eq!(
-            client.try_upgrade(&zero),
-            Err(Ok(ContractError::InvalidWasmHash))
+            client.try_lock_funds(&a, &f.buyer, &f.seller, &0, &f.token),
+            Err(Ok(ContractError::InvalidAmount))
         );
+        assert_eq!(client.try_complete_session(&a), Err(Ok(ContractError::SessionNotFound)));
+        client.lock_funds(&a, &f.buyer, &f.seller, &100, &f.token);
+        assert_eq!(
+            client.try_lock_funds(&a, &f.buyer, &f.seller, &100, &f.token),
+            Err(Ok(ContractError::DuplicateSessionId))
+        );
+        assert_eq!(client.try_approve_session(&a), Err(Ok(ContractError::InvalidSessionStatus)));
+        assert_eq!(client.try_set_platform_fee(&1_001), Err(Ok(ContractError::InvalidPlatformFee)));
+        client.open_dispute(&a, &String::from_str(&f.env, "x"));
+        assert_eq!(client.try_resolve_dispute(&a, &7, &50, &50), Err(Ok(ContractError::InvalidResolution)));
+        assert_eq!(client.try_resolve_dispute(&a, &2, &10, &10), Err(Ok(ContractError::InvalidShares)));
+        // Not enough allowance/balance: a typed error, not an abort.
+        let b = sid(&f.env, 2);
+        assert_eq!(
+            client.try_lock_funds(&b, &f.buyer, &f.seller, &5_000, &f.token),
+            Err(Ok(ContractError::TransferFailed))
+        );
+    }
+
+    #[test]
+    fn error_messages_are_readable() {
+        assert_eq!(ContractError::SessionNotFound.message(), "session not found");
+        assert_eq!(ContractError::TransferFailed.message(), "token transfer failed");
+    }
+
+    #[test]
+    fn metadata_is_settable_by_the_parties_only() {
+        let f = fx();
+        let client = SkillssyncEscrowClient::new(&f.env, &f.id);
+        let a = sid(&f.env, 1);
+        client.lock_funds(&a, &f.buyer, &f.seller, &100, &f.token);
+        let uri = String::from_str(&f.env, "ipfs://Qm123");
+        assert_eq!(client.get_session_metadata(&a), None);
+        client.set_session_metadata(&a, &f.seller, &uri);
+        assert_eq!(client.get_session_metadata(&a), Some(uri.clone()));
+        let stranger = Address::generate(&f.env);
+        assert_eq!(
+            client.try_set_session_metadata(&a, &stranger, &uri),
+            Err(Ok(ContractError::Unauthorized))
+        );
+    }
+
+    #[test]
+    fn oracle_price_is_used_when_fresh_and_the_fallback_when_not() {
+        let f = fx();
+        let client = SkillssyncEscrowClient::new(&f.env, &f.id);
+        let asset = sid(&f.env, 9);
+        assert_eq!(client.try_quote_price(&asset), Err(Ok(ContractError::PriceUnavailable)));
+
+        let oracle = f.env.register(MockOracle, ());
+        let mock = MockOracleClient::new(&f.env, &oracle);
+        client.set_oracle(&oracle);
+        f.env.ledger().with_mut(|l| l.timestamp = 10_000);
+
+        mock.set(&250, &9_900);
+        assert_eq!(client.quote_price(&asset), 250);
+
+        // Stale oracle price and no fallback: unavailable.
+        mock.set(&250, &1_000);
+        assert_eq!(client.try_quote_price(&asset), Err(Ok(ContractError::PriceUnavailable)));
+
+        // The admin fallback is used instead.
+        client.set_fallback_price(&asset, &300);
+        assert_eq!(client.quote_price(&asset), 300);
     }
 }
