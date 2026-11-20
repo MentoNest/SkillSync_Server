@@ -50,20 +50,56 @@ pub struct Session {
     pub dispute_resolved_at: u64,
 }
 
+/// Every error the contract can return. Codes are grouped into ranges and
+/// documented in `contract/ERRORS.md`:
+///
+/// | Range   | Group                          |
+/// |---------|--------------------------------|
+/// | 100–199 | initialization                 |
+/// | 200–299 | authorization (legacy business errors live at 240–249) |
+/// | 300–399 | session validation             |
+/// | 400–499 | financial validation           |
+/// | 500–599 | timeouts and disputes          |
+/// | 600–699 | upgrades                       |
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum ContractError {
-    AlreadyInitialized = 1,
-    Unauthorized = 2,
-    InvalidPlatformFee = 3,
-    InvalidAmount = 4,
-    DuplicateSessionId = 5,
-    SessionNotFound = 6,
-    InvalidSessionStatus = 7,
-    PaymentTokenNotConfigured = 8,
-    InvalidResolution = 9,
-    InvalidShares = 10,
+    // ── Initialization: 100–103 ─────────────────────────────────────────────
+    /// The contract is already initialized.
+    AlreadyInitialized = 100,
+    /// The contract has not been initialized yet.
+    NotInitialized = 101,
+    /// The admin address is zero or invalid.
+    InvalidAdmin = 102,
+    /// The treasury address is zero or invalid (or not configured).
+    InvalidTreasury = 103,
+
+    // ── Authorization: 200–203 ──────────────────────────────────────────────
+    /// Generic unauthorized access.
+    Unauthorized = 200,
+    /// The caller is not the contract admin.
+    NotAdmin = 201,
+    /// The caller is not the session buyer.
+    NotBuyer = 202,
+    /// The caller is not the session seller.
+    NotSeller = 203,
+
+    // ── Upgrades: 600 ───────────────────────────────────────────────────────
+    /// The provided WASM hash is zero or invalid.
+    InvalidWasmHash = 600,
+
+    // ── Existing business errors, renumbered into a reserved block (240–247).
+    // They are re-homed into the 300/400/500 groups by the session, financial
+    // and dispute error work.
+    InvalidPlatformFee = 240,
+    InvalidAmount = 241,
+    DuplicateSessionId = 242,
+    SessionNotFound = 243,
+    InvalidSessionStatus = 244,
+    PaymentTokenNotConfigured = 245,
+    InvalidResolution = 246,
+    InvalidShares = 247,
 }
 
 fn read_admin(env: &Env) -> Option<Address> {
@@ -71,7 +107,7 @@ fn read_admin(env: &Env) -> Option<Address> {
 }
 
 fn require_admin(env: &Env) -> Result<Address, ContractError> {
-    let admin = read_admin(env).ok_or(ContractError::Unauthorized)?;
+    let admin = read_admin(env).ok_or(ContractError::NotInitialized)?;
     admin.require_auth();
     Ok(admin)
 }
@@ -130,7 +166,7 @@ fn transfer_treasury_fee(
     fee_amount: i128,
 ) -> Result<(), ContractError> {
     if fee_amount > 0 {
-        let treasury = read_treasury(env).ok_or(ContractError::Unauthorized)?;
+        let treasury = read_treasury(env).ok_or(ContractError::InvalidTreasury)?;
         token.transfer(
             &env.current_contract_address(),
             &treasury,
@@ -408,6 +444,33 @@ impl SkillssyncEscrow {
         Ok(())
     }
 
+    /// Replace the contract's WASM (admin only) and emit `ContractUpgraded`
+    /// with topics `(name,)` and data `(old_wasm_hash, new_wasm_hash,
+    /// upgraded_by, timestamp)`. The old hash is the one recorded by the
+    /// previous `upgrade` call, or all zeros for the first upgrade.
+    pub fn upgrade(env: Env, new_wasm_hash: Bytes32) -> Result<(), ContractError> {
+        let admin = require_admin(&env)?;
+        let zero = BytesN::from_array(&env, &[0u8; 32]);
+        if new_wasm_hash == zero {
+            return Err(ContractError::InvalidWasmHash);
+        }
+        let old_wasm_hash: Bytes32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::WasmHash)
+            .unwrap_or(zero);
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
+        env.storage()
+            .persistent()
+            .set(&DataKey::WasmHash, &new_wasm_hash);
+        env.events().publish(
+            (Symbol::new(&env, "ContractUpgraded"),),
+            (old_wasm_hash, new_wasm_hash, admin, env.ledger().timestamp()),
+        );
+        Ok(())
+    }
+
     pub fn get_session(env: Env, session_id: Bytes32) -> Option<Session> {
         load_session(&env, session_id)
     }
@@ -416,6 +479,7 @@ impl SkillssyncEscrow {
 #[cfg(test)]
 mod test {
     use super::*;
+    use soroban_sdk::testutils::Address as _;
 
     #[test]
     fn apply_fee_zero_fee() {
@@ -452,5 +516,49 @@ mod test {
             assert_eq!(apply_fee(&env, 49), (49, 0));
             assert_eq!(apply_fee(&env, 10_001), (9_901, 100));
         });
+    }
+
+    // ── error codes and upgrade (#1621–#1624) ───────────────────────────────
+
+    #[test]
+    fn error_codes_match_the_documented_ranges() {
+        assert_eq!(ContractError::AlreadyInitialized as u32, 100);
+        assert_eq!(ContractError::NotInitialized as u32, 101);
+        assert_eq!(ContractError::InvalidAdmin as u32, 102);
+        assert_eq!(ContractError::InvalidTreasury as u32, 103);
+        assert_eq!(ContractError::Unauthorized as u32, 200);
+        assert_eq!(ContractError::NotAdmin as u32, 201);
+        assert_eq!(ContractError::NotBuyer as u32, 202);
+        assert_eq!(ContractError::NotSeller as u32, 203);
+        assert_eq!(ContractError::InvalidWasmHash as u32, 600);
+    }
+
+    #[test]
+    fn admin_calls_before_initialization_return_not_initialized() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register(SkillssyncEscrow, ());
+        let client = SkillssyncEscrowClient::new(&env, &id);
+        assert_eq!(
+            client.try_set_platform_fee(&10),
+            Err(Ok(ContractError::NotInitialized))
+        );
+    }
+
+    #[test]
+    fn upgrade_rejects_a_zero_wasm_hash() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register(SkillssyncEscrow, ());
+        let client = SkillssyncEscrowClient::new(&env, &id);
+        let admin = soroban_sdk::Address::generate(&env);
+        env.as_contract(&id, || {
+            env.storage().persistent().set(&DataKey::Admin, &admin);
+        });
+        let zero = BytesN::from_array(&env, &[0u8; 32]);
+        assert_eq!(
+            client.try_upgrade(&zero),
+            Err(Ok(ContractError::InvalidWasmHash))
+        );
     }
 }
