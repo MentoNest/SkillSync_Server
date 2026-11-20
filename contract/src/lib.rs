@@ -6,6 +6,8 @@ use soroban_sdk::{
 };
 type Bytes32 = BytesN<32>;
 
+mod platform_controls;
+
 #[contract]
 pub struct SkillssyncEscrow;
 
@@ -48,6 +50,8 @@ pub struct Session {
     pub completed_at: u64,
     pub dispute_opened_at: u64,
     pub dispute_resolved_at: u64,
+    /// Ledger sequence by which the session should be completed; parties can extend it.
+    pub deadline: u32,
 }
 
 #[contracterror]
@@ -130,6 +134,7 @@ fn transfer_treasury_fee(
     fee_amount: i128,
 ) -> Result<(), ContractError> {
     if fee_amount > 0 {
+        platform_controls::record_fee(env, fee_amount);
         let treasury = read_treasury(env).ok_or(ContractError::Unauthorized)?;
         token.transfer(
             &env.current_contract_address(),
@@ -194,6 +199,7 @@ impl SkillssyncEscrow {
         seller: Address,
         amount: i128,
     ) -> Result<(), ContractError> {
+        platform_controls::when_not_paused(&env);
         if amount <= 0 {
             return Err(ContractError::InvalidAmount);
         }
@@ -214,8 +220,11 @@ impl SkillssyncEscrow {
             completed_at: 0,
             dispute_opened_at: 0,
             dispute_resolved_at: 0,
+            deadline: env.ledger().sequence()
+                + platform_controls::DEFAULT_SESSION_DEADLINE_LEDGERS,
         };
         save_session(&env, session_id.clone(), &session);
+        platform_controls::record_locked(&env, &session_id, amount);
         env.events().publish(
             (Symbol::new(&env, "funds_locked"),),
             (session_id, buyer, seller, amount),
@@ -224,6 +233,7 @@ impl SkillssyncEscrow {
     }
 
     pub fn complete_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        platform_controls::when_not_paused(&env);
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
         session.seller.require_auth();
@@ -239,6 +249,7 @@ impl SkillssyncEscrow {
     }
 
     pub fn approve_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        platform_controls::when_not_paused(&env);
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
         session.buyer.require_auth();
@@ -251,6 +262,7 @@ impl SkillssyncEscrow {
         let token = token::Client::new(&env, &token_addr);
         let contract = env.current_contract_address();
         token.transfer(&contract, &session.seller, &payout);
+        let fee = platform_controls::take_referrer_share(&env, &session_id, fee);
         transfer_treasury_fee(&env, &token, fee)?;
         session.status = SessionStatus::Approved;
         save_session(&env, session_id.clone(), &session);
@@ -262,6 +274,7 @@ impl SkillssyncEscrow {
     }
 
     pub fn refund_session(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        platform_controls::when_not_paused(&env);
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
         session.buyer.require_auth();
@@ -293,6 +306,7 @@ impl SkillssyncEscrow {
         session_id: Bytes32,
         reason: String,
     ) -> Result<(), ContractError> {
+        platform_controls::when_not_paused(&env);
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
         if session.status != SessionStatus::Completed
@@ -318,6 +332,7 @@ impl SkillssyncEscrow {
         buyer_share: i128,
         seller_share: i128,
     ) -> Result<(), ContractError> {
+        platform_controls::when_not_paused(&env);
         require_admin(&env)?;
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
@@ -366,6 +381,7 @@ impl SkillssyncEscrow {
         if seller_payout > 0 {
             token.transfer(&contract, &session.seller, &seller_payout);
         }
+        let fee = platform_controls::take_referrer_share(&env, &session_id, fee);
         transfer_treasury_fee(&env, &token, fee)?;
 
         session.status = SessionStatus::Resolved;
@@ -379,6 +395,7 @@ impl SkillssyncEscrow {
     }
 
     pub fn auto_refund(env: Env, session_id: Bytes32) -> Result<(), ContractError> {
+        platform_controls::when_not_paused(&env);
         let mut session =
             load_session(&env, session_id.clone()).ok_or(ContractError::SessionNotFound)?;
         if session.status != SessionStatus::Completed {
