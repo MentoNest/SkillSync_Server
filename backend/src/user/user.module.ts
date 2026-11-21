@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module';
 import { PortfolioLink } from './portfolio-link.entity';
 import { PortfolioLinksController } from './portfolio-links.controller';
 import { PortfolioLinksService } from './portfolio-links.service';
+import { RoleEntity } from './role.entity';
 import { User } from './user.entity';
 import { UserController } from './user.controller';
 import { UserService } from './user.service';
@@ -13,5 +14,9 @@ import { UserService } from './user.service';
   controllers: [UserController, PortfolioLinksController],
   providers: [UserService, PortfolioLinksService],
   exports: [UserService, PortfolioLinksService],
+  imports: [TypeOrmModule.forFeature([User, RoleEntity]), AuthModule],
+  controllers: [UserController],
+  providers: [UserService],
+  exports: [UserService],
 })
 export class UserModule {}
