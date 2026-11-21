@@ -1,3 +1,4 @@
+export * from './portfolio-link.dto';
 export * from './public-profile-response.dto';
 export * from './set-display-name.dto';
 export * from './set-username.dto';

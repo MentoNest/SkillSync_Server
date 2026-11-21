@@ -8,6 +8,7 @@ import {
 } from '../common/errors/app-exceptions';
 import { PublicProfileResponseDto } from './dto/public-profile-response.dto';
 import { UsernameAvailableResponseDto } from './dto/username-available-response.dto';
+import { PortfolioLinksService } from './portfolio-links.service';
 import { User } from './user.entity';
 import { validateUsername } from './username.validator';
 
@@ -21,6 +22,7 @@ export class UserService {
   constructor(
     @InjectRepository(User)
     private readonly users: Repository<User>,
+    private readonly portfolioLinks: PortfolioLinksService,
   ) {}
 
   // ─── Availability ────────────────────────────────────────────────────────────
@@ -107,7 +109,7 @@ export class UserService {
 
     if (!user) throw new ResourceNotFoundException('Profile', identifier);
 
-    return this.toPublicDto(user);
+    return await this.toPublicDto(user);
   }
 
   async findByWallet(walletAddress: string): Promise<User | null> {
@@ -134,12 +136,13 @@ export class UserService {
     return this.users.save(user);
   }
 
-  private toPublicDto(user: User): PublicProfileResponseDto {
+  private async toPublicDto(user: User): Promise<PublicProfileResponseDto> {
     return {
       walletAddress: user.walletAddress,
       username: user.username,
       displayName: user.effectiveDisplayName,
       createdAt: user.createdAt.toISOString(),
+      portfolioLinks: await this.portfolioLinks.listByWallet(user.walletAddress),
     };
   }
 }
