@@ -4,9 +4,12 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  JoinColumn,
+  OneToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { User } from '../user/user.entity';
 
 @Entity('mentor_profiles')
 @Index('idx_mentor_wallet', ['walletAddress'], { unique: true })
@@ -21,6 +24,10 @@ export class MentorProfile {
   })
   @Column({ name: 'wallet_address', type: 'varchar', length: 56 })
   walletAddress!: string;
+
+  @OneToOne(() => User, (user) => user.mentorProfile, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'wallet_address', referencedColumnName: 'walletAddress' })
+  user?: User;
 
   @ApiProperty({
     description: 'Short professional bio.',
