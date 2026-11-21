@@ -9,6 +9,7 @@ import {
 import { PublicProfileResponseDto } from './dto/public-profile-response.dto';
 import { UsernameAvailableResponseDto } from './dto/username-available-response.dto';
 import { User } from './user.entity';
+import { UserStatus } from './user-status.enum';
 import { validateUsername } from './username.validator';
 
 /** How many days a user must wait between username changes. */
@@ -127,11 +128,25 @@ export class UserService {
 
     const user = this.users.create({
       walletAddress,
+      email: null,
       username: null,
       displayName: null,
+      status: UserStatus.ACTIVE,
+      avatarUrl: null,
+      timezone: 'UTC',
+      locale: 'en',
       usernameChangedAt: null,
+      lastLoginAt: null,
     });
     return this.users.save(user);
+  }
+
+  async softDelete(walletAddress: string): Promise<void> {
+    const user = await this.users.findOneBy({ walletAddress });
+    if (!user) throw new ResourceNotFoundException('User', walletAddress);
+    user.status = UserStatus.DELETED;
+    await this.users.save(user);
+    await this.users.softDelete({ walletAddress });
   }
 
   private toPublicDto(user: User): PublicProfileResponseDto {
