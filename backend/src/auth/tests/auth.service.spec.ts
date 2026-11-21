@@ -70,6 +70,24 @@ describe('AuthService', () => {
     await expect(service.login(keypair.publicKey(), '%%%')).rejects.toBeInstanceOf(InvalidCredentialsException);
   });
 
+  it('issues 256-bit hex nonces with expiry and replaces earlier wallet nonces', async () => {
+    const { service, redis } = setup();
+    const first = await service.createNonceWithExpiry(keypair.publicKey());
+    const second = await service.createNonceWithExpiry(keypair.publicKey());
+
+    expect(first.nonce).toMatch(/^[a-f0-9]{64}$/);
+    expect(second.nonce).not.toBe(first.nonce);
+    expect(Number.isNaN(Date.parse(first.expiresAt))).toBe(false);
+    expect(redis.store.get(`session:nonce:${keypair.publicKey()}`)).toBe(second.nonce);
+  });
+
+  it('limits nonce requests to five per wallet per minute', async () => {
+    const { service } = setup();
+    for (let i = 0; i < 5; i++) await service.createNonceWithExpiry(keypair.publicKey());
+
+    await expect(service.createNonceWithExpiry(keypair.publicKey())).rejects.toMatchObject({ status: 429 });
+  });
+
   it('assigns roles from configured addresses', async () => {
     const { service } = setup({ adminAddresses: [keypair.publicKey()], mentorAddresses: [keypair.publicKey()] });
     expect(service.rolesFor(keypair.publicKey())).toEqual([Role.USER, Role.MENTOR, Role.ADMIN]);
