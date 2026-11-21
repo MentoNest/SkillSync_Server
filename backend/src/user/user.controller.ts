@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -9,17 +10,10 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiParam,
-  ApiQuery,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AuthUser } from '../auth/auth.types';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import {
   ErrorResponseDto,
   ForbiddenResponseDto,
@@ -29,8 +23,11 @@ import {
 } from '../common/dto/error-response.dto';
 import {
   PublicProfileResponseDto,
+  QueryUserDto,
   SetDisplayNameDto,
   SetUsernameDto,
+  UpdateUserDto,
+  UserResponseDto,
   UsernameAvailableQueryDto,
   UsernameAvailableResponseDto,
 } from './dto';
@@ -42,110 +39,90 @@ import { UserService } from './user.service';
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
-  // ─── Availability (public, no auth) ─────────────────────────────────────────
+  @ApiBearerAuth('Bearer Auth')
+  @UseGuards(JwtAuthGuard)
+  @Get('users/me')
+  @ApiOperation({ summary: 'Get my profile', operationId: 'getMyProfile' })
+  @ApiResponse({ status: HttpStatus.OK, type: UserResponseDto })
+  getMe(@CurrentUser() user: AuthUser): Promise<UserResponseDto> {
+    return this.userService.findMe(user.address);
+  }
 
-  @ApiOperation({
-    summary: 'Check username availability',
-    description:
-      'Returns whether a username is both syntactically valid and not already taken. ' +
-      'No authentication required. Useful for inline validation in sign-up forms.',
-    operationId: 'checkUsernameAvailability',
-  })
-  @ApiQuery({ name: 'username', description: 'Username to check.', example: 'alice_dev' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Availability result. Check the `available` field.',
-    type: UsernameAvailableResponseDto,
-  })
-  @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Query parameter failed validation.', type: ErrorResponseDto })
-  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
-  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
+  @ApiBearerAuth('Bearer Auth')
+  @UseGuards(JwtAuthGuard)
+  @Patch('users/me')
+  @ApiOperation({ summary: 'Update my profile', operationId: 'updateMyProfile' })
+  @ApiResponse({ status: HttpStatus.OK, type: UserResponseDto })
+  @ApiResponse({ status: HttpStatus.BAD_REQUEST, type: ErrorResponseDto })
+  updateMe(@Body() dto: UpdateUserDto, @CurrentUser() user: AuthUser): Promise<UserResponseDto> {
+    return this.userService.updateMe(user.address, dto);
+  }
+
+  @ApiBearerAuth('Bearer Auth')
+  @UseGuards(JwtAuthGuard)
+  @Delete('users/me')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Soft delete my account', operationId: 'deleteMyProfile' })
+  @ApiResponse({ status: HttpStatus.NO_CONTENT })
+  async removeMe(@CurrentUser() user: AuthUser): Promise<void> {
+    await this.userService.removeMe(user.address);
+  }
+
+  @ApiBearerAuth('Bearer Auth')
+  @UseGuards(JwtAuthGuard)
+  @Get('users')
+  @ApiOperation({ summary: 'List users (query)', operationId: 'listUsers' })
+  @ApiResponse({ status: HttpStatus.OK })
+  listUsers(@Query() query: QueryUserDto) {
+    return this.userService.findAll(query);
+  }
+
   @Get('user/username/available')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Check username availability', operationId: 'checkUsernameAvailability' })
+  @ApiQuery({ name: 'username', description: 'Username to check.', example: 'alice_dev' })
+  @ApiResponse({ status: HttpStatus.OK, type: UsernameAvailableResponseDto })
+  @ApiResponse({ status: HttpStatus.BAD_REQUEST, type: ErrorResponseDto })
   checkAvailability(@Query() query: UsernameAvailableQueryDto): Promise<UsernameAvailableResponseDto> {
     return this.userService.checkAvailability(query.username);
   }
 
-  // ─── Set / change username (authenticated) ───────────────────────────────────
-
   @ApiBearerAuth('Bearer Auth')
-  @ApiOperation({
-    summary: 'Set or change username',
-    description:
-      'Sets or updates the authenticated user\'s unique username. ' +
-      'The first username can be set at any time. Subsequent changes require a 30-day cooldown ' +
-      'since the last change. Usernames are stored in lowercase and must be unique across all accounts.',
-    operationId: 'setUsername',
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Username updated. Returns the full updated user record.',
-    type: User,
-  })
-  @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Body failed validation.', type: ErrorResponseDto })
-  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid access token.', type: UnauthorizedResponseDto })
-  @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Insufficient role.', type: ForbiddenResponseDto })
-  @ApiResponse({
-    status: HttpStatus.CONFLICT,
-    description: 'Username is already taken by another account.',
-    type: ErrorResponseDto,
-  })
-  @ApiResponse({
-    status: HttpStatus.UNPROCESSABLE_ENTITY,
-    description: 'Cooldown period has not elapsed, or username fails a business rule.',
-    type: ErrorResponseDto,
-  })
-  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
-  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
   @Patch('user/username')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Set or change username', operationId: 'setUsername' })
+  @ApiResponse({ status: HttpStatus.OK, type: User })
+  @ApiResponse({ status: HttpStatus.BAD_REQUEST, type: ErrorResponseDto })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, type: UnauthorizedResponseDto })
+  @ApiResponse({ status: HttpStatus.FORBIDDEN, type: ForbiddenResponseDto })
+  @ApiResponse({ status: HttpStatus.CONFLICT, type: ErrorResponseDto })
+  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, type: TooManyRequestsResponseDto })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, type: InternalServerErrorResponseDto })
   setUsername(@Body() dto: SetUsernameDto, @CurrentUser() user: AuthUser): Promise<User> {
     return this.userService.setUsername(user.address, dto.username);
   }
 
-  // ─── Set / change display name (authenticated) ───────────────────────────────
-
   @ApiBearerAuth('Bearer Auth')
-  @ApiOperation({
-    summary: 'Set or clear display name',
-    description:
-      'Updates the authenticated user\'s display name. Send null or omit the field to reset ' +
-      'it to the default (first 8 characters of the wallet address). No uniqueness constraint.',
-    operationId: 'setDisplayName',
-  })
-  @ApiResponse({ status: HttpStatus.OK, description: 'Display name updated.', type: User })
-  @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Body failed validation.', type: ErrorResponseDto })
-  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid access token.', type: UnauthorizedResponseDto })
-  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
-  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
   @Patch('user/display-name')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Set or clear display name', operationId: 'setDisplayName' })
+  @ApiResponse({ status: HttpStatus.OK, type: User })
+  @ApiResponse({ status: HttpStatus.BAD_REQUEST, type: ErrorResponseDto })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, type: UnauthorizedResponseDto })
+  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, type: TooManyRequestsResponseDto })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, type: InternalServerErrorResponseDto })
   setDisplayName(@Body() dto: SetDisplayNameDto, @CurrentUser() user: AuthUser): Promise<User> {
     return this.userService.setDisplayName(user.address, dto.displayName);
   }
 
-  // ─── Public profile ──────────────────────────────────────────────────────────
-
-  @ApiOperation({
-    summary: 'Get public profile',
-    description:
-      'Returns the public profile for a user identified by their wallet address OR their username. ' +
-      'No authentication required.',
-    operationId: 'getPublicProfile',
-  })
-  @ApiParam({
-    name: 'identifier',
-    description: 'Stellar wallet address (56 chars) or the user\'s chosen username.',
-    example: 'alice_dev',
-  })
-  @ApiResponse({ status: HttpStatus.OK, description: 'Profile found.', type: PublicProfileResponseDto })
-  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'No user found for this identifier.', type: ErrorResponseDto })
-  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
-  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
   @Get('profiles/:identifier')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get public profile', operationId: 'getPublicProfile' })
+  @ApiParam({ name: 'identifier', description: 'Wallet address or username', example: 'alice_dev' })
+  @ApiResponse({ status: HttpStatus.OK, type: PublicProfileResponseDto })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, type: ErrorResponseDto })
   getPublicProfile(@Param('identifier') identifier: string): Promise<PublicProfileResponseDto> {
     return this.userService.getPublicProfile(identifier);
   }
