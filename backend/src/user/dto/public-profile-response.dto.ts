@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { PortfolioLinkResponseDto } from './portfolio-link.dto';
 
 export class PublicProfileResponseDto {
   @ApiProperty({
@@ -24,4 +25,7 @@ export class PublicProfileResponseDto {
 
   @ApiProperty({ description: 'UTC timestamp of account creation.', example: '2024-01-15T10:00:00.000Z' })
   createdAt!: string;
+
+  @ApiPropertyOptional({ type: [PortfolioLinkResponseDto], description: 'Public portfolio links' })
+  portfolioLinks?: PortfolioLinkResponseDto[];
 }

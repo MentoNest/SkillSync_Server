@@ -12,6 +12,7 @@ import { QueryUserDto } from './dto/query-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { UsernameAvailableResponseDto } from './dto/username-available-response.dto';
+import { PortfolioLinksService } from './portfolio-links.service';
 import { User } from './user.entity';
 import { UserStatus } from './user-status.enum';
 import { validateUsername } from './username.validator';
@@ -25,6 +26,7 @@ export class UserService {
   constructor(
     @InjectRepository(User)
     private readonly users: Repository<User>,
+    private readonly portfolioLinks: PortfolioLinksService,
   ) {}
 
   async create(dto: CreateUserDto): Promise<UserResponseDto> {
@@ -153,6 +155,8 @@ export class UserService {
       (await this.users.findOneBy({ username: identifier.toLowerCase() })) ??
       (await this.users.findOneBy({ walletAddress: identifier }));
     if (!user) throw new ResourceNotFoundException('Profile', identifier);
+
+    return await this.toPublicDto(user);
     return this.toPublicDto(user);
   }
 
@@ -178,6 +182,7 @@ export class UserService {
     return this.users.save(user);
   }
 
+  private async toPublicDto(user: User): Promise<PublicProfileResponseDto> {
   async softDelete(walletAddress: string): Promise<void> {
     const user = await this.users.findOneBy({ walletAddress });
     if (!user) throw new ResourceNotFoundException('User', walletAddress);
@@ -192,6 +197,7 @@ export class UserService {
       username: user.username,
       displayName: user.effectiveDisplayName,
       createdAt: user.createdAt.toISOString(),
+      portfolioLinks: await this.portfolioLinks.listByWallet(user.walletAddress),
     };
   }
 

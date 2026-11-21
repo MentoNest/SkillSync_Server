@@ -1,3 +1,4 @@
+export * from './portfolio-link.dto';
 export * from './create-user.dto';
 export * from './public-profile-response.dto';
 export * from './query-user.dto';
