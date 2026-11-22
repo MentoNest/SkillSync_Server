@@ -13,6 +13,9 @@ import { User } from '../user/user.entity';
 
 @Entity('mentor_profiles')
 @Index('idx_mentor_wallet', ['walletAddress'], { unique: true })
+@Index('idx_mentor_verified_rating', ['isVerified', 'averageRating'])
+@Index('idx_mentor_discovery', ['isActive', 'isVerified', 'averageRating'])
+@Index('idx_mentor_created_at', ['createdAt'])
 export class MentorProfile {
   @ApiProperty({ description: 'Auto-generated UUID.', example: 'a1b2c3d4-...' })
   @PrimaryGeneratedColumn('uuid')
@@ -74,6 +77,20 @@ export class MentorProfile {
   })
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive!: boolean;
+
+  @ApiProperty({
+    description: 'Whether the mentor identity has been verified by an administrator.',
+    example: false,
+  })
+  @Column({ name: 'is_verified', type: 'boolean', default: false })
+  isVerified!: boolean;
+
+  @ApiProperty({
+    description: 'Average review score (0-5, one decimal place) used for discovery sorting.',
+    example: 4.5,
+  })
+  @Column({ name: 'average_rating', type: 'decimal', precision: 2, scale: 1, default: 0 })
+  averageRating!: number;
 
   @ApiProperty({ description: 'UTC creation timestamp.' })
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz', precision: 3 })
