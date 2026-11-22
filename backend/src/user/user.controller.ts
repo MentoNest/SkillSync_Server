@@ -11,9 +11,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { AuthUser } from '../auth/auth.types';
+import { AuthUser, Role } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import {
   ErrorResponseDto,
   ForbiddenResponseDto,
@@ -27,6 +29,7 @@ import {
   SetDisplayNameDto,
   SetUsernameDto,
   UpdateUserDto,
+  UpdateUserStatusDto,
   UserResponseDto,
   UsernameAvailableQueryDto,
   UsernameAvailableResponseDto,
@@ -66,6 +69,20 @@ export class UserController {
   @ApiResponse({ status: HttpStatus.NO_CONTENT })
   async removeMe(@CurrentUser() user: AuthUser): Promise<void> {
     await this.userService.removeMe(user.address);
+  }
+
+  @ApiBearerAuth('Bearer Auth')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Patch('admin/users/:walletAddress/status')
+  @ApiOperation({ summary: 'Change an account status (admin)', operationId: 'setUserStatus' })
+  @ApiParam({ name: 'walletAddress', description: 'Wallet address of the account to update.' })
+  @ApiResponse({ status: HttpStatus.OK, type: UserResponseDto })
+  setStatus(
+    @Param('walletAddress') walletAddress: string,
+    @Body() dto: UpdateUserStatusDto,
+  ): Promise<UserResponseDto> {
+    return this.userService.setStatus(walletAddress, dto.status);
   }
 
   @ApiBearerAuth('Bearer Auth')

@@ -189,6 +189,39 @@ export class UserService {
     await this.users.softDelete({ walletAddress });
   }
 
+  /**
+   * Changes an account's lifecycle status. Soft-deleted rows are restored first so an
+   * admin can suspend, reactivate or delete them without a manual database operation.
+   */
+  async setStatus(walletAddress: string, status: UserStatus): Promise<UserResponseDto> {
+    const user = await this.users.findOne({ where: { walletAddress }, withDeleted: true });
+    if (!user) throw new ResourceNotFoundException('User', walletAddress);
+
+    const previous = user.status ?? UserStatus.ACTIVE;
+    if (previous === status && !user.deletedAt) return this.toResponseDto(user);
+
+    if (user.deletedAt) {
+      await this.users.restore({ walletAddress });
+      user.deletedAt = null;
+    }
+
+    user.status = status;
+    await this.users.save(user);
+
+    if (status === UserStatus.DELETED) {
+      await this.users.softDelete({ walletAddress });
+      user.deletedAt = new Date();
+    }
+
+    this.audit.log(`status_changed address=${walletAddress} previous=${previous} new=${status}`);
+    return this.toResponseDto(user);
+  }
+
+  /** Restores a soft-deleted account and marks it active again. */
+  async restore(walletAddress: string): Promise<UserResponseDto> {
+    return this.setStatus(walletAddress, UserStatus.ACTIVE);
+  }
+
   private async toPublicDto(user: User): Promise<PublicProfileResponseDto> {
     return {
       walletAddress: user.walletAddress,
