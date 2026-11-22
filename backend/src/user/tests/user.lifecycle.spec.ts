@@ -1,3 +1,4 @@
+import { Keypair } from '@stellar/stellar-sdk';
 import {
   DuplicateResourceException,
   ResourceNotFoundException,
@@ -7,7 +8,8 @@ import { UserStatus } from '../user-status.enum';
 import { UserService } from '../user.service';
 
 const WALLET = 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37';
-const OTHER = 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGFM34TPTJKH3CRBJ1J9DEC';
+const OTHER = Keypair.random().publicKey();
+const UNKNOWN = Keypair.random().publicKey();
 
 function makeUser(overrides: Partial<User> = {}): User {
   const user = new User();
@@ -117,11 +119,13 @@ describe('UserService lifecycle rules', () => {
     const service = makeService(repo);
 
     const created = await service.create({
-      walletAddress: WALLET,
+      walletAddress: ` ${WALLET.toLowerCase()} `,
       email: 'Alice@Example.COM',
     });
 
     expect(created.email).toBe('alice@example.com');
+    expect(created.walletAddress).toBe(WALLET.toLowerCase());
+    expect(repo.findOneBy).toHaveBeenCalledWith({ walletAddress: WALLET.toLowerCase() });
     await expect(
       service.create({ walletAddress: OTHER, displayName: 'Duplicate' }),
     ).rejects.toBeInstanceOf(DuplicateResourceException);
@@ -152,7 +156,7 @@ describe('UserService lifecycle rules', () => {
 
     expect(repo.softDelete).toHaveBeenCalledWith({ walletAddress: WALLET });
     expect(await repo.findOneBy({ walletAddress: WALLET })).toBeNull();
-    await expect(service.removeMe('GUNKNOWN')).rejects.toBeInstanceOf(ResourceNotFoundException);
+    await expect(service.removeMe(UNKNOWN)).rejects.toBeInstanceOf(ResourceNotFoundException);
   });
 
   it('suspends an active account without hiding it from soft-delete queries', async () => {

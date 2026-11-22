@@ -7,6 +7,8 @@ import {
   DuplicateResourceException,
   ResourceNotFoundException,
 } from '../common/errors/app-exceptions';
+import { normalizeWalletAddress } from '../common/utils/wallet.utils';
+import { isValidStellarWalletAddress } from '../common/validators/wallet-address';
 import { CreateUserDto } from './dto/create-user.dto';
 import { PublicProfileResponseDto } from './dto/public-profile-response.dto';
 import { QueryUserDto } from './dto/query-user.dto';
@@ -32,7 +34,8 @@ export class UserService {
   ) {}
 
   async create(dto: CreateUserDto): Promise<UserResponseDto> {
-    const existing = await this.users.findOneBy({ walletAddress: dto.walletAddress });
+    const walletAddress = normalizeWalletAddress(dto.walletAddress);
+    const existing = await this.users.findOneBy({ walletAddress });
     if (existing) throw new DuplicateResourceException('User with this wallet address already exists.');
 
     if (dto.email) {
@@ -41,7 +44,7 @@ export class UserService {
     }
 
     const entity = this.users.create({
-      walletAddress: dto.walletAddress,
+      walletAddress,
       email: dto.email?.toLowerCase() ?? null,
       username: null,
       displayName: dto.displayName ?? null,
@@ -59,8 +62,9 @@ export class UserService {
   }
 
   async findMe(walletAddress: string): Promise<UserResponseDto> {
-    const user = await this.findOrCreate(walletAddress);
-    const score = await this.completeness.getForUser(walletAddress);
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
+    const user = await this.findOrCreate(normalizedAddress);
+    const score = await this.completeness.getForUser(normalizedAddress);
     return { ...this.toResponseDto(user), completenessScore: score.score };
   }
 
@@ -92,13 +96,14 @@ export class UserService {
   }
 
   async updateMe(walletAddress: string, dto: UpdateUserDto): Promise<UserResponseDto> {
-    const user = await this.findOrCreate(walletAddress);
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
+    const user = await this.findOrCreate(normalizedAddress);
 
     if (dto.email !== undefined) {
       const nextEmail = dto.email?.toLowerCase() ?? null;
       if (nextEmail) {
         const existing = await this.users.findOne({ where: { email: nextEmail } });
-        if (existing && existing.walletAddress !== walletAddress) {
+        if (existing && existing.walletAddress !== normalizedAddress) {
           throw new DuplicateResourceException('Email is already in use.');
         }
       }
@@ -112,18 +117,19 @@ export class UserService {
     if (dto.certifications !== undefined) user.certifications = dto.certifications;
 
     const saved = await this.users.save(user);
-    await this.completeness.invalidate(walletAddress);
-    const score = await this.completeness.getForUser(walletAddress);
+    await this.completeness.invalidate(normalizedAddress);
+    const score = await this.completeness.getForUser(normalizedAddress);
     return { ...this.toResponseDto(saved), completenessScore: score.score };
   }
 
   async removeMe(walletAddress: string): Promise<void> {
-    const user = await this.users.findOneBy({ walletAddress });
-    if (!user) throw new ResourceNotFoundException('User', walletAddress);
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
+    const user = await this.users.findOneBy({ walletAddress: normalizedAddress });
+    if (!user) throw new ResourceNotFoundException('User', normalizedAddress);
     user.status = UserStatus.DELETED;
     await this.users.save(user);
-    await this.users.softDelete({ walletAddress });
-    await this.completeness.invalidate(walletAddress);
+    await this.users.softDelete({ walletAddress: normalizedAddress });
+    await this.completeness.invalidate(normalizedAddress);
   }
 
   // ─── Existing username/display/profile flows (kept for compatibility) ─────
@@ -137,11 +143,12 @@ export class UserService {
   }
 
   async setUsername(walletAddress: string, desiredUsername: string): Promise<User> {
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
     const normalised = desiredUsername.toLowerCase();
     const validation = validateUsername(desiredUsername);
     if (!validation.valid) throw new BusinessRuleException(validation.message ?? 'Invalid username.');
 
-    const user = await this.findOrCreate(walletAddress);
+    const user = await this.findOrCreate(normalizedAddress);
     if (user.username !== null && user.usernameChangedAt !== null) {
       const cooldownMs = USERNAME_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
       const elapsed = Date.now() - user.usernameChangedAt.getTime();
@@ -152,7 +159,7 @@ export class UserService {
     }
 
     const existing = await this.users.findOneBy({ username: normalised });
-    if (existing && existing.walletAddress !== walletAddress) {
+    if (existing && existing.walletAddress !== normalizedAddress) {
       throw new DuplicateResourceException(`Username "${desiredUsername}" is already taken.`);
     }
 
@@ -160,25 +167,29 @@ export class UserService {
     user.username = normalised;
     user.usernameChangedAt = new Date();
     const saved = await this.users.save(user);
-    this.audit.log(`username_changed address=${walletAddress} previous=${previous ?? 'none'} new=${normalised}`);
+    this.audit.log(`username_changed address=${normalizedAddress} previous=${previous ?? 'none'} new=${normalised}`);
     return saved;
   }
 
   async setDisplayName(walletAddress: string, displayName: string | null | undefined): Promise<User> {
-    const user = await this.findOrCreate(walletAddress);
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
+    const user = await this.findOrCreate(normalizedAddress);
     user.displayName = displayName ?? null;
     const saved = await this.users.save(user);
-    this.audit.log(`display_name_changed address=${walletAddress} value=${displayName ?? 'null'}`);
+    this.audit.log(`display_name_changed address=${normalizedAddress} value=${displayName ?? 'null'}`);
     return saved;
   }
 
   async getPublicProfile(identifier: string): Promise<PublicProfileResponseDto> {
+    const walletAddress = isValidStellarWalletAddress(identifier)
+      ? normalizeWalletAddress(identifier)
+      : identifier;
     const user = await this.users
       .createQueryBuilder('u')
       .leftJoinAndSelect('u.mentorProfile', 'mentorProfile')
       .where('u.username = :username OR u.wallet_address = :walletAddress', {
         username: identifier.toLowerCase(),
-        walletAddress: identifier,
+        walletAddress,
       })
       .getOne();
     if (!user) throw new ResourceNotFoundException('Profile', identifier);
@@ -187,14 +198,15 @@ export class UserService {
   }
 
   async findByWallet(walletAddress: string): Promise<User | null> {
-    return this.users.findOneBy({ walletAddress });
+    return this.users.findOneBy({ walletAddress: normalizeWalletAddress(walletAddress) });
   }
 
   async findOrCreate(walletAddress: string): Promise<User> {
-    const existing = await this.users.findOneBy({ walletAddress });
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
+    const existing = await this.users.findOneBy({ walletAddress: normalizedAddress });
     if (existing) return existing;
     const user = this.users.create({
-      walletAddress,
+      walletAddress: normalizedAddress,
       email: null,
       username: null,
       displayName: null,
@@ -211,12 +223,13 @@ export class UserService {
   }
 
   async softDelete(walletAddress: string): Promise<void> {
-    const user = await this.users.findOneBy({ walletAddress });
-    if (!user) throw new ResourceNotFoundException('User', walletAddress);
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
+    const user = await this.users.findOneBy({ walletAddress: normalizedAddress });
+    if (!user) throw new ResourceNotFoundException('User', normalizedAddress);
     user.status = UserStatus.DELETED;
     await this.users.save(user);
-    await this.users.softDelete({ walletAddress });
-    await this.completeness.invalidate(walletAddress);
+    await this.users.softDelete({ walletAddress: normalizedAddress });
+    await this.completeness.invalidate(normalizedAddress);
   }
 
   private async toPublicDto(user: User): Promise<PublicProfileResponseDto> {

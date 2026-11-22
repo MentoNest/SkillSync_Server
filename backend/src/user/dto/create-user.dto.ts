@@ -1,11 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsEnum, IsOptional, IsString, Length, MaxLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsEmail, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsValidWalletAddress } from '../../common/validators';
 import { UserStatus } from '../user-status.enum';
 
 export class CreateUserDto {
   @ApiProperty({ description: 'Stellar wallet address', example: 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37' })
   @IsString()
-  @Length(56, 56)
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsValidWalletAddress()
   walletAddress!: string;
 
   @ApiPropertyOptional({ description: 'Email address', example: 'alice@example.com' })

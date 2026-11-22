@@ -3,12 +3,13 @@ import { JwtService } from '@nestjs/jwt';
 import { Keypair } from '@stellar/stellar-sdk';
 import { randomBytes, randomUUID } from 'crypto';
 import { InvalidCredentialsException, TokenExpiredException } from '../common/errors/app-exceptions';
+import { normalizeWalletAddress } from '../common/utils/wallet.utils';
 import { RedisNamespace } from '../redis/redis.config';
 import { RedisService } from '../redis/redis.service';
 import { AUTH_CONFIG, AuthConfig, AuthUser, JwtPayload, Role, TokenPair } from './auth.types';
 
 export function loginMessage(address: string, nonce: string): string {
-  return `SkillSync login\nAddress: ${address}\nNonce: ${nonce}`;
+  return `SkillSync login\nAddress: ${normalizeWalletAddress(address)}\nNonce: ${nonce}`;
 }
 
 @Injectable()
@@ -23,8 +24,9 @@ export class AuthService {
 
   /** Issues a single-use nonce for the wallet and the exact message it must sign. */
   async createNonce(address: string): Promise<{ nonce: string; message: string; expiresIn: number }> {
-    const { nonce } = await this.issueNonce(address);
-    return { nonce, message: loginMessage(address, nonce), expiresIn: this.config.nonceTtlSeconds };
+    const normalizedAddress = normalizeWalletAddress(address);
+    const { nonce } = await this.issueNonce(normalizedAddress);
+    return { nonce, message: loginMessage(normalizedAddress, nonce), expiresIn: this.config.nonceTtlSeconds };
   }
 
   /** Issues a nonce with its absolute expiry for the path-based nonce endpoint. */
@@ -38,28 +40,29 @@ export class AuthService {
    * the signature is valid, so it cannot be replayed or brute-forced.
    */
   async verifyWallet(address: string, signature: string): Promise<AuthUser> {
-    const key = `nonce:${address}`;
+    const normalizedAddress = normalizeWalletAddress(address);
+    const key = `nonce:${normalizedAddress}`;
     const nonce = await this.redis.get(RedisNamespace.SESSION, key);
     if (!nonce) {
-      this.audit.warn(`login_failed address=${address} reason=no_nonce`);
+      this.audit.warn(`login_failed address=${normalizedAddress} reason=no_nonce`);
       throw new InvalidCredentialsException('No active nonce for this address; request a new one');
     }
     await this.redis.del(RedisNamespace.SESSION, key);
 
     let valid = false;
     try {
-      valid = Keypair.fromPublicKey(address).verify(
-        Buffer.from(loginMessage(address, nonce), 'utf8'),
+      valid = Keypair.fromPublicKey(normalizedAddress.toUpperCase()).verify(
+        Buffer.from(loginMessage(normalizedAddress, nonce), 'utf8'),
         Buffer.from(signature, 'base64'),
       );
     } catch {
       valid = false;
     }
     if (!valid) {
-      this.audit.warn(`login_failed address=${address} reason=bad_signature`);
+      this.audit.warn(`login_failed address=${normalizedAddress} reason=bad_signature`);
       throw new InvalidCredentialsException('Signature verification failed');
     }
-    return { address, roles: this.rolesFor(address), jti: '' };
+    return { address: normalizedAddress, roles: this.rolesFor(normalizedAddress), jti: '' };
   }
 
   async login(address: string, signature: string): Promise<TokenPair> {
@@ -68,8 +71,9 @@ export class AuthService {
 
   /** Issues tokens for a wallet that has already been verified (e.g. by the wallet guard). */
   async issueForUser(user: AuthUser): Promise<TokenPair> {
-    const tokens = await this.issueTokens(user.address, user.roles);
-    this.audit.log(`login_succeeded address=${user.address}`);
+    const address = normalizeWalletAddress(user.address);
+    const tokens = await this.issueTokens(address, user.roles);
+    this.audit.log(`login_succeeded address=${address}`);
     return tokens;
   }
 
@@ -97,18 +101,19 @@ export class AuthService {
 
   /** Revokes the current access token and the session's refresh token. */
   async logout(user: AuthUser, refreshToken?: string): Promise<void> {
+    const address = normalizeWalletAddress(user.address);
     await this.redis.set(RedisNamespace.BLACKLIST, user.jti, '1', this.config.accessTtlSeconds);
     if (refreshToken) {
       try {
         const payload = await this.jwt.verifyAsync<JwtPayload>(refreshToken, { secret: this.config.jwtSecret });
-        if (payload.sub === user.address) {
+        if (normalizeWalletAddress(payload.sub) === address) {
           await this.redis.del(RedisNamespace.SESSION, `refresh:${payload.jti}`);
         }
       } catch {
         // An unusable refresh token needs no revocation.
       }
     }
-    this.audit.log(`logout address=${user.address}`);
+    this.audit.log(`logout address=${address}`);
   }
 
   async isRevoked(jti: string): Promise<boolean> {
@@ -116,9 +121,14 @@ export class AuthService {
   }
 
   rolesFor(address: string): Role[] {
+    const normalizedAddress = normalizeWalletAddress(address);
     const roles = [Role.USER];
-    if (this.config.mentorAddresses.includes(address)) roles.push(Role.MENTOR);
-    if (this.config.adminAddresses.includes(address)) roles.push(Role.ADMIN);
+    if (this.config.mentorAddresses.some((configured) => configured.trim().toLowerCase() === normalizedAddress)) {
+      roles.push(Role.MENTOR);
+    }
+    if (this.config.adminAddresses.some((configured) => configured.trim().toLowerCase() === normalizedAddress)) {
+      roles.push(Role.ADMIN);
+    }
     return roles;
   }
 
@@ -138,9 +148,10 @@ export class AuthService {
   }
 
   private async issueNonce(address: string): Promise<{ nonce: string; expiresAt: string }> {
+    const normalizedAddress = normalizeWalletAddress(address);
     const requestCount = await this.redis.incrementWithExpiry(
       RedisNamespace.RATE_LIMIT,
-      `nonce:${address}`,
+      `nonce:${normalizedAddress}`,
       60,
     );
     if (requestCount > 5) {
@@ -148,8 +159,13 @@ export class AuthService {
     }
 
     const nonce = randomBytes(32).toString('hex');
-    await this.redis.set(RedisNamespace.SESSION, `nonce:${address}`, nonce, this.config.nonceTtlSeconds);
-    this.audit.log(`nonce_issued address=${address}`);
+    await this.redis.set(
+      RedisNamespace.SESSION,
+      `nonce:${normalizedAddress}`,
+      nonce,
+      this.config.nonceTtlSeconds,
+    );
+    this.audit.log(`nonce_issued address=${normalizedAddress}`);
     return {
       nonce,
       expiresAt: new Date(Date.now() + this.config.nonceTtlSeconds * 1000).toISOString(),
