@@ -1,0 +1,78 @@
+services:
+  backend:
+    build:
+      context: .
+      target: development
+    command: npm run start:dev
+    ports:
+      - '${PORT:-3000}:3000'
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in backend/.env (see .env.docker.example)}
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-604800}
+      DEFAULT_ADMIN_WALLET: ${DEFAULT_ADMIN_WALLET:-}
+      DISABLE_SEED: ${DISABLE_SEED:-true}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: skillsync
+      DB_PASSWORD: skillsync_dev
+      DB_NAME: skillsync
+      DB_MIGRATIONS_RUN: 'true'
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_KEY_PREFIX: 'skillsync:'
+      CHOKIDAR_USEPOLLING: 'true'
+    volumes:
+      # Hot reload: source is mounted, container node_modules is preserved.
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: skillsync
+      POSTGRES_PASSWORD: skillsync_dev
+      POSTGRES_DB: skillsync
+    ports:
+      - '${DB_PORT_HOST:-5432}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U skillsync -d skillsync']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '${REDIS_PORT_HOST:-6379}:6379'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
+  redisdata:

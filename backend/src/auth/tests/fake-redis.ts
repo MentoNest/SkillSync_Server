@@ -1,6 +1,11 @@
 import { RedisNamespace } from '../../redis/redis.config';
 
-/** In-memory stand-in for RedisService (ignores TTLs). */
+interface Entry {
+  value: string;
+  expiresAt?: number;
+}
+
+/** In-memory stand-in for RedisService with a controllable clock for TTL tests. */
 export class FakeRedisService {
   readonly store = new Map<string, string>();
   private readonly counters = new Map<string, number>();

@@ -22,10 +22,16 @@ class ProtectedController {
 
 describe('Auth (e2e)', () => {
   let app: INestApplication;
+  let redis: FakeRedisService;
   const keypair = Keypair.random();
+  const adminKeypair = Keypair.random();
 
   beforeAll(async () => {
     process.env.JWT_SECRET = 'e2e-secret-e2e-secret';
+    process.env.AUTH_NONCE_TTL_SECONDS = '2';
+    process.env.AUTH_ADMIN_ADDRESSES = adminKeypair.publicKey();
+    redis = new FakeRedisService();
+
     const moduleRef = await Test.createTestingModule({
       imports: [AuthModule],
       controllers: [ProtectedController],
@@ -34,7 +40,7 @@ describe('Auth (e2e)', () => {
       .overrideProvider(REDIS_CLIENT)
       .useValue({})
       .overrideProvider(RedisService)
-      .useValue(new FakeRedisService())
+      .useValue(redis)
       .compile();
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(createValidationPipe());
@@ -42,14 +48,22 @@ describe('Auth (e2e)', () => {
     await app.init();
   });
 
+  beforeEach(() => {
+    redis.reset();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   afterAll(async () => {
     await app.close();
   });
 
-  async function login() {
-    const address = keypair.publicKey();
+  async function login(kp: Keypair = keypair) {
+    const address = kp.publicKey();
     const nonce = await request(app.getHttpServer()).post('/auth/nonce').send({ address }).expect(200);
-    const signature = keypair.sign(Buffer.from(nonce.body.message)).toString('base64');
+    const signature = kp.sign(Buffer.from(nonce.body.message)).toString('base64');
     expect(nonce.body.message).toBe(loginMessage(address, nonce.body.nonce));
     return request(app.getHttpServer()).post('/auth/login').send({ address, signature });
   }
@@ -95,5 +109,103 @@ describe('Auth (e2e)', () => {
     const bad = Buffer.alloc(64, 1).toString('base64');
     const res = await request(app.getHttpServer()).post('/auth/login').send({ address, signature: bad }).expect(401);
     expect(res.body.code).toBe('INVALID_CREDENTIALS');
+  });
+
+  it('rejects a login once the nonce TTL has elapsed', async () => {
+    const address = keypair.publicKey();
+    const nonce = await request(app.getHttpServer()).post('/auth/nonce').send({ address }).expect(200);
+    const signature = keypair.sign(Buffer.from(nonce.body.message)).toString('base64');
+
+    redis.advance(3_000);
+
+    const res = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ address, signature })
+      .expect(401);
+    expect(res.body.code).toBe('INVALID_CREDENTIALS');
+  });
+
+  it('refuses to replay a consumed nonce', async () => {
+    const address = keypair.publicKey();
+    const nonce = await request(app.getHttpServer()).post('/auth/nonce').send({ address }).expect(200);
+    const signature = keypair.sign(Buffer.from(nonce.body.message)).toString('base64');
+
+    await request(app.getHttpServer()).post('/auth/login').send({ address, signature }).expect(200);
+    const replay = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ address, signature })
+      .expect(401);
+    expect(replay.body.code).toBe('INVALID_CREDENTIALS');
+  });
+
+  it('uses mocked Stellar verification for deterministic failures', async () => {
+    const address = keypair.publicKey();
+    const nonce = await request(app.getHttpServer()).post('/auth/nonce').send({ address }).expect(200);
+    const signature = keypair.sign(Buffer.from(nonce.body.message)).toString('base64');
+    const verify = jest
+      .spyOn(Keypair, 'fromPublicKey')
+      .mockReturnValue({ verify: () => false } as never);
+
+    const res = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ address, signature })
+      .expect(401);
+
+    expect(verify).toHaveBeenCalled();
+    expect(res.body.code).toBe('INVALID_CREDENTIALS');
+  });
+
+  it('grants admin-only access to configured wallet addresses', async () => {
+    const res = await login(adminKeypair);
+    expect(res.status).toBe(200);
+
+    await request(app.getHttpServer())
+      .get('/protected/admin')
+      .set('Authorization', `Bearer ${res.body.accessToken}`)
+      .expect(200);
+  });
+
+  it('rotates refresh tokens and rejects malformed refresh payloads', async () => {
+    const first = await login();
+    const refreshed = await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken: first.body.refreshToken })
+      .expect(200);
+
+    expect(refreshed.body.refreshToken).not.toBe(first.body.refreshToken);
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken: first.body.refreshToken })
+      .expect(401);
+    await request(app.getHttpServer()).post('/auth/refresh').send({ refreshToken: 'not-a-jwt' }).expect(400);
+
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken: refreshed.body.refreshToken })
+      .expect(200);
+  });
+
+  it('blacklists the logged-out access token without revoking someone else session', async () => {
+    const mine = await login();
+    const theirs = await login(adminKeypair);
+
+    await request(app.getHttpServer())
+      .post('/auth/logout')
+      .set('Authorization', `Bearer ${mine.body.accessToken}`)
+      .send({ refreshToken: theirs.body.refreshToken })
+      .expect(204);
+
+    await request(app.getHttpServer())
+      .get('/protected')
+      .set('Authorization', `Bearer ${mine.body.accessToken}`)
+      .expect(401);
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken: mine.body.refreshToken })
+      .expect(401);
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken: theirs.body.refreshToken })
+      .expect(200);
   });
 });
