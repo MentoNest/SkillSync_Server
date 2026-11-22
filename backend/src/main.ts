@@ -1,10 +1,21 @@
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { createValidationPipe } from './common/filters/validation';
+import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { createRequestLogger } from './common/logging/request-logger.middleware';
 import { DatabaseHealthService } from './database/database-health.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // Cross-cutting behaviour: request ids, strict DTO validation and a single
+  // response envelope for both success (#1694) and error paths.
+  app.use(createRequestLogger());
+  app.useGlobalPipes(createValidationPipe());
+  app.useGlobalFilters(new AllExceptionsFilter());
+  app.useGlobalInterceptors(new ResponseInterceptor());
 
   // Expose interactive Swagger UI at /api/docs in every environment except production.
   if (process.env.NODE_ENV !== 'production') {
