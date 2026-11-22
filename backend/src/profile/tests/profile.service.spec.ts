@@ -70,6 +70,11 @@ function makeHistoryService() {
   };
 }
 
+const makeCompleteness = () => ({
+  getForUser: jest.fn().mockResolvedValue({ score: 0 }),
+  invalidate: jest.fn().mockResolvedValue(undefined),
+});
+
 function makeService(
   mentorProfile: MentorProfile | null,
   menteeProfile: MenteeProfile | null,
@@ -81,6 +86,7 @@ function makeService(
     makeMenteeRepo(menteeProfile) as never,
     ds as never,
     makeHistoryService() as never,
+    makeCompleteness() as never,
   );
   return { service, ds };
 }
@@ -253,6 +259,7 @@ describe('ProfileService — audit history', () => {
       makeMenteeRepo(null) as never,
       ds as never,
       historyService as never,
+      makeCompleteness() as never,
     );
 
     await service.createProfile(WALLET, MENTOR_DTO);
@@ -280,6 +287,7 @@ describe('ProfileService — audit history', () => {
       makeMenteeRepo(null) as never,
       ds as never,
       historyService as never,
+      makeCompleteness() as never,
     );
 
     await service.createProfile(WALLET, MENTEE_DTO);
@@ -300,6 +308,7 @@ describe('ProfileService — audit history', () => {
       makeMenteeRepo(null) as never,
       ds as never,
       historyService as never,
+      makeCompleteness() as never,
     );
 
     await expect(service.createProfile(WALLET, MENTOR_DTO)).rejects.toThrow();

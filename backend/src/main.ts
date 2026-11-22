@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { createValidationPipe } from './common/filters/validation';
@@ -19,6 +20,8 @@ function flushOutput(): Promise<void> {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  // Resolved after ConfigModule has loaded/validated `.env` and the environment.
+  const config = app.get<AppConfig>(APP_CONFIG);
 
   // Graceful shutdown: stop new requests, then close the server, database and Redis.
   const shutdown = app.get(ShutdownService);

@@ -49,6 +49,14 @@ export class MentorProfile {
   skills!: string[];
 
   @ApiPropertyOptional({
+    description: 'Areas of expertise the mentor is known for.',
+    example: ['Distributed systems', 'PostgreSQL'],
+    type: [String],
+  })
+  @Column({ name: 'expertise_areas', type: 'jsonb', default: [] })
+  expertiseAreas!: string[];
+
+  @ApiPropertyOptional({
     description: 'Hourly rate in USD cents (e.g. 5000 = $50.00). Null means free / arrange offline.',
     example: 5000,
     nullable: true,
