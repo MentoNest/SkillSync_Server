@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
+import { IsArray, IsEmail, IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
 
 export class UpdateUserDto {
   @ApiPropertyOptional({ description: 'Email address', example: 'alice@example.com', nullable: true })
@@ -31,4 +31,18 @@ export class UpdateUserDto {
   @IsString()
   @MaxLength(16)
   locale?: string | null;
+
+  @ApiPropertyOptional({ description: 'Education history', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  education?: string[];
+
+  @ApiPropertyOptional({ description: 'Certifications', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  certifications?: string[];
 }

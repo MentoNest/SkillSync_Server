@@ -11,6 +11,7 @@ import { FieldError, ValidationFailedException } from '../errors/app-exceptions'
 import { codeForStatus, ErrorCode } from '../errors/error-codes';
 
 export interface ErrorResponseBody {
+  success: boolean;
   statusCode: number;
   message: string;
   error: string;
@@ -46,7 +47,7 @@ function messageFrom(response: unknown, fallback: string): string {
 
 /**
  * Catches everything the application throws and answers with one JSON shape:
- * `{ statusCode, message, error, code, timestamp, path, requestId }` (plus `errors` for
+ * `{ success: false, statusCode, message, error, code, timestamp, path, requestId }` (plus `errors` for
  * validation failures). Unknown errors become a generic 500 without internals, and stack
  * traces are only included outside production.
  */
@@ -84,6 +85,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const raw = exception.getResponse();
       const object = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
       const body: ErrorResponseBody = {
+        success: false,
         statusCode: status,
         message: messageFrom(raw, exception.message),
         error: typeof object.error === 'string' ? object.error : (STATUS_TEXT[status] ?? 'Error'),
@@ -99,6 +101,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     // Unknown error: never expose its message or internals.
     const body: ErrorResponseBody = {
+      success: false,
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
       message: 'Internal server error',
       error: STATUS_TEXT[HttpStatus.INTERNAL_SERVER_ERROR],

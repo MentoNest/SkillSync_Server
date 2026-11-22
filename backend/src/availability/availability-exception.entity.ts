@@ -11,6 +11,7 @@ import {
 @Entity('availability_exceptions')
 @Index('idx_availability_exceptions_mentor', ['mentorId'])
 @Index('idx_availability_exceptions_mentor_date', ['mentorId', 'date'])
+@Index('idx_availability_exceptions_mentor_date_unavailable', ['mentorId', 'date', 'isUnavailable'])
 export class AvailabilityException {
   @ApiProperty({ description: 'Auto-generated UUID.', example: 'd4e5f6a7-0000-0000-0000-000000000001' })
   @PrimaryGeneratedColumn('uuid')

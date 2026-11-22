@@ -26,6 +26,8 @@ export enum PortfolioPlatform {
 @Entity('portfolio_links')
 @Index('idx_portfolio_links_wallet', ['walletAddress'])
 @Index('uq_portfolio_links_wallet_url', ['walletAddress', 'url'], { unique: true })
+@Index('idx_portfolio_links_wallet_created', ['walletAddress', 'createdAt'])
+@Index('idx_portfolio_links_platform', ['platform'])
 export class PortfolioLink {
   @ApiProperty()
   @PrimaryGeneratedColumn('uuid')
