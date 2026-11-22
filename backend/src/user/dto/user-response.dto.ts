@@ -17,4 +17,6 @@ export class UserResponseDto {
   isFeatured?: boolean;
   @ApiPropertyOptional({ nullable: true, description: 'Badge shown on featured mentor cards.' })
   featuredBadge?: string | null;
+  @ApiPropertyOptional({ description: 'Profile completeness score (0–110).', example: 85 })
+  completenessScore?: number;
 }

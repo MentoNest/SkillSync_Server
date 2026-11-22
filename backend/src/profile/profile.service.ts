@@ -5,6 +5,7 @@ import { Role } from '../auth/auth.types';
 import { DuplicateResourceException } from '../common/errors/app-exceptions';
 import { ChangeReason } from '../profile-history/profile-history.entity';
 import { ProfileHistoryService } from '../profile-history/profile-history.service';
+import { ProfileCompletenessService } from './profile-completeness.service';
 import { MenteeProfile } from './mentee-profile.entity';
 import { MentorProfile } from './mentor-profile.entity';
 import {
@@ -29,6 +30,7 @@ export class ProfileService {
     private readonly menteeRepo: Repository<MenteeProfile>,
     private readonly dataSource: DataSource,
     private readonly history: ProfileHistoryService,
+    private readonly completeness: ProfileCompletenessService,
   ) {}
 
   async createProfile(
@@ -89,6 +91,7 @@ export class ProfileService {
 
     // Record each initial field value in profile history (non-blocking).
     void this.recordCreationHistory(walletAddress, 'mentor', profile);
+    await this.completeness.invalidate(walletAddress);
 
     return { profileType: ProfileType.MENTOR, profile };
   }
@@ -139,6 +142,7 @@ export class ProfileService {
     );
 
     void this.recordCreationHistory(walletAddress, 'mentee', profile);
+    await this.completeness.invalidate(walletAddress);
 
     return { profileType: ProfileType.MENTEE, profile };
   }

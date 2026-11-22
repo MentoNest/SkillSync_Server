@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsArray,
   IsEmail,
   IsEnum,
   IsOptional,
@@ -114,6 +115,24 @@ export class User {
   @MaxLength(16)
   @Column({ type: 'varchar', length: 16, nullable: true, default: 'en' })
   locale!: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Optional education history. Contributes to the profile completeness bonus.',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @Column({ type: 'jsonb', default: [] })
+  education!: string[];
+
+  @ApiPropertyOptional({
+    description: 'Optional certifications. Contributes to the profile completeness bonus.',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @Column({ type: 'jsonb', default: [] })
+  certifications!: string[];
 
   @ApiPropertyOptional({
     description: 'When the username was last changed. Used to enforce the 30-day cooldown between changes.',

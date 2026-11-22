@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { ProfileHistoryModule } from '../profile-history/profile-history.module';
+import { ProfileCompletenessModule } from './profile-completeness.module';
 import {
   FeaturedMentorAdminController,
   FeaturedMentorPublicController,
@@ -17,6 +18,7 @@ import { ProfileService } from './profile.service';
     TypeOrmModule.forFeature([MentorProfile, MenteeProfile]),
     AuthModule,
     ProfileHistoryModule,
+    ProfileCompletenessModule,
   ],
   controllers: [
     ProfileController,
