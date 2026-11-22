@@ -7,6 +7,7 @@ function makeClient() {
   return {
     get: jest.fn(),
     set: jest.fn().mockResolvedValue('OK'),
+    eval: jest.fn().mockResolvedValue(1),
     del: jest.fn().mockResolvedValue(1),
     expire: jest.fn().mockResolvedValue(1),
     exists: jest.fn().mockResolvedValue(1),
@@ -41,6 +42,18 @@ describe('RedisService', () => {
   it('sets an expiry when a TTL is given', async () => {
     await service.set(RedisNamespace.CACHE, 'k', 'v', 60);
     expect(client.set).toHaveBeenCalledWith('skillsync:cache:k', 'v', 'EX', 60);
+  });
+
+  it('atomically increments a counter with an expiry', async () => {
+    client.eval.mockResolvedValue(3);
+
+    await expect(service.incrementWithExpiry(RedisNamespace.RATE_LIMIT, 'nonce:k', 60)).resolves.toBe(3);
+    expect(client.eval).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('INCR'"),
+      1,
+      'skillsync:ratelimit:nonce:k',
+      60,
+    );
   });
 
   it('deletes, expires and checks existence', async () => {

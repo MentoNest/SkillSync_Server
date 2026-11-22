@@ -38,6 +38,23 @@ export class RedisService implements OnModuleDestroy {
     }
   }
 
+  /** Atomically increments a counter and sets its expiry on the first increment. */
+  async incrementWithExpiry(
+    namespace: RedisNamespace,
+    key: string,
+    ttlSeconds: number,
+  ): Promise<number> {
+    const result = await this.client.eval(
+      "local count = redis.call('INCR', KEYS[1]); " +
+        "if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]); end; " +
+        'return count',
+      1,
+      this.key(namespace, key),
+      ttlSeconds,
+    );
+    return Number(result);
+  }
+
   /** Returns how many keys were removed (0 or 1). */
   async del(namespace: RedisNamespace, key: string): Promise<number> {
     return this.client.del(this.key(namespace, key));
