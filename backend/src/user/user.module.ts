@@ -10,13 +10,9 @@ import { UserController } from './user.controller';
 import { UserService } from './user.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, PortfolioLink]), AuthModule],
-  controllers: [UserController, PortfolioLinksController],
-  providers: [UserService, PortfolioLinksService],
-  exports: [UserService, PortfolioLinksService],
   imports: [TypeOrmModule.forFeature([User, RoleEntity]), AuthModule],
   controllers: [UserController],
-  providers: [UserService],
-  exports: [UserService],
+  providers: [UserService, PortfolioLinksService],
+  exports: [UserService, PortfolioLinksService],
 })
 export class UserModule {}

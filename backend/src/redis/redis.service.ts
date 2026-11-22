@@ -52,6 +52,22 @@ export class RedisService implements OnModuleDestroy {
     return (await this.client.exists(this.key(namespace, key))) === 1;
   }
 
+  /** Atomically increments a counter and sets its expiry on first use. */
+  async incrementWithExpiry(
+    namespace: RedisNamespace,
+    key: string,
+    ttlSeconds: number,
+  ): Promise<number> {
+    const script = `
+      local count = redis.call('INCR', KEYS[1])
+      if count == 1 then
+        redis.call('EXPIRE', KEYS[1], ARGV[1])
+      end
+      return count
+    `;
+    return Number(await this.client.eval(script, 1, this.key(namespace, key), ttlSeconds));
+  }
+
   /** Round-trip check used by the health endpoint; resolves with the latency in ms. */
   async ping(): Promise<number> {
     const started = Date.now();

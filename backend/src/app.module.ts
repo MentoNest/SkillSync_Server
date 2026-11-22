@@ -7,6 +7,7 @@ import { AvailabilityModule } from './availability/availability.module';
 import { DatabaseModule } from './database/database.module';
 import { ProfileHistoryModule } from './profile-history/profile-history.module';
 import { ProfileModule } from './profile/profile.module';
+import { NotificationModule } from './notification/notification.module';
 import { UserModule } from './user/user.module';
 
 @Module({
@@ -18,6 +19,7 @@ import { UserModule } from './user/user.module';
     ProfileHistoryModule,
     ProfileModule,
     AvailabilityModule,
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],
