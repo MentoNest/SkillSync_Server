@@ -40,8 +40,8 @@ describe('AuthService', () => {
     expect(tokens.expiresIn).toBe(900);
     const access = jwt.decode(tokens.accessToken);
     const refresh = jwt.decode(tokens.refreshToken);
-    expect(access).toMatchObject({ sub: keypair.publicKey(), type: 'access', roles: [Role.USER] });
-    expect(refresh).toMatchObject({ sub: keypair.publicKey(), type: 'refresh' });
+    expect(access).toMatchObject({ sub: keypair.publicKey().toLowerCase(), type: 'access', roles: [Role.USER] });
+    expect(refresh).toMatchObject({ sub: keypair.publicKey().toLowerCase(), type: 'refresh' });
     expect(access.jti).not.toBe(refresh.jti);
   });
 
@@ -78,7 +78,19 @@ describe('AuthService', () => {
     expect(first.nonce).toMatch(/^[a-f0-9]{64}$/);
     expect(second.nonce).not.toBe(first.nonce);
     expect(Number.isNaN(Date.parse(first.expiresAt))).toBe(false);
-    expect(redis.store.get(`session:nonce:${keypair.publicKey()}`)).toBe(second.nonce);
+    expect(redis.store.get(`session:nonce:${keypair.publicKey().toLowerCase()}`)).toBe(second.nonce);
+  });
+
+  it('uses the canonical address for nonce storage and accepts case variants at login', async () => {
+    const { service, jwt, redis } = setup();
+    const lowerAddress = keypair.publicKey().toLowerCase();
+    const { nonce, message } = await service.createNonce(` ${lowerAddress} `);
+    const signature = keypair.sign(Buffer.from(message)).toString('base64');
+
+    expect(message).toContain(`Address: ${lowerAddress}`);
+    expect(redis.store.get(`session:nonce:${lowerAddress}`)).toBe(nonce);
+    const tokens = await service.login(keypair.publicKey(), signature);
+    expect(jwt.decode(tokens.accessToken)).toMatchObject({ sub: lowerAddress });
   });
 
   it('limits nonce requests to five per wallet per minute', async () => {

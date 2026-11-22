@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsBase64, IsString, Matches, MaxLength } from 'class-validator';
-import { STELLAR_ADDRESS } from './nonce.dto';
+import { Transform } from 'class-transformer';
+import { IsBase64, IsString, MaxLength } from 'class-validator';
+import { IsValidWalletAddress } from '../../common/validators';
 
 export class LoginDto {
   @ApiProperty({
@@ -9,7 +10,8 @@ export class LoginDto {
     pattern: '^G[A-Z2-7]{55}$',
   })
   @IsString()
-  @Matches(STELLAR_ADDRESS, { message: 'address must be a valid Stellar public key' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsValidWalletAddress({ message: 'address must be a valid Stellar public key' })
   address!: string;
 
   @ApiProperty({

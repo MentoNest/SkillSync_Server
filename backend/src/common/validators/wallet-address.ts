@@ -1,15 +1,17 @@
-const STELLAR_PUBL_KEY_LENGTH = 56;
-const BASE32_ALPHABET = /^[A-Z2-7]+$/;
+import { BadRequestException } from '@nestjs/common';
+import { normalizeWalletAddress } from '../utils/wallet.utils';
 
 /**
- * Validate a Stellar ED25519 public key (`G...`, 56 base32 characters).
+ * Validate a Stellar ED25519 public key, including its checksum.
  * Used by the `@IsValidWalletAddress` decorator and by non-decorator checks.
  */
 export function isValidStellarWalletAddress(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    value.length === STELLAR_PUBL_KEY_LENGTH &&
-    value.startsWith('G') &&
-    BASE32_ALPHABET.test(value)
-  );
+  if (typeof value !== 'string') return false;
+  try {
+    normalizeWalletAddress(value);
+    return true;
+  } catch (error) {
+    if (error instanceof BadRequestException) return false;
+    throw error;
+  }
 }

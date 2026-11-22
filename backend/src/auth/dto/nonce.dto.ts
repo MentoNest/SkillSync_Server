@@ -1,8 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, Matches } from 'class-validator';
-
-/** Stellar account public key (G..., 56 chars of base32). */
-export const STELLAR_ADDRESS = /^G[A-Z2-7]{55}$/;
+import { Transform } from 'class-transformer';
+import { IsString } from 'class-validator';
+import { IsValidWalletAddress } from '../../common/validators';
 
 export class NonceDto {
   @ApiProperty({
@@ -11,6 +10,7 @@ export class NonceDto {
     pattern: '^G[A-Z2-7]{55}$',
   })
   @IsString()
-  @Matches(STELLAR_ADDRESS, { message: 'address must be a valid Stellar public key' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsValidWalletAddress({ message: 'address must be a valid Stellar public key' })
   address!: string;
 }
