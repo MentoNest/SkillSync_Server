@@ -19,6 +19,9 @@ lerna-debug.log*
 /coverage
 /.nyc_output
 
+# Husky generated files
+/.husky/_
+
 # IDEs and editors
 /.idea
 .project
