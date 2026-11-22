@@ -1,3 +1,5 @@
+[![CI](https://github.com/MentoNest/SkillSync_Server/actions/workflows/ci.yml/badge.svg)](https://github.com/MentoNest/SkillSync_Server/actions/workflows/ci.yml)
+
 <p align="center">
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
 </p>
@@ -68,6 +70,32 @@ These operations run in one transaction and can be safely repeated.
 Set `DISABLE_SEED=true` to skip this step. When seeding is enabled,
 `DEFAULT_ADMIN_WALLET` is required. Configure a test-only wallet in test environments;
 the seed reads the same variable there and never supplies a production-wallet fallback.
+
+## Production configuration
+
+Copy `.env.example` to `.env` and fill in every value. Startup **fails fast** when a
+required production variable is missing. The API enforces the following in
+`NODE_ENV=production`:
+
+- `JWT_SECRET` (>= 32 characters), `DB_NAME`, `DB_PASSWORD`, and either
+  `DEFAULT_ADMIN_WALLET` or `DISABLE_SEED=true` are mandatory.
+- `CORS_ALLOWED_ORIGINS` must contain exact `https://` origins (no `*`).
+- Swagger UI and the GraphQL playground are not mounted.
+- Helmet security headers, `trust proxy` (default: one reverse-proxy hop),
+  `Secure` + `HttpOnly` + `SameSite=Strict` cookies, and rate limits of
+  50 requests/minute authenticated and 10 requests/minute anonymous are active.
+
+Rate limits can be tuned with `RATE_LIMIT_*`, featured mentors with
+`FEATURED_MENTOR_*`, and profile completeness caching with
+`PROFILE_COMPLETENESS_*`.
+
+## CI
+
+The [GitHub Actions workflow](../.github/workflows/ci.yml) runs on every push to
+`main`/`develop` and on every pull request. It performs linting, a Prettier
+format check, unit tests with coverage, E2E tests against PostgreSQL and Redis
+service containers, a production build check, and `npm audit` (high/critical
+advisories fail the pipeline).
 
 ## Deployment
 
