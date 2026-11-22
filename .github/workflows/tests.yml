@@ -1,0 +1,84 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-and-e2e:
+    name: Unit and E2E suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: skillsync
+          POSTGRES_PASSWORD: skillsync_test
+          POSTGRES_DB: skillsync_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U skillsync -d skillsync_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      NODE_ENV: test
+      DB_HOST: localhost
+      DB_PORT: 5433
+      DB_USERNAME: skillsync
+      DB_PASSWORD: skillsync_test
+      DB_NAME: skillsync_test
+      DB_MIGRATIONS_RUN: 'false'
+      TEST_DATABASE_URL: postgresql://skillsync:skillsync_test@localhost:5433/skillsync_test
+      REDIS_HOST: localhost
+      REDIS_PORT: 6380
+      REDIS_KEY_PREFIX: 'skillsync:test:'
+      JWT_SECRET: ci-only-secret-at-least-32-characters
+      JWT_ACCESS_TTL_SECONDS: 900
+      JWT_REFRESH_TTL_SECONDS: 604800
+      AUTH_NONCE_TTL_SECONDS: 1
+      DISABLE_SEED: 'true'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Run unit tests with coverage gates
+        run: npm run test:ci
+
+      - name: Run database-backed E2E tests
+        run: npm run test:e2e
