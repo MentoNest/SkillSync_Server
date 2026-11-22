@@ -1,13 +1,68 @@
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { APP_CONFIG, AppConfig } from './config/app.config';
+import { createCookieSecurityMiddleware } from './common/security/cookie-security.middleware';
+import { createRateLimitMiddleware } from './common/security/rate-limit.middleware';
 import { DatabaseHealthService } from './database/database-health.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  // Resolved after ConfigModule has loaded/validated `.env` and the environment.
+  const config = app.get<AppConfig>(APP_CONFIG);
 
-  // Expose interactive Swagger UI at /api/docs in every environment except production.
-  if (process.env.NODE_ENV !== 'production') {
+  // Correct client IPs in X-Forwarded-For when Nginx/Cloudflare/ALB is in front.
+  app.getHttpAdapter().getInstance().set('trust proxy', config.trustProxy);
+
+  // Security response headers (HSTS, nosniff, frameguard, referrer policy, ...).
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      hsts: config.isProduction
+        ? { maxAge: 31_536_000, includeSubDomains: true }
+        : false,
+    }),
+  );
+
+  // Express-level hardening applied to every cookie written by the application.
+  app.use(createCookieSecurityMiddleware(config.cookie));
+
+  // Stricter, authenticated/unauthenticated thresholds in production.
+  app.use(createRateLimitMiddleware(config.rateLimit));
+
+  if (config.isProduction) {
+    // No GraphQL server is registered; keep the playground from ever being exposed.
+    app.use('/graphql', (_req, res) =>
+      res.status(404).json({ statusCode: 404, message: 'Not Found' }),
+    );
+  }
+
+  // Only exact, explicitly allowed browser origins may call the API with credentials.
+  const allowedOrigins = new Set(config.corsAllowedOrigins);
+  app.enableCors({
+    origin: (origin, callback) => {
+      // Same-origin/server-to-server requests have no Origin header.
+      if (!origin || (!config.isProduction && allowedOrigins.size === 0)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, allowedOrigins.has(origin));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-Requested-With'],
+    exposedHeaders: [
+      'X-RateLimit-Limit',
+      'X-RateLimit-Remaining',
+      'X-RateLimit-Reset',
+      'Retry-After',
+    ],
+    maxAge: 600,
+  });
+
+  // Swagger UI is available in development/test only, never in production.
+  if (config.swaggerEnabled) {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('SkillSync API')
       .setDescription(
@@ -49,6 +104,6 @@ async function bootstrap() {
 
   // Refuse to start serving if the database does not answer.
   await app.get(DatabaseHealthService).verify();
-  await app.listen(process.env.PORT ?? 3000);
+  await app.listen(config.port);
 }
-bootstrap();
+void bootstrap();
