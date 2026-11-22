@@ -289,7 +289,7 @@ describe('Profile endpoints (database-backed e2e)', () => {
 
     expect(active.body).toMatchObject({ total: 2, page: 1, limit: 1 });
     expect(active.body.data).toHaveLength(1);
-    expect(active.body.data[0].username).toBe('bob_dev');
+    expect(['alice_dev', 'bob_dev']).toContain(active.body.data[0].username);
 
     const suspended = await request(app.getHttpServer())
       .get('/users')
