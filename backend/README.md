@@ -71,6 +71,21 @@ Set `DISABLE_SEED=true` to skip this step. When seeding is enabled,
 `DEFAULT_ADMIN_WALLET` is required. Configure a test-only wallet in test environments;
 the seed reads the same variable there and never supplies a production-wallet fallback.
 
+## Profile features
+
+- `GET /mentors/featured?page=1&limit=20` — public, paginated list of featured
+  mentors in manual sort order. Features expire automatically after
+  `FEATURED_MENTOR_DURATION_DAYS` (default 30) and the list is capped at
+  `FEATURED_MENTOR_LIMIT` (default 10).
+- `POST /admin/mentors/:mentorId/feature` and
+  `DELETE /admin/mentors/:mentorId/unfeature` — admin-only curation with audit
+  history; an optional `{ "featuredOrder": 1 }` body controls the display order.
+- `GET /user/profile/completeness` — dynamic completion score, missing fields
+  and suggestions (cached for five minutes). Optional portfolio links,
+  education and certifications add up to 10 bonus points. The score is also
+  included in `GET /users/me` and `GET /users`.
+- `GET /admin/users/completeness` — admin-only paginated view of all scores.
+
 ## Production configuration
 
 Copy `.env.example` to `.env` and fill in every value. Startup **fails fast** when a
