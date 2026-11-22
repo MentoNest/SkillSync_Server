@@ -13,7 +13,9 @@ import { User } from '../user/user.entity';
 
 @Entity('mentor_profiles')
 @Index('idx_mentor_wallet', ['walletAddress'], { unique: true })
-@Index('idx_mentor_featured_order', ['isFeatured', 'featuredOrder'])
+@Index('idx_mentor_verified_rating', ['isVerified', 'averageRating'])
+@Index('idx_mentor_discovery', ['isActive', 'isVerified', 'averageRating'])
+@Index('idx_mentor_created_at', ['createdAt'])
 export class MentorProfile {
   @ApiProperty({ description: 'Auto-generated UUID.', example: 'a1b2c3d4-...' })
   @PrimaryGeneratedColumn('uuid')
@@ -85,25 +87,18 @@ export class MentorProfile {
   isActive!: boolean;
 
   @ApiProperty({
-    description: 'Whether this mentor is currently featured on the homepage.',
+    description: 'Whether the mentor identity has been verified by an administrator.',
     example: false,
   })
-  @Column({ name: 'is_featured', type: 'boolean', default: false })
-  isFeatured!: boolean;
+  @Column({ name: 'is_verified', type: 'boolean', default: false })
+  isVerified!: boolean;
 
-  @ApiPropertyOptional({
-    description: 'When the mentor was last featured. Features expire automatically.',
-    nullable: true,
+  @ApiProperty({
+    description: 'Average review score (0-5, one decimal place) used for discovery sorting.',
+    example: 4.5,
   })
-  @Column({ name: 'featured_at', type: 'timestamptz', precision: 3, nullable: true })
-  featuredAt!: Date | null;
-
-  @ApiPropertyOptional({
-    description: 'Manual sort order for featured mentors (lower first).',
-    nullable: true,
-  })
-  @Column({ name: 'featured_order', type: 'int', nullable: true })
-  featuredOrder!: number | null;
+  @Column({ name: 'average_rating', type: 'decimal', precision: 2, scale: 1, default: 0 })
+  averageRating!: number;
 
   @ApiProperty({ description: 'UTC creation timestamp.' })
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz', precision: 3 })

@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, TooManyRequestsException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Keypair } from '@stellar/stellar-sdk';
 import { randomBytes, randomUUID } from 'crypto';
@@ -23,10 +23,14 @@ export class AuthService {
 
   /** Issues a single-use nonce for the wallet and the exact message it must sign. */
   async createNonce(address: string): Promise<{ nonce: string; message: string; expiresIn: number }> {
-    const nonce = randomBytes(16).toString('hex');
-    await this.redis.set(RedisNamespace.SESSION, `nonce:${address}`, nonce, this.config.nonceTtlSeconds);
-    this.audit.log(`nonce_issued address=${address}`);
+    const { nonce } = await this.issueNonce(address);
     return { nonce, message: loginMessage(address, nonce), expiresIn: this.config.nonceTtlSeconds };
+  }
+
+  /** Issues a nonce with its absolute expiry for the path-based nonce endpoint. */
+  async createNonceWithExpiry(address: string): Promise<{ nonce: string; expiresAt: string }> {
+    const { nonce, expiresAt } = await this.issueNonce(address);
+    return { nonce, expiresAt };
   }
 
   /**
@@ -131,5 +135,24 @@ export class AuthService {
     );
     await this.redis.set(RedisNamespace.SESSION, `refresh:${refreshJti}`, address, this.config.refreshTtlSeconds);
     return { accessToken, refreshToken, expiresIn: this.config.accessTtlSeconds };
+  }
+
+  private async issueNonce(address: string): Promise<{ nonce: string; expiresAt: string }> {
+    const requestCount = await this.redis.incrementWithExpiry(
+      RedisNamespace.RATE_LIMIT,
+      `nonce:${address}`,
+      60,
+    );
+    if (requestCount > 5) {
+      throw new TooManyRequestsException('Nonce request limit exceeded; try again in one minute');
+    }
+
+    const nonce = randomBytes(32).toString('hex');
+    await this.redis.set(RedisNamespace.SESSION, `nonce:${address}`, nonce, this.config.nonceTtlSeconds);
+    this.audit.log(`nonce_issued address=${address}`);
+    return {
+      nonce,
+      expiresAt: new Date(Date.now() + this.config.nonceTtlSeconds * 1000).toISOString(),
+    };
   }
 }

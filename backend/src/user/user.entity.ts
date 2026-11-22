@@ -30,6 +30,9 @@ import { UserStatus } from './user-status.enum';
 @Index('idx_users_status', ['status'])
 @Index('idx_users_created_at', ['createdAt'])
 @Index('idx_users_last_login_at', ['lastLoginAt'])
+@Index('idx_users_wallet_status', ['walletAddress', 'status'])
+@Index('idx_users_role_status_created', ['role', 'status', 'createdAt'])
+@Index('idx_users_status_role_created', ['status', 'role', 'createdAt'])
 export class User {
   @ApiProperty({
     description: 'Stellar wallet public key (ED25519). Unique account identifier.',
@@ -94,6 +97,19 @@ export class User {
     default: UserStatus.ACTIVE,
   })
   status!: UserStatus;
+
+  @ApiPropertyOptional({
+    description:
+      'Primary role used for list filtering. Denormalised from the user_roles relation so the ' +
+      '(role, status, createdAt) composite index can serve admin list queries without a join.',
+    example: 'mentor',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  @Column({ name: 'role', type: 'varchar', length: 32, nullable: true })
+  role!: string | null;
 
   @ApiPropertyOptional({ description: 'Avatar URL.', nullable: true })
   @IsOptional()

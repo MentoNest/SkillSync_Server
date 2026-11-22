@@ -59,6 +59,15 @@ describe('Auth (e2e)', () => {
     expect(res.body).toMatchObject({ code: 'VALIDATION_FAILED', errors: [{ field: 'address' }] });
   });
 
+  it('issues an expiring path-based nonce and validates the wallet address', async () => {
+    const address = Keypair.random().publicKey();
+    const response = await request(app.getHttpServer()).get(`/auth/nonce/${address}`).expect(200);
+    expect(response.body.nonce).toMatch(/^[a-f0-9]{64}$/);
+    expect(Number.isNaN(Date.parse(response.body.expiresAt))).toBe(false);
+
+    await request(app.getHttpServer()).get('/auth/nonce/not-a-wallet').expect(400);
+  });
+
   it('runs the full wallet login, protected access, refresh and logout flow', async () => {
     const res = await login();
     expect(res.status).toBe(200);
