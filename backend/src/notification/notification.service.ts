@@ -6,7 +6,7 @@ import {
   TooManyRequestsException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { RedisNamespace } from '../redis/redis.config';
 import { RedisService } from '../redis/redis.service';
 import { ResourceNotFoundException } from '../common/errors/app-exceptions';
@@ -131,9 +131,7 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
 
   async markManyRead(userId: string, ids: string[]): Promise<{ updated: number }> {
     const result = await this.notifications.update(
-      { id: this.notifications.manager.connection.driver.escapeQueryWithParameters
-        ? undefined
-        : undefined } as never,
+      { userId, id: In(ids), isRead: false },
       { isRead: true },
     );
     return { updated: result.affected ?? 0 };

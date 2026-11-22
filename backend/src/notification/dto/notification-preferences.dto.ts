@@ -1,6 +1,13 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { ArrayNotEmpty, IsArray, IsBoolean, IsEnum, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ApiProperty } from '@nestjs/swagger';
+import {
+  ArrayNotEmpty,
+  ArrayUnique,
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  ValidateNested,
+} from 'class-validator';
 import { NotificationType } from '../notification.types';
 
 export class NotificationPreferenceUpdateDto {
@@ -17,6 +24,7 @@ export class UpdateNotificationPreferencesDto {
   @ApiProperty({ type: [NotificationPreferenceUpdateDto] })
   @IsArray()
   @ArrayNotEmpty()
+  @ArrayUnique((preference: NotificationPreferenceUpdateDto) => preference.type)
   @ValidateNested({ each: true })
   @Type(() => NotificationPreferenceUpdateDto)
   preferences!: NotificationPreferenceUpdateDto[];

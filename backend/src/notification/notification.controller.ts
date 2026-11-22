@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Patch,
   Query,
   UseGuards,
@@ -18,7 +19,6 @@ import {
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { CreateNotificationDto } from './dto/create-notification.dto';
 import {
   NotificationPreferenceResponseDto,
   UpdateNotificationPreferencesDto,
@@ -62,7 +62,7 @@ export class NotificationController {
   @ApiResponse({ status: HttpStatus.OK, type: Notification })
   async markRead(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<Notification> {
     return this.notifications.markRead(user.address, id);
   }

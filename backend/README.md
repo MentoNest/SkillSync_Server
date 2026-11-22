@@ -69,6 +69,24 @@ Set `DISABLE_SEED=true` to skip this step. When seeding is enabled,
 `DEFAULT_ADMIN_WALLET` is required. Configure a test-only wallet in test environments;
 the seed reads the same variable there and never supplies a production-wallet fallback.
 
+## Notifications
+
+Apply migrations with `npm run migration:run` before using the notification API. Authenticated
+users can list their own notifications with `GET /notifications?limit=20&offset=0&unreadOnly=true`,
+mark one read with `PATCH /notifications/:id/read`, or mark up to 100 notifications read with
+`PATCH /notifications/read` and a JSON body such as `{"ids":["<notification-uuid>"]}`.
+`GET /notifications/preferences` and `PATCH /notifications/preferences` manage per-type opt-outs;
+the update body is `{"preferences":[{"type":"message","enabled":false}]}`.
+
+Backend event handlers can inject `NotificationService` and call `create(userId, notification)`
+for session reminders, messages, profile verification, suspension warnings, and platform
+announcements. In-app notifications are emitted to the user's authenticated Socket.IO room
+through the `/notifications` namespace as the `notification` event. Connect with the access
+token in the Socket.IO `auth.token` handshake field or a Bearer authorization header. Email
+and push channels are placeholders and do not send messages until providers are configured.
+Each user and delivery channel is limited to 100 notifications per hour. Notifications older
+than 90 days are removed at startup and once daily.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.

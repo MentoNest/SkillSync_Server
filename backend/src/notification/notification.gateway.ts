@@ -7,7 +7,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { JwtService } from '@nestjs/jwt';
-import { Server, Socket } from 'socket.io';
+import type { Server, Socket } from 'socket.io';
 import { AuthService } from '../auth/auth.service';
 import { AUTH_CONFIG, AuthConfig, JwtPayload } from '../auth/auth.types';
 import { Notification } from './notification.entity';
@@ -52,7 +52,7 @@ export class NotificationGateway implements OnGatewayConnection, OnGatewayDiscon
     }
   }
 
-  handleDisconnect(@ConnectedSocket() _client: Socket): void {}
+  handleDisconnect(_client: Socket): void {}
 
   emitToUser(userId: string, notification: Notification): void {
     this.server.to(this.userRoom(userId)).emit('notification', notification);

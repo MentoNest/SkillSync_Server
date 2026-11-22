@@ -2,9 +2,11 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { DatabaseHealthService } from './database/database-health.service';
+import { createValidationPipe } from './common/filters/validation';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.useGlobalPipes(createValidationPipe());
 
   // Expose interactive Swagger UI at /api/docs in every environment except production.
   if (process.env.NODE_ENV !== 'production') {
@@ -21,6 +23,7 @@ async function bootstrap() {
       .addTag('Users', 'Username, display name, and public profile endpoints.')
       .addTag('Profiles', 'Mentor and mentee profile creation and management.')
       .addTag('Admin', 'Admin-only endpoints. Require the ADMIN role.')
+      .addTag('Notifications', 'Paginated in-app notifications and delivery preferences.')
       .addBearerAuth(
         {
           type: 'http',

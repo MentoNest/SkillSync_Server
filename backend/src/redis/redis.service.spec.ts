@@ -10,6 +10,7 @@ function makeClient() {
     del: jest.fn().mockResolvedValue(1),
     expire: jest.fn().mockResolvedValue(1),
     exists: jest.fn().mockResolvedValue(1),
+    eval: jest.fn().mockResolvedValue(1),
     ping: jest.fn().mockResolvedValue('PONG'),
     quit: jest.fn().mockResolvedValue('OK'),
     disconnect: jest.fn(),
@@ -54,6 +55,20 @@ describe('RedisService', () => {
     await expect(service.expire(RedisNamespace.CACHE, 'missing', 30)).resolves.toBe(false);
 
     await expect(service.exists(RedisNamespace.BLACKLIST, 'jti')).resolves.toBe(true);
+  });
+
+  it('atomically increments a namespaced counter with an expiry', async () => {
+    client.eval.mockResolvedValue(2);
+
+    await expect(
+      service.incrementWithExpiry(RedisNamespace.RATE_LIMIT, 'notification:user', 3600),
+    ).resolves.toBe(2);
+    expect(client.eval).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('INCR', KEYS[1])"),
+      1,
+      'skillsync:ratelimit:notification:user',
+      3600,
+    );
   });
 
   it('pings and reports health', async () => {
