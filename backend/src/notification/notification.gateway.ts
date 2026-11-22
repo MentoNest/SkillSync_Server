@@ -1,6 +1,5 @@
 import { Inject, Logger } from '@nestjs/common';
 import {
-  ConnectedSocket,
   OnGatewayConnection,
   OnGatewayDisconnect,
   WebSocketGateway,
@@ -25,7 +24,7 @@ export class NotificationGateway implements OnGatewayConnection, OnGatewayDiscon
     @Inject(AUTH_CONFIG) private readonly authConfig: AuthConfig,
   ) {}
 
-  async handleConnection(@ConnectedSocket() client: Socket): Promise<void> {
+  async handleConnection(client: Socket): Promise<void> {
     const token = this.getAccessToken(client);
     if (!token) {
       client.disconnect(true);

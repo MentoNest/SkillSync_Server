@@ -1,9 +1,10 @@
 import {
   Injectable,
+  HttpException,
+  HttpStatus,
   Logger,
   OnModuleDestroy,
   OnModuleInit,
-  TooManyRequestsException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
@@ -75,8 +76,9 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
         3_600,
       );
       if (count > RATE_LIMIT_PER_HOUR) {
-        throw new TooManyRequestsException(
+        throw new HttpException(
           `Notification limit exceeded for ${channel}; maximum ${RATE_LIMIT_PER_HOUR} per hour`,
+          HttpStatus.TOO_MANY_REQUESTS,
         );
       }
     }

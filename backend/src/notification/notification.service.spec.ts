@@ -1,4 +1,4 @@
-import { TooManyRequestsException } from '@nestjs/common';
+import { HttpException, HttpStatus } from '@nestjs/common';
 import { In } from 'typeorm';
 import { NotificationPreference } from './notification-preference.entity';
 import { Notification } from './notification.entity';
@@ -126,7 +126,9 @@ describe('NotificationService', () => {
         body: 'You have a message',
         channels: [NotificationChannel.EMAIL],
       }),
-    ).rejects.toBeInstanceOf(TooManyRequestsException);
+    ).rejects.toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+    } satisfies Partial<HttpException>);
 
     expect(notifications.save).not.toHaveBeenCalled();
   });
