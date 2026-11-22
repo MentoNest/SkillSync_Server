@@ -40,6 +40,8 @@ export type ProfileType = 'user' | 'mentor' | 'mentee' | string;
 @Entity('profile_history')
 @Index('idx_ph_user_changed', ['userId', 'changedAt'])
 @Index('idx_ph_retain_until', ['retainUntil'])
+@Index('idx_ph_user_type_changed', ['userId', 'profileType', 'changedAt'])
+@Index('idx_ph_reason_changed', ['changeReason', 'changedAt'])
 export class ProfileHistory {
   @ApiProperty({ description: 'Auto-generated UUID primary key.', example: 'a1b2c3d4-...' })
   @PrimaryGeneratedColumn('uuid')

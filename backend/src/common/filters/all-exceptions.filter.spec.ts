@@ -35,6 +35,7 @@ describe('AllExceptionsFilter', () => {
 
     expect(response.status).toHaveBeenCalledWith(404);
     expect(body).toEqual({
+      success: false,
       statusCode: 404,
       message: 'Mentor missing',
       error: 'Not Found',

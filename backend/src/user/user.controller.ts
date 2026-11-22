@@ -14,6 +14,7 @@ import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags }
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { WalletIdentifierParamDto } from '../common/dto/base.dto';
 import {
   ErrorResponseDto,
   ForbiddenResponseDto,
@@ -123,7 +124,7 @@ export class UserController {
   @ApiParam({ name: 'identifier', description: 'Wallet address or username', example: 'alice_dev' })
   @ApiResponse({ status: HttpStatus.OK, type: PublicProfileResponseDto })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, type: ErrorResponseDto })
-  getPublicProfile(@Param('identifier') identifier: string): Promise<PublicProfileResponseDto> {
-    return this.userService.getPublicProfile(identifier);
+  getPublicProfile(@Param() params: WalletIdentifierParamDto): Promise<PublicProfileResponseDto> {
+    return this.userService.getPublicProfile(params.identifier);
   }
 }
