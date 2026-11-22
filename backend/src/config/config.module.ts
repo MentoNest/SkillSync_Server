@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_CONFIG, validateEnvironment } from './app.config';
 
@@ -6,6 +6,7 @@ import { APP_CONFIG, validateEnvironment } from './app.config';
  * Loads `.env` into `process.env` and validates it before any feature module
  * is instantiated. Invalid production configuration aborts application boot.
  */
+@Global()
 @Module({
   imports: [
     ConfigModule.forRoot({

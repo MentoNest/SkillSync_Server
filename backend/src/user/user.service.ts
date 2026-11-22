@@ -65,11 +65,17 @@ export class UserService {
     const where: Record<string, unknown> = {};
     if (query.status) where.status = query.status;
 
-    const qb = this.users.createQueryBuilder('u').where(where);
+    const qb = this.users
+      .createQueryBuilder('u')
+      .leftJoinAndSelect('u.mentorProfile', 'mentorProfile')
+      .where(where);
     if (query.search) {
       qb.andWhere('(u.username ILIKE :q OR u.displayName ILIKE :q)', { q: `%${query.search}%` });
+      // Featured mentors are prioritised in search results, then manually ordered.
+      qb.addOrderBy('mentorProfile.isFeatured', 'DESC')
+        .addOrderBy('mentorProfile.featuredOrder', 'ASC');
     }
-    qb.orderBy('u.createdAt', 'DESC').skip((page - 1) * limit).take(limit);
+    qb.addOrderBy('u.createdAt', 'DESC').skip((page - 1) * limit).take(limit);
     const [rows, total] = await qb.getManyAndCount();
     return { data: rows.map((u) => this.toResponseDto(u)), total, page, limit };
   }
@@ -151,9 +157,14 @@ export class UserService {
   }
 
   async getPublicProfile(identifier: string): Promise<PublicProfileResponseDto> {
-    const user =
-      (await this.users.findOneBy({ username: identifier.toLowerCase() })) ??
-      (await this.users.findOneBy({ walletAddress: identifier }));
+    const user = await this.users
+      .createQueryBuilder('u')
+      .leftJoinAndSelect('u.mentorProfile', 'mentorProfile')
+      .where('u.username = :username OR u.wallet_address = :walletAddress', {
+        username: identifier.toLowerCase(),
+        walletAddress: identifier,
+      })
+      .getOne();
     if (!user) throw new ResourceNotFoundException('Profile', identifier);
 
     return await this.toPublicDto(user);
@@ -196,6 +207,8 @@ export class UserService {
       displayName: user.effectiveDisplayName,
       createdAt: user.createdAt.toISOString(),
       portfolioLinks: await this.portfolioLinks.listByWallet(user.walletAddress),
+      isFeatured: user.mentorProfile?.isFeatured ?? false,
+      featuredBadge: user.mentorProfile?.isFeatured ? 'Featured' : null,
     };
   }
 
@@ -212,6 +225,8 @@ export class UserService {
       lastLoginAt: user.lastLoginAt ?? null,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt ?? user.createdAt,
+      isFeatured: user.mentorProfile?.isFeatured ?? false,
+      featuredBadge: user.mentorProfile?.isFeatured ? 'Featured' : null,
     };
   }
 }
