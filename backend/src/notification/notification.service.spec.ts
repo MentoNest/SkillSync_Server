@@ -43,7 +43,7 @@ describe('NotificationService', () => {
 
   beforeEach(() => {
     notifications = {
-      create: jest.fn((value) => value),
+      create: jest.fn((value: unknown) => value),
       save: jest.fn().mockResolvedValue(notification),
       findAndCount: jest.fn().mockResolvedValue([[notification], 1]),
       findOneBy: jest.fn().mockResolvedValue(notification),
@@ -51,7 +51,7 @@ describe('NotificationService', () => {
       createQueryBuilder: jest.fn(),
     };
     preferences = {
-      create: jest.fn((value) => value),
+      create: jest.fn((value: unknown) => value),
       save: jest.fn().mockResolvedValue([]),
       findOneBy: jest.fn().mockResolvedValue(null),
       findBy: jest.fn().mockResolvedValue([]),
@@ -139,7 +139,8 @@ describe('NotificationService', () => {
     await expect(service.list(userId, query)).resolves.toEqual({
       notifications: [notification],
       total: 1,
-      ...query,
+      limit: query.limit,
+      offset: query.offset,
     });
     expect(notifications.findAndCount).toHaveBeenCalledWith({
       where: { userId, isRead: false },
@@ -154,7 +155,9 @@ describe('NotificationService', () => {
     notifications.findOneBy.mockResolvedValue(unread);
     notifications.save.mockResolvedValue({ ...unread, isRead: true });
 
-    await expect(service.markRead(userId, notification.id)).resolves.toMatchObject({
+    await expect(
+      service.markRead(userId, notification.id),
+    ).resolves.toMatchObject({
       id: notification.id,
       isRead: true,
     });
@@ -162,11 +165,16 @@ describe('NotificationService', () => {
       id: notification.id,
       userId,
     });
-    expect(notifications.save).toHaveBeenCalledWith({ ...unread, isRead: true });
+    expect(notifications.save).toHaveBeenCalledWith({
+      ...unread,
+      isRead: true,
+    });
   });
 
   it('marks only unread notifications belonging to the user as read in a batch', async () => {
-    await expect(service.markManyRead(userId, [notification.id])).resolves.toEqual({
+    await expect(
+      service.markManyRead(userId, [notification.id]),
+    ).resolves.toEqual({
       updated: 2,
     });
     expect(notifications.update).toHaveBeenCalledWith(
@@ -181,8 +189,14 @@ describe('NotificationService', () => {
     ]);
 
     const result = await service.getPreferences(userId);
-    expect(result).toContainEqual({ type: NotificationType.MESSAGE, enabled: false });
-    expect(result).toContainEqual({ type: NotificationType.SESSION_REMINDER, enabled: true });
+    expect(result).toContainEqual({
+      type: NotificationType.MESSAGE,
+      enabled: false,
+    });
+    expect(result).toContainEqual({
+      type: NotificationType.SESSION_REMINDER,
+      enabled: true,
+    });
 
     await service.updatePreferences(userId, [
       { type: NotificationType.PLATFORM_ANNOUNCEMENT, enabled: false },
@@ -193,12 +207,19 @@ describe('NotificationService', () => {
   });
 
   it('deletes notifications older than 90 days', async () => {
-    await expect(service.cleanupExpiredNotifications()).resolves.toBe(3);
+    jest.useFakeTimers().setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+    try {
+      await expect(service.cleanupExpiredNotifications()).resolves.toBe(3);
 
-    expect(queryBuilder.delete).toHaveBeenCalled();
-    expect(queryBuilder.where).toHaveBeenCalledWith(
-      '"created_at" < :cutoff',
-      { cutoff: expect.any(Date) },
-    );
+      expect(queryBuilder.delete).toHaveBeenCalled();
+      expect(queryBuilder.where).toHaveBeenCalledWith(
+        '"created_at" < :cutoff',
+        {
+          cutoff: new Date('2025-10-03T00:00:00.000Z'),
+        },
+      );
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

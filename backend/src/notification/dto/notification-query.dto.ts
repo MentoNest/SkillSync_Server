@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
+import type { TransformFnParams } from 'class-transformer';
 import { IsBoolean, IsInt, IsOptional, Max, Min } from 'class-validator';
 
 export class NotificationQueryDto {
@@ -20,9 +21,12 @@ export class NotificationQueryDto {
 
   @ApiPropertyOptional({ default: false })
   @IsOptional()
-  @Transform(({ value }) =>
-    value === 'true' ? true : value === 'false' ? false : value,
-  )
+  @Transform(({ value }: TransformFnParams) => {
+    const rawValue: unknown = value;
+    if (rawValue === 'true') return true;
+    if (rawValue === 'false') return false;
+    return rawValue;
+  })
   @IsBoolean()
   unreadOnly = false;
 }

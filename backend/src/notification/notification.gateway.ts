@@ -1,18 +1,19 @@
 import { Inject, Logger } from '@nestjs/common';
 import {
   OnGatewayConnection,
-  OnGatewayDisconnect,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
 import { JwtService } from '@nestjs/jwt';
 import type { Server, Socket } from 'socket.io';
-import { AuthService } from '../auth/auth.service';
-import { AUTH_CONFIG, AuthConfig, JwtPayload } from '../auth/auth.types';
+import { AUTH_CONFIG } from '../auth/auth.types';
+import type { AuthConfig, JwtPayload } from '../auth/auth.types';
+import { RedisNamespace } from '../redis/redis.config';
+import { RedisService } from '../redis/redis.service';
 import { Notification } from './notification.entity';
 
 @WebSocketGateway({ namespace: '/notifications' })
-export class NotificationGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class NotificationGateway implements OnGatewayConnection {
   private readonly logger = new Logger(NotificationGateway.name);
 
   @WebSocketServer()
@@ -20,7 +21,7 @@ export class NotificationGateway implements OnGatewayConnection, OnGatewayDiscon
 
   constructor(
     private readonly jwt: JwtService,
-    private readonly auth: AuthService,
+    private readonly redis: RedisService,
     @Inject(AUTH_CONFIG) private readonly authConfig: AuthConfig,
   ) {}
 
@@ -39,11 +40,10 @@ export class NotificationGateway implements OnGatewayConnection, OnGatewayDiscon
         client.disconnect(true);
         return;
       }
-      if (await this.auth.isRevoked(payload.jti)) {
+      if (await this.redis.exists(RedisNamespace.BLACKLIST, payload.jti)) {
         client.disconnect(true);
         return;
       }
-      client.data.userId = payload.sub;
       await client.join(this.userRoom(payload.sub));
     } catch {
       this.logger.debug('Rejected an unauthenticated notification socket');
@@ -51,14 +51,12 @@ export class NotificationGateway implements OnGatewayConnection, OnGatewayDiscon
     }
   }
 
-  handleDisconnect(_client: Socket): void {}
-
   emitToUser(userId: string, notification: Notification): void {
     this.server.to(this.userRoom(userId)).emit('notification', notification);
   }
 
   private getAccessToken(client: Socket): string | undefined {
-    const authToken = client.handshake.auth?.token;
+    const authToken: unknown = client.handshake.auth?.token;
     if (typeof authToken === 'string' && authToken.length > 0) return authToken;
 
     const authorization = client.handshake.headers.authorization;

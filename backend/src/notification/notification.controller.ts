@@ -36,7 +36,10 @@ export class NotificationController {
   constructor(private readonly notifications: NotificationService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List my notifications', operationId: 'listNotifications' })
+  @ApiOperation({
+    summary: 'List my notifications',
+    operationId: 'listNotifications',
+  })
   @ApiResponse({ status: HttpStatus.OK })
   list(
     @CurrentUser() user: AuthUser,
@@ -47,7 +50,10 @@ export class NotificationController {
 
   @Patch('read')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Mark a batch of notifications as read', operationId: 'markNotificationsRead' })
+  @ApiOperation({
+    summary: 'Mark a batch of notifications as read',
+    operationId: 'markNotificationsRead',
+  })
   @ApiResponse({ status: HttpStatus.OK, schema: { example: { updated: 2 } } })
   markManyRead(
     @CurrentUser() user: AuthUser,
@@ -58,7 +64,10 @@ export class NotificationController {
 
   @Patch(':id/read')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Mark one notification as read', operationId: 'markNotificationRead' })
+  @ApiOperation({
+    summary: 'Mark one notification as read',
+    operationId: 'markNotificationRead',
+  })
   @ApiResponse({ status: HttpStatus.OK, type: Notification })
   async markRead(
     @CurrentUser() user: AuthUser,
@@ -68,16 +77,32 @@ export class NotificationController {
   }
 
   @Get('preferences')
-  @ApiOperation({ summary: 'Get my notification preferences', operationId: 'getNotificationPreferences' })
-  @ApiResponse({ status: HttpStatus.OK, type: NotificationPreferenceResponseDto, isArray: true })
-  getPreferences(@CurrentUser() user: AuthUser): Promise<NotificationPreferenceResponseDto[]> {
+  @ApiOperation({
+    summary: 'Get my notification preferences',
+    operationId: 'getNotificationPreferences',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    type: NotificationPreferenceResponseDto,
+    isArray: true,
+  })
+  getPreferences(
+    @CurrentUser() user: AuthUser,
+  ): Promise<NotificationPreferenceResponseDto[]> {
     return this.notifications.getPreferences(user.address);
   }
 
   @Patch('preferences')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Update my notification preferences', operationId: 'updateNotificationPreferences' })
-  @ApiResponse({ status: HttpStatus.OK, type: NotificationPreferenceResponseDto, isArray: true })
+  @ApiOperation({
+    summary: 'Update my notification preferences',
+    operationId: 'updateNotificationPreferences',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    type: NotificationPreferenceResponseDto,
+    isArray: true,
+  })
   updatePreferences(
     @CurrentUser() user: AuthUser,
     @Body() dto: UpdateNotificationPreferencesDto,

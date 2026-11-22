@@ -62,11 +62,19 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     if (this.cleanupTimer) clearInterval(this.cleanupTimer);
   }
 
-  async create(userId: string, dto: CreateNotificationDto): Promise<Notification | null> {
-    const preference = await this.preferences.findOneBy({ userId, type: dto.type });
+  async create(
+    userId: string,
+    dto: CreateNotificationDto,
+  ): Promise<Notification | null> {
+    const preference = await this.preferences.findOneBy({
+      userId,
+      type: dto.type,
+    });
     if (preference?.optedOut) return null;
 
-    const channels = dto.channels?.length ? dto.channels : [NotificationChannel.IN_APP];
+    const channels = dto.channels?.length
+      ? dto.channels
+      : [NotificationChannel.IN_APP];
     const hourWindow = Math.floor(Date.now() / 3_600_000);
 
     for (const channel of channels) {
@@ -97,7 +105,10 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
       this.gateway.emitToUser(userId, notification);
     }
     for (const channel of channels) {
-      if (channel === NotificationChannel.EMAIL || channel === NotificationChannel.PUSH) {
+      if (
+        channel === NotificationChannel.EMAIL ||
+        channel === NotificationChannel.PUSH
+      ) {
         this.logger.debug(`${channel} delivery is not configured`);
       }
     }
@@ -105,7 +116,10 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     return notification;
   }
 
-  async list(userId: string, query: NotificationQueryDto): Promise<{
+  async list(
+    userId: string,
+    query: NotificationQueryDto,
+  ): Promise<{
     notifications: Notification[];
     total: number;
     limit: number;
@@ -131,7 +145,10 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     return notification;
   }
 
-  async markManyRead(userId: string, ids: string[]): Promise<{ updated: number }> {
+  async markManyRead(
+    userId: string,
+    ids: string[],
+  ): Promise<{ updated: number }> {
     const result = await this.notifications.update(
       { userId, id: In(ids), isRead: false },
       { isRead: true },
@@ -139,9 +156,13 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     return { updated: result.affected ?? 0 };
   }
 
-  async getPreferences(userId: string): Promise<NotificationPreferenceResponseDto[]> {
+  async getPreferences(
+    userId: string,
+  ): Promise<NotificationPreferenceResponseDto[]> {
     const saved = await this.preferences.findBy({ userId });
-    const savedByType = new Map(saved.map((preference) => [preference.type, preference]));
+    const savedByType = new Map(
+      saved.map((preference) => [preference.type, preference]),
+    );
     return Object.values(NotificationType).map((type) => ({
       type,
       enabled: !savedByType.get(type)?.optedOut,
