@@ -157,7 +157,6 @@ export class UserService {
     if (!user) throw new ResourceNotFoundException('Profile', identifier);
 
     return await this.toPublicDto(user);
-    return this.toPublicDto(user);
   }
 
   async findByWallet(walletAddress: string): Promise<User | null> {
@@ -182,7 +181,6 @@ export class UserService {
     return this.users.save(user);
   }
 
-  private async toPublicDto(user: User): Promise<PublicProfileResponseDto> {
   async softDelete(walletAddress: string): Promise<void> {
     const user = await this.users.findOneBy({ walletAddress });
     if (!user) throw new ResourceNotFoundException('User', walletAddress);
@@ -191,7 +189,7 @@ export class UserService {
     await this.users.softDelete({ walletAddress });
   }
 
-  private toPublicDto(user: User): PublicProfileResponseDto {
+  private async toPublicDto(user: User): Promise<PublicProfileResponseDto> {
     return {
       walletAddress: user.walletAddress,
       username: user.username,
