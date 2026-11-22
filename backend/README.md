@@ -57,6 +57,40 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## Docker
+
+The backend ships a multi-stage `Dockerfile` (`node:20-alpine`) with a builder
+stage, a hot-reloading development target and a small production target that runs
+`node dist/main` as an unprivileged user. `GET /health` is the container liveness
+probe.
+
+```bash
+# 1. Configure secrets for Compose
+cp .env.docker.example .env
+
+# 2. Start the API, PostgreSQL and Redis together
+docker compose up --build
+
+# 3. Check service health
+docker compose ps
+
+# 4. Stop (add -v to remove the database/Redis volumes)
+docker compose down
+```
+
+Compose mounts the source into the container and runs `npm run start:dev`, so
+edits reload automatically. PostgreSQL and Redis data live in named volumes
+(`pgdata`, `redisdata`) and each service has a health check; the API waits for
+both dependencies to become healthy. Override host ports with `DB_PORT_HOST` and
+`REDIS_PORT_HOST` if needed.
+
+For a production image:
+
+```bash
+docker build --target production -t skillsync-backend .
+docker run --env-file .env -p 3000:3000 skillsync-backend
+```
+
 ## Admin startup seed
 
 Before starting the server, apply database migrations (`npm run migration:run`) so the
