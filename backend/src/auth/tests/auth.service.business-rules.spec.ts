@@ -7,6 +7,7 @@ import {
 import { RedisNamespace } from '../../redis/redis.config';
 import { AuthService, loginMessage } from '../auth.service';
 import { AuthConfig, Role } from '../auth.types';
+import { FakeUserRepository } from './fake-user-repository';
 
 /** RedisService stub with a controllable clock so nonce expiry is deterministic. */
 class TtlRedis {
@@ -22,6 +23,13 @@ class TtlRedis {
       return null;
     }
     return entry.value;
+  }
+
+  incrementWithExpiry(ns: RedisNamespace, key: string, ttlSeconds: number): Promise<number> {
+    return this.get(ns, key).then((value) => {
+      const current = Number(value ?? 0) + 1;
+      return this.set(ns, key, String(current), ttlSeconds).then(() => current);
+    });
   }
 
   async set(ns: RedisNamespace, key: string, value: string, ttlSeconds?: number): Promise<void> {
@@ -54,12 +62,16 @@ function sign(kp: Keypair, nonce: string): string {
   return kp.sign(Buffer.from(loginMessage(kp.publicKey(), nonce), 'utf8')).toString('base64');
 }
 
+function makeService(jwt: JwtService, redis: TtlRedis, authConfig: AuthConfig): AuthService {
+  return new AuthService(jwt, redis as never, authConfig, new FakeUserRepository() as never);
+}
+
 describe('AuthService business rules', () => {
   const kp = Keypair.random();
 
   it('issues the exact message the wallet must sign and consumes the nonce once', async () => {
     const redis = new TtlRedis();
-    const service = new AuthService(new JwtService(), redis as never, config());
+    const service = makeService(new JwtService(), redis, config());
 
     const issued = await service.createNonce(kp.publicKey());
     expect(issued.message).toBe(loginMessage(kp.publicKey(), issued.nonce));
@@ -73,7 +85,7 @@ describe('AuthService business rules', () => {
 
   it('rejects an expired nonce with INVALID_CREDENTIALS', async () => {
     const redis = new TtlRedis();
-    const service = new AuthService(new JwtService(), redis as never, config());
+    const service = makeService(new JwtService(), redis, config());
     const { nonce } = await service.createNonce(kp.publicKey());
     redis.now += 1_001;
 
@@ -84,7 +96,7 @@ describe('AuthService business rules', () => {
 
   it('rejects signatures from a different key', async () => {
     const redis = new TtlRedis();
-    const service = new AuthService(new JwtService(), redis as never, config());
+    const service = makeService(new JwtService(), redis, config());
     const { nonce } = await service.createNonce(kp.publicKey());
     const forged = Keypair.random().sign(Buffer.from(loginMessage(kp.publicKey(), nonce))).toString('base64');
 
@@ -95,9 +107,9 @@ describe('AuthService business rules', () => {
 
   it('assigns mentor and admin roles from configured addresses only', () => {
     const address = kp.publicKey();
-    const service = new AuthService(
+    const service = makeService(
       new JwtService(),
-      new TtlRedis() as never,
+      new TtlRedis(),
       config({ adminAddresses: [address], mentorAddresses: [address] }),
     );
     expect(service.rolesFor(address)).toEqual([Role.USER, Role.MENTOR, Role.ADMIN]);
@@ -106,7 +118,7 @@ describe('AuthService business rules', () => {
 
   it('rejects expired and wrong-type refresh tokens', async () => {
     const jwt = new JwtService();
-    const service = new AuthService(jwt, new TtlRedis() as never, config());
+    const service = makeService(jwt, new TtlRedis(), config());
     const expired = await jwt.signAsync(
       { sub: kp.publicKey(), type: 'refresh', jti: 'expired', roles: [] },
       { secret: config().jwtSecret, expiresIn: -10 },
@@ -123,7 +135,7 @@ describe('AuthService business rules', () => {
   it('propagates Redis failures instead of silently authenticating', async () => {
     const redis = new TtlRedis();
     jest.spyOn(redis, 'get').mockRejectedValueOnce(new Error('redis down'));
-    const service = new AuthService(new JwtService(), redis as never, config());
+    const service = makeService(new JwtService(), redis, config());
 
     await expect(service.verifyWallet(kp.publicKey(), 'c2ln')).rejects.toThrow('redis down');
   });

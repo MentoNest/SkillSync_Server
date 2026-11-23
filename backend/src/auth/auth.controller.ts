@@ -15,8 +15,10 @@ import {
   UnauthorizedResponseDto,
 } from '../common/dto/error-response.dto';
 import { AuthService } from './auth.service';
-import { AuthUser } from './auth.types';
+import { Role } from './auth.types';
+import type { AuthUser } from './auth.types';
 import { CurrentUser } from './decorators/current-user.decorator';
+import { Roles } from './decorators/roles.decorator';
 import {
   LoginDto,
   IssuedNonceResponseDto,
@@ -24,9 +26,11 @@ import {
   NonceDto,
   NonceResponseDto,
   RefreshDto,
+  SessionRevocationResponseDto,
   TokenPairResponseDto,
 } from './dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { RolesGuard } from './guards/roles.guard';
 import { WalletAuthGuard } from './guards/wallet-auth.guard';
 
 @ApiTags('Authentication')
@@ -189,5 +193,67 @@ export class AuthController {
     @Body() body: Partial<RefreshDto>,
   ): Promise<void> {
     await this.auth.logout(user, body?.refreshToken);
+  }
+
+  @ApiTags('Session Management')
+  @ApiBearerAuth('Bearer Auth')
+  @ApiOperation({
+    summary: 'Revoke all of the caller’s sessions',
+    description:
+      'Invalidates every active refresh token for the authenticated user and increments their token version, ' +
+      'which invalidates all previously issued access and refresh tokens.',
+    operationId: 'revokeAllSessions',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'All active sessions were revoked.',
+    type: SessionRevocationResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Access token is missing, expired, or already revoked.',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
+  @Post('revoke-all')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  async revokeAllSessions(@CurrentUser() user: AuthUser): Promise<SessionRevocationResponseDto> {
+    const revokedCount = await this.auth.revokeAllSessions(user);
+    return { message: 'All active sessions have been revoked.', revokedCount };
+  }
+
+  @ApiTags('Session Management')
+  @ApiBearerAuth('Bearer Auth')
+  @ApiOperation({
+    summary: 'Revoke all sessions for a user (admin)',
+    description: 'Invalidates every active session for the specified wallet address. Requires the admin role.',
+    operationId: 'adminRevokeAllSessions',
+  })
+  @ApiParam({ name: 'walletAddress', description: 'Stellar wallet address whose sessions will be revoked.' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'All active sessions were revoked.',
+    type: SessionRevocationResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Access token is missing, expired, or already revoked.',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Insufficient role.', type: ForbiddenResponseDto })
+  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
+  @Post('admin/revoke-all/:walletAddress')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  async adminRevokeAllSessions(
+    @CurrentUser() actor: AuthUser,
+    @Param() params: NonceAddressParamsDto,
+  ): Promise<SessionRevocationResponseDto> {
+    const revokedCount = await this.auth.adminRevokeAllSessions(actor, params.walletAddress);
+    return { message: 'All active sessions have been revoked.', revokedCount };
   }
 }

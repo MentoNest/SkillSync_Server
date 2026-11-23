@@ -162,6 +162,9 @@ export class User {
   @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })
   lastLoginAt!: Date | null;
 
+  @Column({ name: 'token_version', type: 'integer', default: 0 })
+  tokenVersion!: number;
+
   @ApiProperty({ description: 'UTC timestamp of account creation.' })
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;

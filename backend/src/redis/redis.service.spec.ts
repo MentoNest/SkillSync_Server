@@ -6,9 +6,11 @@ import { RedisService } from './redis.service';
 function makeClient() {
   return {
     get: jest.fn(),
+    mget: jest.fn(),
     set: jest.fn().mockResolvedValue('OK'),
     eval: jest.fn().mockResolvedValue(1),
     del: jest.fn().mockResolvedValue(1),
+    scan: jest.fn(),
     expire: jest.fn().mockResolvedValue(1),
     exists: jest.fn().mockResolvedValue(1),
     ping: jest.fn().mockResolvedValue('PONG'),
@@ -67,6 +69,33 @@ describe('RedisService', () => {
     await expect(service.expire(RedisNamespace.CACHE, 'missing', 30)).resolves.toBe(false);
 
     await expect(service.exists(RedisNamespace.BLACKLIST, 'jti')).resolves.toBe(true);
+  });
+
+  it('deletes every refresh token belonging to the requested user', async () => {
+    client.del.mockResolvedValue(2);
+    client.scan
+      .mockResolvedValueOnce([
+        '1',
+        ['skillsync:session:refresh:first', 'skillsync:session:refresh:other'],
+      ])
+      .mockResolvedValueOnce(['0', ['skillsync:session:refresh:second']]);
+    client.mget
+      .mockResolvedValueOnce(['wallet-a', 'wallet-b'])
+      .mockResolvedValueOnce(['wallet-a']);
+
+    await expect(service.revokeRefreshTokensForUser('wallet-a')).resolves.toBe(2);
+    expect(client.scan).toHaveBeenNthCalledWith(
+      1,
+      '0',
+      'MATCH',
+      'skillsync:session:refresh:*',
+      'COUNT',
+      100,
+    );
+    expect(client.del).toHaveBeenCalledWith(
+      'skillsync:session:refresh:first',
+      'skillsync:session:refresh:second',
+    );
   });
 
   it('pings and reports health', async () => {
