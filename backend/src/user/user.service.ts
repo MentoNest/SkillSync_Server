@@ -64,8 +64,9 @@ export class UserService {
   async findMe(walletAddress: string): Promise<UserResponseDto> {
     const normalizedAddress = normalizeWalletAddress(walletAddress);
     const user = await this.findOrCreate(normalizedAddress);
+    const userWithMentor = await this.loadMentorProfile(user);
     const score = await this.completeness.getForUser(normalizedAddress);
-    return { ...this.toResponseDto(user), completenessScore: score.score };
+    return { ...this.toResponseDto(userWithMentor), completenessScore: score.score };
   }
 
   async findAll(query: QueryUserDto): Promise<{ data: UserResponseDto[]; total: number; page: number; limit: number }> {
@@ -119,7 +120,10 @@ export class UserService {
     const saved = await this.users.save(user);
     await this.completeness.invalidate(normalizedAddress);
     const score = await this.completeness.getForUser(normalizedAddress);
-    return { ...this.toResponseDto(saved), completenessScore: score.score };
+    return {
+      ...this.toResponseDto(await this.loadMentorProfile(saved)),
+      completenessScore: score.score,
+    };
   }
 
   async removeMe(walletAddress: string): Promise<void> {
@@ -241,7 +245,19 @@ export class UserService {
       portfolioLinks: await this.portfolioLinks.listByWallet(user.walletAddress),
       isFeatured: user.mentorProfile?.isFeatured ?? false,
       featuredBadge: user.mentorProfile?.isFeatured ? 'Featured' : null,
+      isVerified: user.mentorProfile?.isVerified ?? false,
+      verifiedAt: user.mentorProfile?.verifiedAt?.toISOString() ?? null,
+      verifiedBadge: user.mentorProfile?.isVerified ? 'Verified' : null,
     };
+  }
+
+  private async loadMentorProfile(user: User): Promise<User> {
+    return (
+      (await this.users.findOne({
+        where: { walletAddress: user.walletAddress },
+        relations: { mentorProfile: true },
+      })) ?? user
+    );
   }
 
   private toResponseDto(user: User): UserResponseDto {
@@ -259,6 +275,9 @@ export class UserService {
       updatedAt: user.updatedAt ?? user.createdAt,
       isFeatured: user.mentorProfile?.isFeatured ?? false,
       featuredBadge: user.mentorProfile?.isFeatured ? 'Featured' : null,
+      isVerified: user.mentorProfile?.isVerified ?? false,
+      verifiedAt: user.mentorProfile?.verifiedAt ?? null,
+      verifiedBadge: user.mentorProfile?.isVerified ? 'Verified' : null,
     };
   }
 }

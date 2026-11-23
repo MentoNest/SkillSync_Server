@@ -59,6 +59,15 @@ export class FeaturedMentorDto {
   @ApiProperty({ description: 'Badge shown on mentor cards and profiles.', example: 'Featured' })
   badge!: string;
 
+  @ApiProperty({ description: 'Whether this mentor has been verified by an administrator.' })
+  isVerified!: boolean;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Badge shown on verified mentor cards.' })
+  verifiedBadge!: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'UTC date of mentor verification.' })
+  verifiedAt!: Date | null;
+
   @ApiProperty()
   featuredAt!: Date;
 
@@ -75,6 +84,9 @@ export class FeaturedMentorDto {
       hourlyRateUsdCents: profile.hourlyRateUsdCents,
       isFeatured: true,
       badge: 'Featured',
+      isVerified: profile.isVerified ?? false,
+      verifiedBadge: profile.isVerified ? 'Verified' : null,
+      verifiedAt: profile.verifiedAt ?? null,
       featuredAt: (profile.featuredAt ?? profile.updatedAt) as Date,
       featuredOrder: profile.featuredOrder,
     };
