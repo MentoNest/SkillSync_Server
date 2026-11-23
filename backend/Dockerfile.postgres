@@ -1,0 +1,15 @@
+# syntax=docker/dockerfile:1
+
+# PostgreSQL with continuous WAL archiving for point-in-time recovery
+# (issue #1714). Extends the official image with the tools the archive_command
+# needs (awscli for offsite WAL, bash/coreutils for the script) and drops the
+# shared backup scripts in so `archive_command` can invoke wal-archive.sh.
+FROM postgres:16-alpine
+
+RUN apk add --no-cache aws-cli gnupg bash coreutils findutils
+
+COPY scripts/backup /opt/skillsync/scripts/backup
+RUN chmod +x /opt/skillsync/scripts/backup/*.sh
+
+# The postgres role runs archive_command, so it must own the WAL archive dir.
+RUN mkdir -p /var/lib/skillsync/wal-archive && chown -R postgres:postgres /var/lib/skillsync

@@ -24,10 +24,22 @@ services:
       REDIS_PORT: 6379
       REDIS_KEY_PREFIX: 'skillsync:'
       CHOKIDAR_USEPOLLING: 'true'
+      # Admin backup status endpoint (GET /admin/backups/status) reads this file.
+      BACKUP_STATUS_FILE: /var/lib/skillsync/backups/backup-status.json
+      BACKUP_DIR: /var/lib/skillsync/backups
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_S3_PREFIX: ${BACKUP_S3_PREFIX:-postgres}
+      BACKUP_S3_REGION: ${BACKUP_S3_REGION:-us-east-1}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_MAX_AGE_HOURS: ${BACKUP_MAX_AGE_HOURS:-26}
+      BACKUP_ENCRYPTION_ENABLED: ${BACKUP_ENCRYPTION_ENABLED:-true}
+      BACKUP_PITR_ENABLED: ${BACKUP_PITR_ENABLED:-true}
+      BACKUP_SCHEDULE_CRON: ${BACKUP_SCHEDULE_CRON:-0 2 * * *}
     volumes:
       # Hot reload: source is mounted, container node_modules is preserved.
       - .:/app
       - /app/node_modules
+      - backupdata:/var/lib/skillsync/backups
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,20 +57,87 @@ services:
       start_period: 40s
 
   postgres:
-    image: postgres:16-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+    # Continuous WAL archiving enables point-in-time recovery (issue #1714).
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout=300
+      - -c
+      - archive_command=/opt/skillsync/scripts/backup/wal-archive.sh %p %f
     environment:
       POSTGRES_USER: skillsync
       POSTGRES_PASSWORD: skillsync_dev
       POSTGRES_DB: skillsync
+      # Consumed by wal-archive.sh (runs as the postgres role).
+      BACKUP_WAL_DIR: /var/lib/skillsync/wal-archive
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_S3_PREFIX: ${BACKUP_S3_PREFIX:-postgres}
+      BACKUP_S3_REGION: ${BACKUP_S3_REGION:-us-east-1}
+      BACKUP_S3_STORAGE_CLASS: ${BACKUP_S3_STORAGE_CLASS:-STANDARD_IA}
+      BACKUP_S3_SSE: ${BACKUP_S3_SSE:-aws:kms}
+      BACKUP_S3_KMS_KEY_ID: ${BACKUP_S3_KMS_KEY_ID:-}
+      BACKUP_ALERT_WEBHOOK: ${BACKUP_ALERT_WEBHOOK:-}
     ports:
       - '${DB_PORT_HOST:-5432}:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - walarch:/var/lib/skillsync/wal-archive
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U skillsync -d skillsync']
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # Scheduled backup sidecar: daily logical backup, weekly base backup, monthly
+  # restore test and hourly freshness watchdog (issue #1714).
+  backup:
+    build:
+      context: .
+      dockerfile: Dockerfile.backup
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: skillsync
+      PGPASSWORD: skillsync_dev
+      PGDATABASE: skillsync
+      BACKUP_DIR: /var/lib/skillsync/backups
+      BACKUP_WAL_DIR: /var/lib/skillsync/wal-archive
+      BACKUP_STATUS_FILE: /var/lib/skillsync/backups/backup-status.json
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_MAX_AGE_HOURS: ${BACKUP_MAX_AGE_HOURS:-26}
+      BACKUP_ENCRYPTION_ENABLED: ${BACKUP_ENCRYPTION_ENABLED:-true}
+      BACKUP_ENCRYPTION_PASSPHRASE: ${BACKUP_ENCRYPTION_PASSPHRASE:?set BACKUP_ENCRYPTION_PASSPHRASE in backend/.env}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_S3_PREFIX: ${BACKUP_S3_PREFIX:-postgres}
+      BACKUP_S3_REGION: ${BACKUP_S3_REGION:-us-east-1}
+      BACKUP_S3_STORAGE_CLASS: ${BACKUP_S3_STORAGE_CLASS:-STANDARD_IA}
+      BACKUP_S3_SSE: ${BACKUP_S3_SSE:-aws:kms}
+      BACKUP_S3_KMS_KEY_ID: ${BACKUP_S3_KMS_KEY_ID:-}
+      BACKUP_ALERT_WEBHOOK: ${BACKUP_ALERT_WEBHOOK:-}
+      BACKUP_ALERT_ON_SUCCESS: ${BACKUP_ALERT_ON_SUCCESS:-false}
+      BACKUP_SCHEDULE_CRON: ${BACKUP_SCHEDULE_CRON:-0 2 * * *}
+      BACKUP_BASE_SCHEDULE_CRON: ${BACKUP_BASE_SCHEDULE_CRON:-30 3 * * 0}
+      BACKUP_VERIFY_SCHEDULE_CRON: ${BACKUP_VERIFY_SCHEDULE_CRON:-0 4 1 * *}
+      BACKUP_FRESHNESS_SCHEDULE_CRON: ${BACKUP_FRESHNESS_SCHEDULE_CRON:-0 * * * *}
+      # Offsite credentials are provided by the scheduler's IAM role/task role in
+      # production; set these for local S3-compatible testing only.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${BACKUP_S3_REGION:-us-east-1}
+    volumes:
+      - backupdata:/var/lib/skillsync/backups
+      - walarch:/var/lib/skillsync/wal-archive
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -76,3 +155,5 @@ services:
 volumes:
   pgdata:
   redisdata:
+  backupdata:
+  walarch:

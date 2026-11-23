@@ -7,6 +7,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { AvailabilityModule } from './availability/availability.module';
+import { BackupModule } from './backup/backup.module';
 import { ChatModule } from './chat/chat.module';
 import { AppConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
@@ -29,6 +30,7 @@ import { UserModule } from './user/user.module';
     ProfileModule,
     ProfileCompletenessModule,
     AvailabilityModule,
+    BackupModule,
     SessionsModule,
     ChatModule,
     AdminModule,
