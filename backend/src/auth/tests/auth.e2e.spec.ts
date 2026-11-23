@@ -2,9 +2,11 @@ import { Controller, Get, INestApplication, UseGuards } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { Keypair } from '@stellar/stellar-sdk';
 import request from 'supertest';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { AllExceptionsFilter } from '../../common/filters/all-exceptions.filter';
 import { createValidationPipe } from '../../common/filters/validation';
 import { REDIS_CLIENT, RedisService } from '../../redis/redis.service';
+import { User } from '../../user/user.entity';
 import { AuthModule } from '../auth.module';
 import { loginMessage } from '../auth.service';
 import { Role } from '../auth.types';
@@ -23,6 +25,7 @@ class ProtectedController {
 describe('Auth (e2e)', () => {
   let app: INestApplication;
   let redis: FakeRedisService;
+  const users = new Map<string, { walletAddress: string; tokenVersion: number }>();
   const keypair = Keypair.random();
   const adminKeypair = Keypair.random();
 
@@ -41,6 +44,18 @@ describe('Auth (e2e)', () => {
       .useValue({})
       .overrideProvider(RedisService)
       .useValue(redis)
+      .overrideProvider(getRepositoryToken(User))
+      .useValue({
+        findOne: ({ where: { walletAddress } }: { where: { walletAddress: string } }) =>
+          users.get(walletAddress) ?? null,
+        query: (_sql: string, [walletAddress]: [string]) => {
+          const user = users.get(walletAddress);
+          users.set(walletAddress, {
+            walletAddress,
+            tokenVersion: (user?.tokenVersion ?? 0) + 1,
+          });
+        },
+      })
       .compile();
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(createValidationPipe());
@@ -50,6 +65,7 @@ describe('Auth (e2e)', () => {
 
   beforeEach(() => {
     redis.reset();
+    users.clear();
   });
 
   afterEach(() => {
@@ -207,5 +223,66 @@ describe('Auth (e2e)', () => {
       .post('/auth/refresh')
       .send({ refreshToken: theirs.body.refreshToken })
       .expect(200);
+  });
+
+  it('revokes all of the caller’s refresh tokens and invalidates their access tokens', async () => {
+    await request(app.getHttpServer()).post('/auth/revoke-all').expect(401);
+    const first = await login();
+    const second = await login();
+
+    const response = await request(app.getHttpServer())
+      .post('/auth/revoke-all')
+      .set('Authorization', `Bearer ${first.body.accessToken}`)
+      .expect(200);
+
+    expect(response.body).toMatchObject({ revokedCount: 2 });
+    await request(app.getHttpServer())
+      .get('/protected')
+      .set('Authorization', `Bearer ${second.body.accessToken}`)
+      .expect(401);
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken: second.body.refreshToken })
+      .expect(401);
+  });
+
+  it('allows admins to revoke another user’s sessions and limits requests per caller', async () => {
+    const admin = await login(adminKeypair);
+    const target = await login(keypair);
+    const endpoint = `/auth/admin/revoke-all/${keypair.publicKey()}`;
+
+    const revoked = await request(app.getHttpServer())
+      .post(endpoint)
+      .set('Authorization', `Bearer ${admin.body.accessToken}`)
+      .expect(200);
+    expect(revoked.body.revokedCount).toBe(1);
+    await request(app.getHttpServer())
+      .get('/protected')
+      .set('Authorization', `Bearer ${target.body.accessToken}`)
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .post('/auth/admin/revoke-all/invalid')
+      .set('Authorization', `Bearer ${admin.body.accessToken}`)
+      .expect(400);
+
+    for (let i = 0; i < 2; i++) {
+      await request(app.getHttpServer())
+        .post(`/auth/admin/revoke-all/${keypair.publicKey()}`)
+        .set('Authorization', `Bearer ${admin.body.accessToken}`)
+        .expect(200);
+    }
+    await request(app.getHttpServer())
+      .post(`/auth/admin/revoke-all/${keypair.publicKey()}`)
+      .set('Authorization', `Bearer ${admin.body.accessToken}`)
+      .expect(429);
+  });
+
+  it('does not allow a regular user to use the admin revocation endpoint', async () => {
+    const user = await login();
+    await request(app.getHttpServer())
+      .post(`/auth/admin/revoke-all/${adminKeypair.publicKey()}`)
+      .set('Authorization', `Bearer ${user.body.accessToken}`)
+      .expect(403);
   });
 });

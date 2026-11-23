@@ -4,6 +4,7 @@ import { InvalidCredentialsException, TokenExpiredException } from '../../common
 import { AuthService, loginMessage } from '../auth.service';
 import { AuthConfig, buildAuthConfig, Role } from '../auth.types';
 import { FakeRedisService } from './fake-redis';
+import { FakeUserRepository } from './fake-user-repository';
 
 const config = (over: Partial<AuthConfig> = {}): AuthConfig => ({
   jwtSecret: 'test-secret-test-secret',
@@ -18,7 +19,7 @@ const config = (over: Partial<AuthConfig> = {}): AuthConfig => ({
 function setup(over: Partial<AuthConfig> = {}) {
   const redis = new FakeRedisService();
   const jwt = new JwtService();
-  const service = new AuthService(jwt, redis as never, config(over));
+  const service = new AuthService(jwt, redis as never, config(over), new FakeUserRepository() as never);
   return { redis, jwt, service };
 }
 
@@ -158,6 +159,32 @@ describe('AuthService', () => {
 
       await expect(service.refresh(theirs.refreshToken)).resolves.toBeDefined();
       expect(mine.accessToken).toBeDefined();
+    });
+  });
+
+  describe('revoke all sessions', () => {
+    it('deletes every refresh token and invalidates access tokens by version', async () => {
+      const { service, jwt } = setup();
+      const first = await service.login(keypair.publicKey(), (await signedLogin(service, keypair)).signature);
+      const second = await service.login(keypair.publicKey(), (await signedLogin(service, keypair)).signature);
+      const firstAccess = jwt.decode(first.accessToken) as { jti: string; ver: number };
+
+      await expect(
+        service.revokeAllSessions({ address: keypair.publicKey(), roles: [Role.USER], jti: firstAccess.jti }),
+      ).resolves.toBe(2);
+      await expect(service.refresh(first.refreshToken)).rejects.toBeInstanceOf(InvalidCredentialsException);
+      await expect(service.refresh(second.refreshToken)).rejects.toBeInstanceOf(InvalidCredentialsException);
+      await expect(service.isTokenVersionCurrent(keypair.publicKey(), firstAccess.ver)).resolves.toBe(false);
+    });
+
+    it('limits each caller to three revocation requests per hour', async () => {
+      const { service } = setup();
+      const user = { address: keypair.publicKey(), roles: [Role.USER], jti: 'access' };
+
+      for (let i = 0; i < 3; i++) await service.revokeAllSessions(user);
+      await expect(service.revokeAllSessions(user)).rejects.toMatchObject({
+        status: 429,
+      });
     });
   });
 });

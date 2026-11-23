@@ -2,6 +2,8 @@ import { HttpException, HttpStatus, Inject, Injectable, Logger } from '@nestjs/c
 import { JwtService } from '@nestjs/jwt';
 import { Keypair } from '@stellar/stellar-sdk';
 import { randomBytes, randomUUID } from 'crypto';
+import { InjectRepository } from '@nestjs/typeorm';
+import type { Repository } from 'typeorm';
 import { InvalidCredentialsException, TokenExpiredException } from '../common/errors/app-exceptions';
 import { normalizeWalletAddress } from '../common/utils/wallet.utils';
 import { RedisNamespace } from '../redis/redis.config';
@@ -21,6 +23,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly redis: RedisService,
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig,
+    @InjectRepository(User) private readonly users: Repository<User>,
   ) {}
 
   /** Issues a single-use nonce for the wallet and the exact message it must sign. */
@@ -73,7 +76,7 @@ export class AuthService {
   /** Issues tokens for a wallet that has already been verified (e.g. by the wallet guard). */
   async issueForUser(user: AuthUser): Promise<TokenPair> {
     const address = normalizeWalletAddress(user.address);
-    const tokens = await this.issueTokens(address, user.roles);
+    const tokens = await this.issueTokens(address, user.roles, await this.tokenVersionFor(address));
     this.audit.log(`login_succeeded address=${address}`);
     return tokens;
   }
@@ -88,6 +91,9 @@ export class AuthService {
       throw new InvalidCredentialsException('Invalid refresh token');
     }
     if (payload.type !== 'refresh') throw new InvalidCredentialsException('Invalid refresh token');
+    if (!(await this.isTokenVersionCurrent(payload.sub, payload.ver))) {
+      throw new InvalidCredentialsException('Refresh token is no longer valid');
+    }
 
     const stored = await this.redis.get(RedisNamespace.SESSION, `refresh:${payload.jti}`);
     if (stored !== payload.sub) {
@@ -95,7 +101,7 @@ export class AuthService {
       throw new InvalidCredentialsException('Refresh token is no longer valid');
     }
     await this.redis.del(RedisNamespace.SESSION, `refresh:${payload.jti}`);
-    const tokens = await this.issueTokens(payload.sub, this.rolesFor(payload.sub));
+    const tokens = await this.issueTokens(payload.sub, this.rolesFor(payload.sub), payload.ver ?? 0);
     this.audit.log(`token_refreshed address=${payload.sub}`);
     return tokens;
   }
@@ -117,6 +123,18 @@ export class AuthService {
     this.audit.log(`logout address=${address}`);
   }
 
+  async revokeAllSessions(user: AuthUser): Promise<number> {
+    return this.revokeSessions(user.address, user.address);
+  }
+
+  async adminRevokeAllSessions(actor: AuthUser, targetAddress: string): Promise<number> {
+    return this.revokeSessions(actor.address, targetAddress);
+  }
+
+  async isTokenVersionCurrent(address: string, tokenVersion?: number): Promise<boolean> {
+    return (tokenVersion ?? 0) === (await this.tokenVersionFor(normalizeWalletAddress(address)));
+  }
+
   async isRevoked(jti: string): Promise<boolean> {
     return this.redis.exists(RedisNamespace.BLACKLIST, jti);
   }
@@ -133,19 +151,62 @@ export class AuthService {
     return roles;
   }
 
-  private async issueTokens(address: string, roles: Role[]): Promise<TokenPair> {
+  private async issueTokens(address: string, roles: Role[], tokenVersion: number): Promise<TokenPair> {
     const accessJti = randomUUID();
     const refreshJti = randomUUID();
     const accessToken = await this.jwt.signAsync(
-      { sub: address, roles, type: 'access', jti: accessJti } satisfies JwtPayload,
+      { sub: address, roles, type: 'access', jti: accessJti, ver: tokenVersion } satisfies JwtPayload,
       { secret: this.config.jwtSecret, expiresIn: this.config.accessTtlSeconds },
     );
     const refreshToken = await this.jwt.signAsync(
-      { sub: address, roles, type: 'refresh', jti: refreshJti } satisfies JwtPayload,
+      { sub: address, roles, type: 'refresh', jti: refreshJti, ver: tokenVersion } satisfies JwtPayload,
       { secret: this.config.jwtSecret, expiresIn: this.config.refreshTtlSeconds },
     );
     await this.redis.set(RedisNamespace.SESSION, `refresh:${refreshJti}`, address, this.config.refreshTtlSeconds);
     return { accessToken, refreshToken, expiresIn: this.config.accessTtlSeconds };
+  }
+
+  private async revokeSessions(actorAddress: string, targetAddress: string): Promise<number> {
+    const actor = normalizeWalletAddress(actorAddress);
+    const target = normalizeWalletAddress(targetAddress);
+    const requests = await this.redis.incrementWithExpiry(
+      RedisNamespace.RATE_LIMIT,
+      `revoke-all:${actor}`,
+      60 * 60,
+    );
+    if (requests > 3) {
+      throw new HttpException('Session revocation limit exceeded; try again in one hour', HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    await this.incrementTokenVersion(target);
+    const revokedCount = await this.redis.revokeRefreshTokensForUser(target);
+    this.audit.log(
+      JSON.stringify({
+        eventType: 'sessions_revoked',
+        actorAddress: actor,
+        targetAddress: target,
+        revokedCount,
+      }),
+    );
+    return revokedCount;
+  }
+
+  private async tokenVersionFor(address: string): Promise<number> {
+    const user = await this.users.findOne({
+      where: { walletAddress: address },
+      withDeleted: true,
+    });
+    return user?.tokenVersion ?? 0;
+  }
+
+  private async incrementTokenVersion(address: string): Promise<void> {
+    await this.users.query(
+      `INSERT INTO users (wallet_address, token_version)
+       VALUES ($1, 1)
+       ON CONFLICT (wallet_address)
+       DO UPDATE SET token_version = users.token_version + 1`,
+      [address],
+    );
   }
 
   private async issueNonce(address: string): Promise<{ nonce: string; expiresAt: string }> {

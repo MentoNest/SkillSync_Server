@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { RedisModule } from '../redis/redis.module';
+import { User } from '../user/user.entity';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AUTH_CONFIG, buildAuthConfig } from './auth.types';
@@ -12,7 +14,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { WalletStrategy } from './strategies/wallet.strategy';
 
 @Module({
-  imports: [PassportModule, JwtModule.register({}), RedisModule],
+  imports: [PassportModule, JwtModule.register({}), RedisModule, TypeOrmModule.forFeature([User])],
   controllers: [AuthController],
   providers: [
     { provide: AUTH_CONFIG, useFactory: () => buildAuthConfig((key) => process.env[key]) },

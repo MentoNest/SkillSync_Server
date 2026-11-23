@@ -22,6 +22,9 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   async validate(payload: JwtPayload): Promise<AuthUser> {
     if (payload.type !== 'access') throw new InvalidCredentialsException('Access token required');
     if (await this.auth.isRevoked(payload.jti)) throw new InvalidCredentialsException('Token has been revoked');
+    if (!(await this.auth.isTokenVersionCurrent(payload.sub, payload.ver))) {
+      throw new InvalidCredentialsException('Token has been revoked');
+    }
     return { address: payload.sub, roles: payload.roles ?? [], jti: payload.jti };
   }
 }
