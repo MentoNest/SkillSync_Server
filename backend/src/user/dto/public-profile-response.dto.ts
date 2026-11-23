@@ -35,4 +35,13 @@ export class PublicProfileResponseDto {
 
   @ApiPropertyOptional({ nullable: true, description: 'Badge shown on featured mentor cards.' })
   featuredBadge?: string | null;
+
+  @ApiProperty({ description: 'Whether this mentor has been verified by an administrator.' })
+  isVerified!: boolean;
+
+  @ApiPropertyOptional({ nullable: true, description: 'UTC date of mentor verification.' })
+  verifiedAt!: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Badge shown on verified mentor profiles and cards.' })
+  verifiedBadge!: string | null;
 }

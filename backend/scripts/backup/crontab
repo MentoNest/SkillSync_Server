@@ -1,0 +1,28 @@
+# SkillSync PostgreSQL backup schedule (issue #1714).
+#
+# Install for the backup user with:
+#   crontab scripts/backup/crontab
+#
+# Override the default paths by exporting the variables below before the jobs,
+# or by editing the `SKILLSYNC_BACKUP_HOME`/`SKILLSYNC_ENV` values. The scripts
+# all read their settings from the environment (see lib/common.sh).
+
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+SKILLSYNC_BACKUP_HOME=/opt/skillsync/backend/scripts/backup
+SKILLSYNC_ENV=/etc/skillsync/backup.env
+
+# Daily logical backup (pg_dump -> verify -> encrypt -> S3 -> prune).
+# Failures are reported through BACKUP_ALERT_WEBHOOK.
+0 2 * * *  set -a; [ -f "$SKILLSYNC_ENV" ] && . "$SKILLSYNC_ENV"; set +a; "$SKILLSYNC_BACKUP_HOME/backup.sh" >>/var/log/skillsync/backup.log 2>&1
+
+# Weekly physical base backup to enable point-in-time recovery.
+30 3 * * 0  set -a; [ -f "$SKILLSYNC_ENV" ] && . "$SKILLSYNC_ENV"; set +a; "$SKILLSYNC_BACKUP_HOME/basebackup.sh" >>/var/log/skillsync/backup.log 2>&1
+
+# Monthly restore test: pull the newest backup, restore into a throw-away
+# database and run sanity checks. Runs at 04:00 on the 1st of every month.
+0 4 1 * *  set -a; [ -f "$SKILLSYNC_ENV" ] && . "$SKILLSYNC_ENV"; set +a; "$SKILLSYNC_BACKUP_HOME/verify-restore.sh" >>/var/log/skillsync/verify.log 2>&1
+
+# Hourly freshness watchdog: alerts when the newest backup is older than
+# BACKUP_MAX_AGE_HOURS, catching jobs that silently stopped running.
+0 * * * *  set -a; [ -f "$SKILLSYNC_ENV" ] && . "$SKILLSYNC_ENV"; set +a; "$SKILLSYNC_BACKUP_HOME/check-freshness.sh" >>/var/log/skillsync/backup.log 2>&1

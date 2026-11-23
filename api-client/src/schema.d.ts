@@ -21,6 +21,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["AppController_health"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/nonce/{walletAddress}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Request a wallet login nonce
+         * @description Issues a cryptographically secure, single-use nonce tied to the given Stellar wallet address. The nonce expires after 5 minutes and replaces any previous unused nonce for this wallet.
+         */
+        get: operations["requestWalletNonce"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/nonce": {
         parameters: {
             query?: never;
@@ -101,6 +137,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/revoke-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke all of the caller’s sessions
+         * @description Invalidates every active refresh token for the authenticated user and increments their token version, which invalidates all previously issued access and refresh tokens.
+         */
+        post: operations["revokeAllSessions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/admin/revoke-all/{walletAddress}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke all sessions for a user (admin)
+         * @description Invalidates every active session for the specified wallet address. Requires the admin role.
+         */
+        post: operations["adminRevokeAllSessions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users/me": {
         parameters: {
             query?: never;
@@ -118,6 +194,23 @@ export interface paths {
         head?: never;
         /** Update my profile */
         patch: operations["updateMyProfile"];
+        trace?: never;
+    };
+    "/admin/users/{walletAddress}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change an account status (admin) */
+        patch: operations["setUserStatus"];
         trace?: never;
     };
     "/users": {
@@ -276,6 +369,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/user/profile/{type}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a mentor or mentee profile
+         * @description Partially updates the authenticated user profile. Admins may provide walletAddress to update another user.
+         */
+        patch: operations["updateProfile"];
+        trace?: never;
+    };
     "/mentors/me/availability/slots": {
         parameters: {
             query?: never;
@@ -411,7 +524,7 @@ export interface paths {
         };
         /**
          * Get available windows for the next 30 days
-         * @description Returns concrete available UTC windows derived from weekly slots minus unavailable exceptions. Each window includes display times in the slot timezone.
+         * @description Returns concrete available UTC windows derived from weekly slots minus unavailable exceptions. Display times use the mentor timezone preference unless Accept-Timezone overrides it.
          */
         get: operations["getMentorNext30DaysAvailability"];
         put?: never;
@@ -466,31 +579,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        NonceDto: {
+        IssuedNonceResponseDto: {
             /**
-             * @description Stellar wallet public key (ED25519) that will sign the login message.
-             * @example GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37
-             */
-            address: string;
-        };
-        NonceResponseDto: {
-            /**
-             * @description Single-use random nonce (32 hex characters). Embedded in the login message.
-             * @example a3f8c2e1b74d9056a3f8c2e1b74d9056
+             * @description Single-use cryptographically secure nonce (64-character hex string).
+             * @example a3f8c2e1b74d9056a3f8c2e1b74d9056a3f8c2e1b74d9056a3f8c2e1b74d9056
              */
             nonce: string;
             /**
-             * @description The exact UTF-8 string the wallet must sign with its ED25519 private key. Do not modify the message before signing.
-             * @example SkillSync login
-             *     Address: GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37
-             *     Nonce: a3f8c2e1b74d9056a3f8c2e1b74d9056
+             * Format: date-time
+             * @description Time at which the nonce expires.
+             * @example 2026-11-21T19:34:15.044Z
              */
-            message: string;
-            /**
-             * @description Seconds until this nonce expires. The default window is 300 seconds (5 minutes).
-             * @example 300
-             */
-            expiresIn: number;
+            expiresAt: string;
         };
         FieldErrorDto: {
             /**
@@ -577,6 +677,32 @@ export interface components {
             /** @example b1f2c3d4-e5f6-7890-abcd-ef1234567890 */
             requestId: string;
         };
+        NonceDto: {
+            /**
+             * @description Stellar wallet public key (ED25519) that will sign the login message.
+             * @example GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37
+             */
+            address: string;
+        };
+        NonceResponseDto: {
+            /**
+             * @description Single-use random nonce (64 hex characters). Embedded in the login message.
+             * @example a3f8c2e1b74d9056a3f8c2e1b74d9056a3f8c2e1b74d9056a3f8c2e1b74d9056
+             */
+            nonce: string;
+            /**
+             * @description The exact UTF-8 string the wallet must sign with its ED25519 private key. Do not modify the message before signing.
+             * @example SkillSync login
+             *     Address: GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37
+             *     Nonce: a3f8c2e1b74d9056a3f8c2e1b74d9056
+             */
+            message: string;
+            /**
+             * @description Seconds until this nonce expires. The default window is 300 seconds (5 minutes).
+             * @example 300
+             */
+            expiresIn: number;
+        };
         LoginDto: {
             /**
              * @description Stellar wallet public key that owns the pending nonce.
@@ -645,6 +771,15 @@ export interface components {
             /** @example b1f2c3d4-e5f6-7890-abcd-ef1234567890 */
             requestId: string;
         };
+        SessionRevocationResponseDto: {
+            /** @example All active sessions have been revoked. */
+            message: string;
+            /**
+             * @description Number of refresh tokens revoked.
+             * @example 3
+             */
+            revokedCount: number;
+        };
         UserResponseDto: {
             walletAddress: string;
             email?: string | null;
@@ -652,15 +787,44 @@ export interface components {
             displayName: string;
             /** @enum {string} */
             status: "active" | "pending" | "suspended" | "deleted";
+            /** @description Avatar URL. */
             avatarUrl?: string | null;
-            timezone?: string | null;
+            /**
+             * @description IANA timezone preference used for display.
+             * @example UTC
+             */
+            timezone: string;
             locale?: string | null;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description UTC timestamp of the last login.
+             */
             lastLoginAt?: string | null;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description UTC timestamp of account creation.
+             */
             createdAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description UTC timestamp of the latest account update.
+             */
             updatedAt: string;
+            /** @description True when this user has an active featured mentor profile. */
+            isFeatured?: boolean;
+            /** @description Badge shown on featured mentor cards. */
+            featuredBadge?: Record<string, never> | null;
+            /** @description Whether this user has a verified mentor profile. */
+            isVerified: boolean;
+            /** @description UTC date of mentor verification. */
+            verifiedAt?: Record<string, never> | null;
+            /** @description Badge shown on verified mentor cards. */
+            verifiedBadge?: Record<string, never> | null;
+            /**
+             * @description Profile completeness score (0–110).
+             * @example 85
+             */
+            completenessScore?: number;
         };
         UpdateUserDto: {
             /**
@@ -685,6 +849,18 @@ export interface components {
              * @example en-US
              */
             locale?: string | null;
+            /** @description Education history */
+            education?: string[];
+            /** @description Certifications */
+            certifications?: string[];
+        };
+        UpdateUserStatusDto: {
+            /**
+             * @description New account status. Restores soft-deleted accounts to active when set to "active".
+             * @example suspended
+             * @enum {string}
+             */
+            status: "active" | "pending" | "suspended" | "deleted";
         };
         PaginatedUsersResponseDto: {
             data: components["schemas"]["UserResponseDto"][];
@@ -746,18 +922,28 @@ export interface components {
              * @enum {string}
              */
             status: "active" | "pending" | "suspended" | "deleted";
+            /**
+             * @description Primary role used for list filtering. Denormalised from the user_roles relation so the (role, status, createdAt) composite index can serve admin list queries without a join.
+             * @example mentor
+             */
+            role?: Record<string, never> | null;
             /** @description Avatar URL. */
             avatarUrl?: string | null;
             /**
              * @description User timezone (IANA).
+             * @default UTC
              * @example UTC
              */
-            timezone?: string | null;
+            timezone: string;
             /**
              * @description User locale.
              * @example en-US
              */
             locale?: string | null;
+            /** @description Optional education history. Contributes to the profile completeness bonus. */
+            education?: string[];
+            /** @description Optional certifications. Contributes to the profile completeness bonus. */
+            certifications?: string[];
             /**
              * Format: date-time
              * @description When the username was last changed. Used to enforce the 30-day cooldown between changes.
@@ -823,6 +1009,16 @@ export interface components {
             createdAt: string;
             /** @description Public portfolio links */
             portfolioLinks?: components["schemas"]["PortfolioLinkResponseDto"][];
+            /** @description True when this user has an active featured mentor profile. */
+            isFeatured?: boolean;
+            /** @description Badge shown on featured mentor cards. */
+            featuredBadge?: Record<string, never> | null;
+            /** @description Whether this mentor has been verified by an administrator. */
+            isVerified: boolean;
+            /** @description UTC date of mentor verification. */
+            verifiedAt?: Record<string, never> | null;
+            /** @description Badge shown on verified mentor profiles and cards. */
+            verifiedBadge?: Record<string, never> | null;
         };
         CreatePortfolioLinkDto: {
             /** @example https://github.com/alice */
@@ -905,6 +1101,47 @@ export interface components {
              */
             profileType: "mentor" | "mentee";
             /** @description The created profile object. Shape varies by profileType. */
+            profile: components["schemas"]["MentorProfile"] | components["schemas"]["MenteeProfile"];
+        };
+        UpdateProfileDto: {
+            /**
+             * @description Target profile wallet address; admins only. Defaults to the authenticated user.
+             * @example GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37
+             */
+            walletAddress?: string;
+            /** @description Mentor biography. */
+            bio?: string;
+            /** @description Skills taught by the mentor. */
+            skills?: string[];
+            /** @description Mentor areas of expertise. */
+            expertiseAreas?: string[];
+            /** @description Hourly rate in USD cents; null clears the rate. */
+            hourlyRateUsdCents?: Record<string, never> | null;
+            /** @description Maximum active mentees. */
+            maxMentees?: number;
+            /** @description Mentee learning goals. */
+            learningGoals?: string;
+            /** @description Topics the mentee wants to focus on. */
+            interests?: string[];
+            /** @description Monthly budget in USD cents; null clears the budget. */
+            budgetUsdCentsPerMonth?: Record<string, never> | null;
+            /**
+             * @description Mentee self-assessed experience level.
+             * @enum {string}
+             */
+            experienceLevel?: "beginner" | "intermediate" | "advanced";
+            /** @description Languages for mentorship sessions. */
+            languages?: string[];
+            /** @description Whether the profile is active and visible. */
+            isActive?: boolean;
+        };
+        UpdateProfileResponseDto: {
+            /**
+             * @example mentor
+             * @enum {string}
+             */
+            profileType: "mentor" | "mentee";
+            /** @description The updated profile object. Shape varies by profileType. */
             profile: components["schemas"]["MentorProfile"] | components["schemas"]["MenteeProfile"];
         };
         AvailabilitySlot: {
@@ -1098,6 +1335,15 @@ export interface components {
         };
         AvailabilityCheckResponseDto: {
             mentorId: string;
+            /**
+             * @description IANA timezone used for display.
+             * @example UTC
+             */
+            timezone: string;
+            /**
+             * @description The checked instant in UTC.
+             * @example 2026-11-23T10:30:00.000Z
+             */
             dateTime: string;
             available: boolean;
         };
@@ -1107,12 +1353,12 @@ export interface components {
             /** @example 2026-11-23T12:00:00.000Z */
             endUtc: string;
             /**
-             * @description Display start in slot timezone.
+             * @description Display start in the response timezone.
              * @example 11/23/2026, 10:00 GMT+0
              */
             displayStart: string;
             /**
-             * @description Display end in slot timezone.
+             * @description Display end in the response timezone.
              * @example 11/23/2026, 12:00 GMT+0
              */
             displayEnd: string;
@@ -1126,6 +1372,11 @@ export interface components {
         };
         Next30DaysAvailabilityResponseDto: {
             mentorId: string;
+            /**
+             * @description IANA timezone used for display.
+             * @example UTC
+             */
+            timezone: string;
             windows: components["schemas"]["AvailableWindowDto"][];
         };
         ProfileHistoryEntryDto: {
@@ -1209,6 +1460,14 @@ export interface components {
              */
             skills: string[];
             /**
+             * @description Areas of expertise the mentor is known for.
+             * @example [
+             *       "Distributed systems",
+             *       "PostgreSQL"
+             *     ]
+             */
+            expertiseAreas?: string[];
+            /**
              * @description Hourly rate in USD cents (e.g. 5000 = $50.00). Null means free / arrange offline.
              * @example 5000
              */
@@ -1232,6 +1491,27 @@ export interface components {
              */
             isActive: boolean;
             /**
+             * @description Whether the mentor identity has been verified by an administrator.
+             * @example false
+             */
+            isVerified: boolean;
+            /** @description UTC date the mentor was verified. */
+            verifiedAt?: Record<string, never> | null;
+            /**
+             * @description Average review score (0-5, one decimal place) used for discovery sorting.
+             * @example 4.5
+             */
+            averageRating: number;
+            /**
+             * @description Whether this mentor is in the curated featured list.
+             * @example false
+             */
+            isFeatured?: boolean;
+            /** @description UTC timestamp when the mentor was featured. */
+            featuredAt?: Record<string, never> | null;
+            /** @description Manual display position in the featured list. */
+            featuredOrder?: Record<string, never> | null;
+            /**
              * Format: date-time
              * @description UTC creation timestamp.
              */
@@ -1241,6 +1521,11 @@ export interface components {
              * @description UTC last-updated timestamp.
              */
             updatedAt: string;
+            /**
+             * @description Incremented whenever this profile is updated.
+             * @example 1
+             */
+            version: number;
         };
         MenteeProfile: {
             /**
@@ -1299,6 +1584,11 @@ export interface components {
              * @description UTC last-updated timestamp.
              */
             updatedAt: string;
+            /**
+             * @description Incremented whenever this profile is updated.
+             * @example 1
+             */
+            version: number;
         };
     };
     responses: never;
@@ -1325,6 +1615,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": string;
+                };
+            };
+        };
+    };
+    AppController_health: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    requestWalletNonce: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Stellar wallet public key (ED25519). */
+                walletAddress: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Nonce issued successfully. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IssuedNonceResponseDto"];
+                };
+            };
+            /** @description Wallet address is not a valid Stellar public key. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Rate limit exceeded. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TooManyRequestsResponseDto"];
+                };
+            };
+            /** @description Unexpected server error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InternalServerErrorResponseDto"];
                 };
             };
         };
@@ -1559,10 +1916,120 @@ export interface operations {
             };
         };
     };
-    getMyProfile: {
+    revokeAllSessions: {
         parameters: {
             query?: never;
             header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description All active sessions were revoked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionRevocationResponseDto"];
+                };
+            };
+            /** @description Access token is missing, expired, or already revoked. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnauthorizedResponseDto"];
+                };
+            };
+            /** @description Rate limit exceeded. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TooManyRequestsResponseDto"];
+                };
+            };
+            /** @description Unexpected server error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InternalServerErrorResponseDto"];
+                };
+            };
+        };
+    };
+    adminRevokeAllSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Stellar wallet address whose sessions will be revoked. */
+                walletAddress: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description All active sessions were revoked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionRevocationResponseDto"];
+                };
+            };
+            /** @description Access token is missing, expired, or already revoked. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnauthorizedResponseDto"];
+                };
+            };
+            /** @description Insufficient role. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForbiddenResponseDto"];
+                };
+            };
+            /** @description Rate limit exceeded. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TooManyRequestsResponseDto"];
+                };
+            };
+            /** @description Unexpected server error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InternalServerErrorResponseDto"];
+                };
+            };
+        };
+    };
+    getMyProfile: {
+        parameters: {
+            query?: never;
+            header: {
+                "accept-timezone": string;
+                /** @description IANA timezone override for this response. */
+                "Accept-Timezone"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1598,7 +2065,11 @@ export interface operations {
     updateMyProfile: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "accept-timezone": string;
+                /** @description IANA timezone override for this response. */
+                "Accept-Timezone"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1626,15 +2097,47 @@ export interface operations {
             };
         };
     };
+    setUserStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Wallet address of the account to update. */
+                walletAddress: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateUserStatusDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponseDto"];
+                };
+            };
+        };
+    };
     listUsers: {
         parameters: {
             query?: {
+                /** @description 1-based page number. */
+                page?: number;
+                /** @description Items per page (max 100). */
+                limit?: number;
+                /** @description Sort direction. */
+                order?: "ASC" | "DESC";
+                /** @description Opaque cursor for cursor-based pagination. */
+                cursor?: string;
                 /** @description Filter by status */
                 status?: "active" | "pending" | "suspended" | "deleted";
                 /** @description Search by username/displayName prefix */
                 search?: string;
-                page?: number;
-                limit?: number;
             };
             header?: never;
             path?: never;
@@ -2001,6 +2504,68 @@ export interface operations {
             };
         };
     };
+    updateProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                type: "mentor" | "mentee";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProfileDto"];
+            };
+        };
+        responses: {
+            /** @description Profile updated successfully. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateProfileResponseDto"];
+                };
+            };
+            /** @description One or more fields failed validation. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Only the owner or an admin may update this profile. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForbiddenResponseDto"];
+                };
+            };
+            /** @description Profile not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Profile update limit exceeded. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TooManyRequestsResponseDto"];
+                };
+            };
+        };
+    };
     listMyAvailabilitySlots: {
         parameters: {
             query?: never;
@@ -2264,6 +2829,8 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description Stellar wallet address. */
+                walletAddress: string;
                 /** @description Mentor wallet address */
                 mentorId: string;
             };
@@ -2294,6 +2861,8 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description Stellar wallet address. */
+                walletAddress: string;
                 /** @description Mentor wallet address */
                 mentorId: string;
             };
@@ -2314,10 +2883,21 @@ export interface operations {
     checkMentorAvailability: {
         parameters: {
             query: {
+                /** @description Inclusive start (ISO 8601). */
+                from?: string;
+                /** @description Inclusive end (ISO 8601), not before `from`. */
+                to?: string;
+                /** @description ISO 8601 date-time to check. */
                 dateTime: string;
             };
-            header?: never;
+            header: {
+                "accept-timezone": string;
+                /** @description IANA timezone override for this response. */
+                "Accept-Timezone"?: string;
+            };
             path: {
+                /** @description Stellar wallet address. */
+                walletAddress: string;
                 /** @description Mentor wallet address */
                 mentorId: string;
             };
@@ -2346,8 +2926,14 @@ export interface operations {
     getMentorNext30DaysAvailability: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "accept-timezone": string;
+                /** @description IANA timezone override for display fields. */
+                "Accept-Timezone"?: string;
+            };
             path: {
+                /** @description Stellar wallet address. */
+                walletAddress: string;
                 /** @description Mentor wallet address */
                 mentorId: string;
             };
@@ -2375,6 +2961,8 @@ export interface operations {
             };
             header?: never;
             path: {
+                /** @description Stellar wallet address. */
+                walletAddress: string;
                 /** @description Stellar wallet address of the user. */
                 userId: string;
             };

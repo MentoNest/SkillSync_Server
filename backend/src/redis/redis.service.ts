@@ -60,6 +60,26 @@ export class RedisService implements OnModuleDestroy {
     return this.client.del(this.key(namespace, key));
   }
 
+  /** Deletes all refresh-token entries whose stored wallet address matches the user. */
+  async revokeRefreshTokensForUser(address: string): Promise<number> {
+    const pattern = this.key(RedisNamespace.SESSION, 'refresh:*');
+    const matchingKeys = new Set<string>();
+    let cursor = '0';
+
+    do {
+      const [nextCursor, keys] = await this.client.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+      cursor = nextCursor;
+      if (keys.length === 0) continue;
+
+      const values = await this.client.mget(...keys);
+      keys.forEach((key, index) => {
+        if (values[index] === address) matchingKeys.add(key);
+      });
+    } while (cursor !== '0');
+
+    return matchingKeys.size > 0 ? this.client.del(...matchingKeys) : 0;
+  }
+
   /** Returns true when the key exists and the expiry was set. */
   async expire(namespace: RedisNamespace, key: string, ttlSeconds: number): Promise<boolean> {
     return (await this.client.expire(this.key(namespace, key), ttlSeconds)) === 1;

@@ -14,6 +14,8 @@ export interface JwtPayload {
   type: TokenType;
   /** Unique token id; used for refresh rotation and logout blacklisting. */
   jti: string;
+  /** User token version; changing it invalidates every token issued at an older version. */
+  ver?: number;
   iat?: number;
   exp?: number;
 }

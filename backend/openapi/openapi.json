@@ -24,6 +24,86 @@
         ]
       }
     },
+    "/health": {
+      "get": {
+        "operationId": "AppController_health",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "App"
+        ]
+      }
+    },
+    "/auth/nonce/{walletAddress}": {
+      "get": {
+        "description": "Issues a cryptographically secure, single-use nonce tied to the given Stellar wallet address. The nonce expires after 5 minutes and replaces any previous unused nonce for this wallet.",
+        "operationId": "requestWalletNonce",
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "required": true,
+            "in": "path",
+            "description": "Stellar wallet public key (ED25519).",
+            "schema": {
+              "pattern": "^G[A-Z2-7]{55}$",
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Nonce issued successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedNonceResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Wallet address is not a valid Stellar public key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TooManyRequestsResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Request a wallet login nonce",
+        "tags": [
+          "Authentication",
+          "Wallet"
+        ]
+      }
+    },
     "/auth/nonce": {
       "post": {
         "description": "Issues a single-use nonce tied to the given Stellar wallet address. The response includes the exact UTF-8 message the wallet must sign with its ED25519 private key. The nonce expires after 5 minutes (configurable) and is consumed on the first login attempt, whether or not the signature is valid.",
@@ -308,10 +388,168 @@
         ]
       }
     },
+    "/auth/revoke-all": {
+      "post": {
+        "description": "Invalidates every active refresh token for the authenticated user and increments their token version, which invalidates all previously issued access and refresh tokens.",
+        "operationId": "revokeAllSessions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All active sessions were revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRevocationResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Access token is missing, expired, or already revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TooManyRequestsResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer Auth": []
+          }
+        ],
+        "summary": "Revoke all of the caller’s sessions",
+        "tags": [
+          "Authentication",
+          "Session Management"
+        ]
+      }
+    },
+    "/auth/admin/revoke-all/{walletAddress}": {
+      "post": {
+        "description": "Invalidates every active session for the specified wallet address. Requires the admin role.",
+        "operationId": "adminRevokeAllSessions",
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "required": true,
+            "in": "path",
+            "description": "Stellar wallet address whose sessions will be revoked.",
+            "schema": {
+              "pattern": "^G[A-Z2-7]{55}$",
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "All active sessions were revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRevocationResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Access token is missing, expired, or already revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TooManyRequestsResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer Auth": []
+          }
+        ],
+        "summary": "Revoke all sessions for a user (admin)",
+        "tags": [
+          "Authentication",
+          "Session Management"
+        ]
+      }
+    },
     "/users/me": {
       "get": {
         "operationId": "getMyProfile",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "accept-timezone",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Accept-Timezone",
+            "in": "header",
+            "description": "IANA timezone override for this response.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -336,7 +574,25 @@
       },
       "patch": {
         "operationId": "updateMyProfile",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "accept-timezone",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Accept-Timezone",
+            "in": "header",
+            "description": "IANA timezone override for this response.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -398,38 +654,65 @@
         ]
       }
     },
+    "/admin/users/{walletAddress}/status": {
+      "patch": {
+        "operationId": "setUserStatus",
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "required": true,
+            "in": "path",
+            "description": "Wallet address of the account to update.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer Auth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Change an account status (admin)",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
     "/users": {
       "get": {
         "operationId": "listUsers",
         "parameters": [
           {
-            "name": "status",
-            "required": false,
-            "in": "query",
-            "description": "Filter by status",
-            "schema": {
-              "enum": [
-                "active",
-                "pending",
-                "suspended",
-                "deleted"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "name": "search",
-            "required": false,
-            "in": "query",
-            "description": "Search by username/displayName prefix",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
             "name": "page",
             "required": false,
             "in": "query",
+            "description": "1-based page number.",
             "schema": {
               "minimum": 1,
               "default": 1,
@@ -440,11 +723,59 @@
             "name": "limit",
             "required": false,
             "in": "query",
+            "description": "Items per page (max 100).",
             "schema": {
               "minimum": 1,
               "maximum": 100,
               "default": 20,
               "type": "number"
+            }
+          },
+          {
+            "name": "order",
+            "required": false,
+            "in": "query",
+            "description": "Sort direction.",
+            "schema": {
+              "default": "DESC",
+              "type": "string",
+              "enum": [
+                "ASC",
+                "DESC"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Opaque cursor for cursor-based pagination.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Filter by status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "pending",
+                "suspended",
+                "deleted"
+              ]
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "Search by username/displayName prefix",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -462,7 +793,7 @@
         },
         "security": [
           {
-            "BearerAuth": []
+            "Bearer Auth": []
           }
         ],
         "summary": "List users (query)",
@@ -700,6 +1031,8 @@
             "in": "path",
             "description": "Wallet address or username",
             "schema": {
+              "minLength": 1,
+              "maxLength": 56,
               "example": "alice_dev",
               "type": "string"
             }
@@ -951,6 +1284,97 @@
           }
         ],
         "summary": "Create a mentor or mentee profile",
+        "tags": [
+          "Profiles"
+        ]
+      }
+    },
+    "/user/profile/{type}": {
+      "patch": {
+        "description": "Partially updates the authenticated user profile. Admins may provide walletAddress to update another user.",
+        "operationId": "updateProfile",
+        "parameters": [
+          {
+            "name": "type",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "enum": [
+                "mentor",
+                "mentee"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Profile updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateProfileResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "One or more fields failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the owner or an admin may update this profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Profile not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Profile update limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TooManyRequestsResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Update a mentor or mentee profile",
         "tags": [
           "Profiles"
         ]
@@ -1341,11 +1765,22 @@
         "operationId": "listMentorAvailabilitySlots",
         "parameters": [
           {
+            "name": "walletAddress",
+            "required": false,
+            "in": "path",
+            "description": "Stellar wallet address.",
+            "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          },
+          {
             "name": "mentorId",
             "required": true,
             "in": "path",
             "description": "Mentor wallet address",
             "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
               "type": "string"
             }
           }
@@ -1386,11 +1821,22 @@
         "operationId": "listMentorAvailabilityExceptions",
         "parameters": [
           {
+            "name": "walletAddress",
+            "required": false,
+            "in": "path",
+            "description": "Stellar wallet address.",
+            "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          },
+          {
             "name": "mentorId",
             "required": true,
             "in": "path",
             "description": "Mentor wallet address",
             "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
               "type": "string"
             }
           }
@@ -1422,10 +1868,39 @@
         "operationId": "checkMentorAvailability",
         "parameters": [
           {
+            "name": "walletAddress",
+            "required": false,
+            "in": "path",
+            "description": "Stellar wallet address.",
+            "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          },
+          {
             "name": "mentorId",
             "required": true,
             "in": "path",
             "description": "Mentor wallet address",
+            "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "Inclusive start (ISO 8601).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "Inclusive end (ISO 8601), not before `from`.",
             "schema": {
               "type": "string"
             }
@@ -1434,8 +1909,26 @@
             "name": "dateTime",
             "required": true,
             "in": "query",
+            "description": "ISO 8601 date-time to check.",
             "schema": {
               "example": "2026-11-23T10:30:00.000Z",
+              "type": "string"
+            }
+          },
+          {
+            "name": "accept-timezone",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Accept-Timezone",
+            "in": "header",
+            "description": "IANA timezone override for this response.",
+            "required": false,
+            "schema": {
               "type": "string"
             }
           }
@@ -1470,14 +1963,42 @@
     },
     "/mentors/{mentorId}/availability/next-30-days": {
       "get": {
-        "description": "Returns concrete available UTC windows derived from weekly slots minus unavailable exceptions. Each window includes display times in the slot timezone.",
+        "description": "Returns concrete available UTC windows derived from weekly slots minus unavailable exceptions. Display times use the mentor timezone preference unless Accept-Timezone overrides it.",
         "operationId": "getMentorNext30DaysAvailability",
         "parameters": [
+          {
+            "name": "walletAddress",
+            "required": false,
+            "in": "path",
+            "description": "Stellar wallet address.",
+            "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          },
           {
             "name": "mentorId",
             "required": true,
             "in": "path",
             "description": "Mentor wallet address",
+            "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          },
+          {
+            "name": "accept-timezone",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Accept-Timezone",
+            "in": "header",
+            "description": "IANA timezone override for display fields.",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -1506,6 +2027,16 @@
         "description": "Returns a paginated, reverse-chronological list of every tracked field change made to the specified user's profile. Sensitive field values are redacted. Requires ADMIN role.",
         "operationId": "getProfileHistory",
         "parameters": [
+          {
+            "name": "walletAddress",
+            "required": false,
+            "in": "path",
+            "description": "Stellar wallet address.",
+            "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          },
           {
             "name": "userId",
             "required": true,
@@ -1699,43 +2230,24 @@
       }
     },
     "schemas": {
-      "NonceDto": {
-        "type": "object",
-        "properties": {
-          "address": {
-            "type": "string",
-            "description": "Stellar wallet public key (ED25519) that will sign the login message.",
-            "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
-            "pattern": "^G[A-Z2-7]{55}$"
-          }
-        },
-        "required": [
-          "address"
-        ]
-      },
-      "NonceResponseDto": {
+      "IssuedNonceResponseDto": {
         "type": "object",
         "properties": {
           "nonce": {
             "type": "string",
-            "description": "Single-use random nonce (32 hex characters). Embedded in the login message.",
-            "example": "a3f8c2e1b74d9056a3f8c2e1b74d9056"
+            "description": "Single-use cryptographically secure nonce (64-character hex string).",
+            "example": "a3f8c2e1b74d9056a3f8c2e1b74d9056a3f8c2e1b74d9056a3f8c2e1b74d9056"
           },
-          "message": {
+          "expiresAt": {
             "type": "string",
-            "description": "The exact UTF-8 string the wallet must sign with its ED25519 private key. Do not modify the message before signing.",
-            "example": "SkillSync login\nAddress: GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37\nNonce: a3f8c2e1b74d9056a3f8c2e1b74d9056"
-          },
-          "expiresIn": {
-            "type": "number",
-            "description": "Seconds until this nonce expires. The default window is 300 seconds (5 minutes).",
-            "example": 300
+            "description": "Time at which the nonce expires.",
+            "example": "2026-11-21T19:34:15.044Z",
+            "format": "date-time"
           }
         },
         "required": [
           "nonce",
-          "message",
-          "expiresIn"
+          "expiresAt"
         ]
       },
       "FieldErrorDto": {
@@ -1902,6 +2414,45 @@
           "requestId"
         ]
       },
+      "NonceDto": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Stellar wallet public key (ED25519) that will sign the login message.",
+            "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+            "pattern": "^G[A-Z2-7]{55}$"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      },
+      "NonceResponseDto": {
+        "type": "object",
+        "properties": {
+          "nonce": {
+            "type": "string",
+            "description": "Single-use random nonce (64 hex characters). Embedded in the login message.",
+            "example": "a3f8c2e1b74d9056a3f8c2e1b74d9056a3f8c2e1b74d9056a3f8c2e1b74d9056"
+          },
+          "message": {
+            "type": "string",
+            "description": "The exact UTF-8 string the wallet must sign with its ED25519 private key. Do not modify the message before signing.",
+            "example": "SkillSync login\nAddress: GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37\nNonce: a3f8c2e1b74d9056a3f8c2e1b74d9056"
+          },
+          "expiresIn": {
+            "type": "number",
+            "description": "Seconds until this nonce expires. The default window is 300 seconds (5 minutes).",
+            "example": 300
+          }
+        },
+        "required": [
+          "nonce",
+          "message",
+          "expiresIn"
+        ]
+      },
       "LoginDto": {
         "type": "object",
         "properties": {
@@ -2045,6 +2596,24 @@
           "requestId"
         ]
       },
+      "SessionRevocationResponseDto": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "All active sessions have been revoked."
+          },
+          "revokedCount": {
+            "type": "number",
+            "description": "Number of refresh tokens revoked.",
+            "example": 3
+          }
+        },
+        "required": [
+          "message",
+          "revokedCount"
+        ]
+      },
       "UserResponseDto": {
         "type": "object",
         "properties": {
@@ -2073,11 +2642,13 @@
           },
           "avatarUrl": {
             "type": "string",
+            "description": "Avatar URL.",
             "nullable": true
           },
           "timezone": {
             "type": "string",
-            "nullable": true
+            "description": "IANA timezone preference used for display.",
+            "example": "UTC"
           },
           "locale": {
             "type": "string",
@@ -2085,24 +2656,57 @@
           },
           "lastLoginAt": {
             "type": "string",
+            "description": "UTC timestamp of the last login.",
             "format": "date-time",
             "nullable": true
           },
           "createdAt": {
             "format": "date-time",
-            "type": "string"
+            "type": "string",
+            "description": "UTC timestamp of account creation."
           },
           "updatedAt": {
             "format": "date-time",
-            "type": "string"
+            "type": "string",
+            "description": "UTC timestamp of the latest account update."
+          },
+          "isFeatured": {
+            "type": "boolean",
+            "description": "True when this user has an active featured mentor profile."
+          },
+          "featuredBadge": {
+            "type": "object",
+            "nullable": true,
+            "description": "Badge shown on featured mentor cards."
+          },
+          "isVerified": {
+            "type": "boolean",
+            "description": "Whether this user has a verified mentor profile."
+          },
+          "verifiedAt": {
+            "type": "object",
+            "nullable": true,
+            "description": "UTC date of mentor verification."
+          },
+          "verifiedBadge": {
+            "type": "object",
+            "nullable": true,
+            "description": "Badge shown on verified mentor cards."
+          },
+          "completenessScore": {
+            "type": "number",
+            "description": "Profile completeness score (0–110).",
+            "example": 85
           }
         },
         "required": [
           "walletAddress",
           "displayName",
           "status",
+          "timezone",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "isVerified"
         ]
       },
       "UpdateUserDto": {
@@ -2136,8 +2740,41 @@
             "description": "Locale",
             "example": "en-US",
             "nullable": true
+          },
+          "education": {
+            "description": "Education history",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "certifications": {
+            "description": "Certifications",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
+      },
+      "UpdateUserStatusDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "New account status. Restores soft-deleted accounts to active when set to \"active\".",
+            "enum": [
+              "active",
+              "pending",
+              "suspended",
+              "deleted"
+            ],
+            "example": "suspended"
+          }
+        },
+        "required": [
+          "status"
+        ]
       },
       "PaginatedUsersResponseDto": {
         "type": "object",
@@ -2245,6 +2882,12 @@
             ],
             "example": "active"
           },
+          "role": {
+            "type": "object",
+            "description": "Primary role used for list filtering. Denormalised from the user_roles relation so the (role, status, createdAt) composite index can serve admin list queries without a join.",
+            "example": "mentor",
+            "nullable": true
+          },
           "avatarUrl": {
             "type": "string",
             "description": "Avatar URL.",
@@ -2254,13 +2897,27 @@
             "type": "string",
             "description": "User timezone (IANA).",
             "example": "UTC",
-            "nullable": true
+            "default": "UTC"
           },
           "locale": {
             "type": "string",
             "description": "User locale.",
             "example": "en-US",
             "nullable": true
+          },
+          "education": {
+            "description": "Optional education history. Contributes to the profile completeness bonus.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "certifications": {
+            "description": "Optional certifications. Contributes to the profile completeness bonus.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "usernameChangedAt": {
             "type": "string",
@@ -2294,6 +2951,7 @@
         "required": [
           "walletAddress",
           "status",
+          "timezone",
           "createdAt",
           "updatedAt"
         ]
@@ -2379,12 +3037,36 @@
             "items": {
               "$ref": "#/components/schemas/PortfolioLinkResponseDto"
             }
+          },
+          "isFeatured": {
+            "type": "boolean",
+            "description": "True when this user has an active featured mentor profile."
+          },
+          "featuredBadge": {
+            "type": "object",
+            "nullable": true,
+            "description": "Badge shown on featured mentor cards."
+          },
+          "isVerified": {
+            "type": "boolean",
+            "description": "Whether this mentor has been verified by an administrator."
+          },
+          "verifiedAt": {
+            "type": "object",
+            "nullable": true,
+            "description": "UTC date of mentor verification."
+          },
+          "verifiedBadge": {
+            "type": "object",
+            "nullable": true,
+            "description": "Badge shown on verified mentor profiles and cards."
           }
         },
         "required": [
           "walletAddress",
           "displayName",
-          "createdAt"
+          "createdAt",
+          "isVerified"
         ]
       },
       "CreatePortfolioLinkDto": {
@@ -2523,6 +3205,115 @@
           },
           "profile": {
             "description": "The created profile object. Shape varies by profileType.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MentorProfile"
+              },
+              {
+                "$ref": "#/components/schemas/MenteeProfile"
+              }
+            ]
+          }
+        },
+        "required": [
+          "profileType",
+          "profile"
+        ]
+      },
+      "UpdateProfileDto": {
+        "type": "object",
+        "properties": {
+          "walletAddress": {
+            "type": "string",
+            "description": "Target profile wallet address; admins only. Defaults to the authenticated user.",
+            "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37"
+          },
+          "bio": {
+            "type": "string",
+            "description": "Mentor biography.",
+            "maxLength": 500
+          },
+          "skills": {
+            "description": "Skills taught by the mentor.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expertiseAreas": {
+            "description": "Mentor areas of expertise.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hourlyRateUsdCents": {
+            "type": "object",
+            "description": "Hourly rate in USD cents; null clears the rate.",
+            "nullable": true,
+            "minimum": 1,
+            "maximum": 100000
+          },
+          "maxMentees": {
+            "type": "number",
+            "description": "Maximum active mentees.",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "learningGoals": {
+            "type": "string",
+            "description": "Mentee learning goals.",
+            "maxLength": 500
+          },
+          "interests": {
+            "description": "Topics the mentee wants to focus on.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "budgetUsdCentsPerMonth": {
+            "type": "object",
+            "description": "Monthly budget in USD cents; null clears the budget.",
+            "nullable": true,
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "experienceLevel": {
+            "type": "string",
+            "description": "Mentee self-assessed experience level.",
+            "enum": [
+              "beginner",
+              "intermediate",
+              "advanced"
+            ]
+          },
+          "languages": {
+            "description": "Languages for mentorship sessions.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isActive": {
+            "type": "boolean",
+            "description": "Whether the profile is active and visible."
+          }
+        }
+      },
+      "UpdateProfileResponseDto": {
+        "type": "object",
+        "properties": {
+          "profileType": {
+            "type": "string",
+            "enum": [
+              "mentor",
+              "mentee"
+            ],
+            "example": "mentor"
+          },
+          "profile": {
+            "description": "The updated profile object. Shape varies by profileType.",
             "oneOf": [
               {
                 "$ref": "#/components/schemas/MentorProfile"
@@ -2790,8 +3581,15 @@
           "mentorId": {
             "type": "string"
           },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone used for display.",
+            "example": "UTC"
+          },
           "dateTime": {
-            "type": "string"
+            "type": "string",
+            "description": "The checked instant in UTC.",
+            "example": "2026-11-23T10:30:00.000Z"
           },
           "available": {
             "type": "boolean"
@@ -2799,6 +3597,7 @@
         },
         "required": [
           "mentorId",
+          "timezone",
           "dateTime",
           "available"
         ]
@@ -2816,12 +3615,12 @@
           },
           "displayStart": {
             "type": "string",
-            "description": "Display start in slot timezone.",
+            "description": "Display start in the response timezone.",
             "example": "11/23/2026, 10:00 GMT+0"
           },
           "displayEnd": {
             "type": "string",
-            "description": "Display end in slot timezone.",
+            "description": "Display end in the response timezone.",
             "example": "11/23/2026, 12:00 GMT+0"
           },
           "timezone": {
@@ -2849,6 +3648,11 @@
           "mentorId": {
             "type": "string"
           },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone used for display.",
+            "example": "UTC"
+          },
           "windows": {
             "type": "array",
             "items": {
@@ -2858,6 +3662,7 @@
         },
         "required": [
           "mentorId",
+          "timezone",
           "windows"
         ]
       },
@@ -3024,6 +3829,17 @@
               "type": "string"
             }
           },
+          "expertiseAreas": {
+            "description": "Areas of expertise the mentor is known for.",
+            "example": [
+              "Distributed systems",
+              "PostgreSQL"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "hourlyRateUsdCents": {
             "type": "number",
             "description": "Hourly rate in USD cents (e.g. 5000 = $50.00). Null means free / arrange offline.",
@@ -3051,6 +3867,36 @@
             "description": "Profile is visible in search results.",
             "example": true
           },
+          "isVerified": {
+            "type": "boolean",
+            "description": "Whether the mentor identity has been verified by an administrator.",
+            "example": false
+          },
+          "verifiedAt": {
+            "type": "object",
+            "description": "UTC date the mentor was verified.",
+            "nullable": true
+          },
+          "averageRating": {
+            "type": "number",
+            "description": "Average review score (0-5, one decimal place) used for discovery sorting.",
+            "example": 4.5
+          },
+          "isFeatured": {
+            "type": "boolean",
+            "description": "Whether this mentor is in the curated featured list.",
+            "example": false
+          },
+          "featuredAt": {
+            "type": "object",
+            "description": "UTC timestamp when the mentor was featured.",
+            "nullable": true
+          },
+          "featuredOrder": {
+            "type": "object",
+            "description": "Manual display position in the featured list.",
+            "nullable": true
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string",
@@ -3060,6 +3906,11 @@
             "format": "date-time",
             "type": "string",
             "description": "UTC last-updated timestamp."
+          },
+          "version": {
+            "type": "number",
+            "description": "Incremented whenever this profile is updated.",
+            "example": 1
           }
         },
         "required": [
@@ -3070,8 +3921,11 @@
           "maxMentees",
           "languages",
           "isActive",
+          "isVerified",
+          "averageRating",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "version"
         ]
       },
       "MenteeProfile": {
@@ -3144,6 +3998,11 @@
             "format": "date-time",
             "type": "string",
             "description": "UTC last-updated timestamp."
+          },
+          "version": {
+            "type": "number",
+            "description": "Incremented whenever this profile is updated.",
+            "example": 1
           }
         },
         "required": [
@@ -3155,7 +4014,8 @@
           "languages",
           "isActive",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "version"
         ]
       }
     }

@@ -40,7 +40,13 @@ describe('RolesGuard', () => {
 
 describe('JwtStrategy.validate', () => {
   const make = (revoked: boolean) =>
-    new JwtStrategy({ jwtSecret: 'test-secret-test-secret' } as never, { isRevoked: async () => revoked } as never);
+    new JwtStrategy(
+      { jwtSecret: 'test-secret-test-secret' } as never,
+      {
+        isRevoked: () => Promise.resolve(revoked),
+        isTokenVersionCurrent: () => Promise.resolve(true),
+      } as never,
+    );
 
   it('returns the authenticated user for a live access token', async () => {
     await expect(make(false).validate({ sub: 'GA', roles: [Role.USER], type: 'access', jti: 'j' })).resolves.toEqual({

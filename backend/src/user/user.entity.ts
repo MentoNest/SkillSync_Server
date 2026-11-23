@@ -25,6 +25,7 @@ import { MenteeProfile } from '../profile/mentee-profile.entity';
 import { MentorProfile } from '../profile/mentor-profile.entity';
 import { RoleEntity } from './role.entity';
 import { UserStatus } from './user-status.enum';
+import { IsIanaTimezone } from '../common/validators/timezone.validator';
 
 @Entity('users')
 @Index('idx_users_status', ['status'])
@@ -101,7 +102,6 @@ export class User {
   })
   status!: UserStatus;
 
-  @ApiPropertyOptional({ description: 'Avatar URL.', type: String, nullable: true })
   @ApiPropertyOptional({
     description:
       'Primary role used for list filtering. Denormalised from the user_roles relation so the ' +
@@ -115,19 +115,19 @@ export class User {
   @Column({ name: 'role', type: 'varchar', length: 32, nullable: true })
   role!: string | null;
 
-  @ApiPropertyOptional({ description: 'Avatar URL.', nullable: true })
+  @ApiPropertyOptional({ description: 'Avatar URL.', type: String, nullable: true })
   @IsOptional()
   @IsUrl({ require_tld: false })
   @MaxLength(2048)
   @Column({ name: 'avatar_url', type: 'varchar', length: 2048, nullable: true })
   avatarUrl!: string | null;
 
-  @ApiPropertyOptional({ description: 'User timezone (IANA).', example: 'UTC', type: String, nullable: true })
-  @IsOptional()
+  @ApiProperty({ description: 'User timezone (IANA).', example: 'UTC', default: 'UTC', type: String })
+  @IsIanaTimezone()
   @IsString()
   @MaxLength(64)
-  @Column({ type: 'varchar', length: 64, nullable: true, default: 'UTC' })
-  timezone!: string | null;
+  @Column({ type: 'varchar', length: 64, default: 'UTC' })
+  timezone!: string;
 
   @ApiPropertyOptional({ description: 'User locale.', example: 'en-US', type: String, nullable: true })
   @IsOptional()
@@ -166,6 +166,9 @@ export class User {
   @ApiPropertyOptional({ description: 'Last login timestamp.', type: String, format: 'date-time', nullable: true })
   @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })
   lastLoginAt!: Date | null;
+
+  @Column({ name: 'token_version', type: 'integer', default: 0 })
+  tokenVersion!: number;
 
   @ApiProperty({ description: 'UTC timestamp of account creation.' })
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })

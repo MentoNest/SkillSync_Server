@@ -50,7 +50,7 @@ export class UserService {
       displayName: dto.displayName ?? null,
       status: dto.status ?? UserStatus.ACTIVE,
       avatarUrl: null,
-      timezone: 'UTC',
+      timezone: dto.timezone ?? 'UTC',
       locale: 'en',
       usernameChangedAt: null,
       lastLoginAt: null,
@@ -61,11 +61,15 @@ export class UserService {
     return this.toResponseDto(saved);
   }
 
-  async findMe(walletAddress: string): Promise<UserResponseDto> {
+  async findMe(walletAddress: string, responseTimezone?: string): Promise<UserResponseDto> {
     const normalizedAddress = normalizeWalletAddress(walletAddress);
     const user = await this.findOrCreate(normalizedAddress);
+    const userWithMentor = await this.loadMentorProfile(user);
     const score = await this.completeness.getForUser(normalizedAddress);
-    return { ...this.toResponseDto(user), completenessScore: score.score };
+    return {
+      ...this.toResponseDto(userWithMentor, responseTimezone),
+      completenessScore: score.score,
+    };
   }
 
   async findAll(query: QueryUserDto): Promise<{ data: UserResponseDto[]; total: number; page: number; limit: number }> {
@@ -95,7 +99,11 @@ export class UserService {
     return { data, total, page, limit };
   }
 
-  async updateMe(walletAddress: string, dto: UpdateUserDto): Promise<UserResponseDto> {
+  async updateMe(
+    walletAddress: string,
+    dto: UpdateUserDto,
+    responseTimezone?: string,
+  ): Promise<UserResponseDto> {
     const normalizedAddress = normalizeWalletAddress(walletAddress);
     const user = await this.findOrCreate(normalizedAddress);
 
@@ -111,7 +119,7 @@ export class UserService {
     }
     if (dto.displayName !== undefined) user.displayName = dto.displayName ?? null;
     if (dto.avatarUrl !== undefined) user.avatarUrl = dto.avatarUrl ?? null;
-    if (dto.timezone !== undefined) user.timezone = dto.timezone ?? null;
+    if (dto.timezone !== undefined) user.timezone = dto.timezone ?? 'UTC';
     if (dto.locale !== undefined) user.locale = dto.locale ?? null;
     if (dto.education !== undefined) user.education = dto.education;
     if (dto.certifications !== undefined) user.certifications = dto.certifications;
@@ -119,7 +127,10 @@ export class UserService {
     const saved = await this.users.save(user);
     await this.completeness.invalidate(normalizedAddress);
     const score = await this.completeness.getForUser(normalizedAddress);
-    return { ...this.toResponseDto(saved), completenessScore: score.score };
+    return {
+      ...this.toResponseDto(await this.loadMentorProfile(saved), responseTimezone),
+      completenessScore: score.score,
+    };
   }
 
   async removeMe(walletAddress: string): Promise<void> {
@@ -130,6 +141,43 @@ export class UserService {
     await this.users.save(user);
     await this.users.softDelete({ walletAddress: normalizedAddress });
     await this.completeness.invalidate(normalizedAddress);
+  }
+
+  async setStatus(walletAddress: string, status: UserStatus): Promise<UserResponseDto> {
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
+    const user = await this.users.findOne({
+      where: { walletAddress: normalizedAddress },
+      withDeleted: true,
+    });
+    if (!user) throw new ResourceNotFoundException('User', normalizedAddress);
+
+    user.status = status;
+    const saved = await this.users.save(user);
+
+    if (status === UserStatus.DELETED) {
+      await this.users.softDelete({ walletAddress: normalizedAddress });
+    } else if (status === UserStatus.ACTIVE) {
+      await this.users.restore({ walletAddress: normalizedAddress });
+    }
+
+    await this.completeness.invalidate(normalizedAddress);
+    this.audit.log(`status_changed address=${normalizedAddress} status=${status}`);
+    return this.toResponseDto(saved);
+  }
+
+  async restore(walletAddress: string): Promise<UserResponseDto> {
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
+    const user = await this.users.findOne({
+      where: { walletAddress: normalizedAddress },
+      withDeleted: true,
+    });
+    if (!user) throw new ResourceNotFoundException('User', normalizedAddress);
+
+    await this.users.restore({ walletAddress: normalizedAddress });
+    user.status = UserStatus.ACTIVE;
+    const saved = await this.users.save(user);
+    await this.completeness.invalidate(normalizedAddress);
+    return this.toResponseDto(saved);
   }
 
   // ─── Existing username/display/profile flows (kept for compatibility) ─────
@@ -241,10 +289,22 @@ export class UserService {
       portfolioLinks: await this.portfolioLinks.listByWallet(user.walletAddress),
       isFeatured: user.mentorProfile?.isFeatured ?? false,
       featuredBadge: user.mentorProfile?.isFeatured ? 'Featured' : null,
+      isVerified: user.mentorProfile?.isVerified ?? false,
+      verifiedAt: user.mentorProfile?.verifiedAt?.toISOString() ?? null,
+      verifiedBadge: user.mentorProfile?.isVerified ? 'Verified' : null,
     };
   }
 
-  private toResponseDto(user: User): UserResponseDto {
+  private async loadMentorProfile(user: User): Promise<User> {
+    return (
+      (await this.users.findOne({
+        where: { walletAddress: user.walletAddress },
+        relations: { mentorProfile: true },
+      })) ?? user
+    );
+  }
+
+  private toResponseDto(user: User, responseTimezone?: string): UserResponseDto {
     return {
       walletAddress: user.walletAddress,
       email: user.email ?? null,
@@ -252,13 +312,16 @@ export class UserService {
       displayName: user.effectiveDisplayName,
       status: user.status ?? UserStatus.ACTIVE,
       avatarUrl: user.avatarUrl ?? null,
-      timezone: user.timezone ?? null,
+      timezone: responseTimezone ?? user.timezone ?? 'UTC',
       locale: user.locale ?? null,
       lastLoginAt: user.lastLoginAt ?? null,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt ?? user.createdAt,
       isFeatured: user.mentorProfile?.isFeatured ?? false,
       featuredBadge: user.mentorProfile?.isFeatured ? 'Featured' : null,
+      isVerified: user.mentorProfile?.isVerified ?? false,
+      verifiedAt: user.mentorProfile?.verifiedAt ?? null,
+      verifiedBadge: user.mentorProfile?.isVerified ? 'Verified' : null,
     };
   }
 }

@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -14,13 +15,15 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiHeader,
   ApiOperation,
   ApiParam,
   ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, Role } from '../auth/auth.types';
+import { Role } from '../auth/auth.types';
+import type { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -29,6 +32,7 @@ import {
   AvailabilityCheckQueryDto,
   MentorIdParamDto,
 } from '../common/dto/base.dto';
+import { resolveTimezone } from '../common/utils/timezone.utils';
 import { ErrorResponseDto, ForbiddenResponseDto, UnauthorizedResponseDto } from '../common/dto/error-response.dto';
 import { AvailabilityException } from './availability-exception.entity';
 import { AvailabilitySlot } from './availability-slot.entity';
@@ -188,6 +192,7 @@ export class AvailabilityController {
   }
 
   @Get('mentors/:mentorId/availability/check')
+  @ApiHeader({ name: 'Accept-Timezone', required: false, description: 'IANA timezone override for this response.' })
   @ApiOperation({
     summary: 'Check if mentor is available at a datetime',
     description: 'dateTime must be an ISO 8601 datetime. Availability is evaluated in UTC.',
@@ -200,21 +205,34 @@ export class AvailabilityController {
   checkAvailability(
     @Param() params: MentorIdParamDto,
     @Query() query: AvailabilityCheckQueryDto,
+    @Headers('accept-timezone') timezone?: string,
   ): Promise<AvailabilityCheckResponseDto> {
-    return this.availabilityService.isAvailable(params.mentorId, query.dateTime);
+    return this.availabilityService.isAvailable(
+      params.mentorId,
+      query.dateTime,
+      resolveTimezone('UTC', timezone),
+    );
   }
 
   @Get('mentors/:mentorId/availability/next-30-days')
+  @ApiHeader({ name: 'Accept-Timezone', required: false, description: 'IANA timezone override for display fields.' })
   @ApiOperation({
     summary: 'Get available windows for the next 30 days',
     description:
       'Returns concrete available UTC windows derived from weekly slots minus unavailable exceptions. ' +
-      'Each window includes display times in the slot timezone.',
+      'Display times use the mentor timezone preference unless Accept-Timezone overrides it.',
     operationId: 'getMentorNext30DaysAvailability',
   })
   @ApiParam({ name: 'mentorId', description: 'Mentor wallet address' })
   @ApiResponse({ status: HttpStatus.OK, type: Next30DaysAvailabilityResponseDto })
-  getNext30Days(@Param() params: MentorIdParamDto): Promise<Next30DaysAvailabilityResponseDto> {
-    return this.availabilityService.getNext30DaysAvailability(params.mentorId);
+  getNext30Days(
+    @Param() params: MentorIdParamDto,
+    @Headers('accept-timezone') timezone?: string,
+  ): Promise<Next30DaysAvailabilityResponseDto> {
+    return this.availabilityService.getNext30DaysAvailability(
+      params.mentorId,
+      undefined,
+      timezone ? resolveTimezone('UTC', timezone) : undefined,
+    );
   }
 }
