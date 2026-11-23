@@ -192,7 +192,7 @@ describe('Auth (e2e)', () => {
     await request(app.getHttpServer())
       .post('/auth/logout')
       .set('Authorization', `Bearer ${mine.body.accessToken}`)
-      .send({ refreshToken: theirs.body.refreshToken })
+      .send({ refreshToken: mine.body.refreshToken })
       .expect(204);
 
     await request(app.getHttpServer())

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import type { QueryDeepPartialEntity } from 'typeorm';
 import { ResourceNotFoundException } from '../common/errors/app-exceptions';
 import { ChangeReason, ProfileHistory, ProfileType } from './profile-history.entity';
 import { maybeRedact } from './sensitive-fields';
@@ -86,7 +87,7 @@ export class ProfileHistoryService {
         .createQueryBuilder()
         .insert()
         .into(ProfileHistory)
-        .values(rows)
+        .values(rows as QueryDeepPartialEntity<ProfileHistory>[])
         .execute();
     } catch (err) {
       this.logger.error(

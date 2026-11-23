@@ -9,6 +9,8 @@ interface RateBucket {
 
 /** Paths that must remain available for container orchestrators and smoke checks. */
 const EXEMPT_PATHS = ['/', '/health', '/redis/health', '/api/docs'];
+const ADMIN_PATH_PREFIX = '/admin';
+const ADMIN_RATE_MULTIPLIER = 10;
 
 /**
  * Small in-process fixed-window limiter. It is installed at the HTTP adapter
@@ -19,7 +21,11 @@ const EXEMPT_PATHS = ['/', '/health', '/redis/health', '/api/docs'];
 export function createRateLimitMiddleware(config: RateLimitConfig) {
   const buckets = new Map<string, RateBucket>();
 
-  return function rateLimit(req: Request, res: Response, next: NextFunction): void {
+  return function rateLimit(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): void {
     if (!config.enabled || EXEMPT_PATHS.includes(req.path)) {
       next();
       return;
@@ -34,8 +40,15 @@ export function createRateLimitMiddleware(config: RateLimitConfig) {
     }
 
     const bearer = req.headers.authorization?.startsWith('Bearer ');
-    const limit = bearer ? config.authenticatedMax : config.unauthenticatedMax;
-    const key = `${bearer ? 'auth' : 'anon'}:${req.ip ?? req.socket.remoteAddress ?? 'unknown'}`;
+    const isAdminPath = req.path.startsWith(ADMIN_PATH_PREFIX);
+    const bucketKind =
+      isAdminPath && bearer ? 'admin' : bearer ? 'auth' : 'anon';
+    const baseLimit = bearer
+      ? config.authenticatedMax
+      : config.unauthenticatedMax;
+    const limit =
+      bucketKind === 'admin' ? baseLimit * ADMIN_RATE_MULTIPLIER : baseLimit;
+    const key = `${bucketKind}:${req.ip ?? req.socket.remoteAddress ?? 'unknown'}`;
     const bucket = buckets.get(key);
 
     if (!bucket || bucket.resetAt <= now) {
@@ -54,7 +67,10 @@ export function createRateLimitMiddleware(config: RateLimitConfig) {
     );
 
     if (current.count > limit) {
-      res.setHeader('Retry-After', String(Math.ceil((current.resetAt - now) / 1000)));
+      res.setHeader(
+        'Retry-After',
+        String(Math.ceil((current.resetAt - now) / 1000)),
+      );
       res.status(429).json({
         statusCode: 429,
         message: 'Too many requests, please try again later',

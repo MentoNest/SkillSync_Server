@@ -6,7 +6,7 @@ import { UserService, USERNAME_COOLDOWN_DAYS } from '../user.service';
 
 function makeUser(overrides: Partial<User> = {}): User {
   const user = new User();
-  user.walletAddress = 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37';
+  user.walletAddress = 'gdqp2kpqgkihyjgxnuiyomharuarca7djt5fo2ffooky3b2wsqhg4w37';
   user.username = null;
   user.displayName = null;
   user.usernameChangedAt = null;
@@ -15,7 +15,20 @@ function makeUser(overrides: Partial<User> = {}): User {
 }
 
 function makeRepo(rows: User[] = []) {
+  const query = { username: '', walletAddress: '' };
+  const qb = {
+    leftJoinAndSelect: jest.fn().mockReturnThis(),
+    where: jest.fn((_sql: string, params: { username: string; walletAddress: string }) => {
+      Object.assign(query, params);
+      return qb;
+    }),
+    getOne: jest.fn(async () =>
+      rows.find((u) => u.username === query.username || u.walletAddress === query.walletAddress) ?? null,
+    ),
+  };
+
   return {
+    createQueryBuilder: jest.fn(() => qb),
     findOneBy: jest.fn(async (where: Partial<User>) => {
       if ('username' in where) return rows.find((u) => u.username === where.username) ?? null;
       if ('walletAddress' in where) return rows.find((u) => u.walletAddress === where.walletAddress) ?? null;
@@ -43,7 +56,7 @@ const completeness = {
   invalidate: jest.fn().mockResolvedValue(undefined),
 };
 
-const WALLET = 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37';
+const WALLET = 'gdqp2kpqgkihyjgxnuiyomharuarca7djt5fo2ffooky3b2wsqhg4w37';
 const OTHER_WALLET = 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGFM34TPTJKH3CRBJ1J9DEC';
 
 function daysAgo(days: number): Date {

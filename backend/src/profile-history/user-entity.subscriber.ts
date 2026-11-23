@@ -104,8 +104,8 @@ export class UserEntitySubscriber implements EntitySubscriberInterface<User> {
       if (IGNORED_FIELDS.has(field)) continue;
       if (field === 'walletAddress') continue;
 
-      const oldVal = (previous as Record<string, unknown>)[field];
-      const newVal = (updated as Record<string, unknown>)[field];
+      const oldVal = (previous as unknown as Record<string, unknown>)[field];
+      const newVal = (updated as unknown as Record<string, unknown>)[field];
 
       // Deep-equality: JSON stringify is reliable here because all User fields
       // are primitives (string | null | Date).  Dates are compared by value.
