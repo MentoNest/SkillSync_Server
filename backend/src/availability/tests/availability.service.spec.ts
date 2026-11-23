@@ -76,8 +76,14 @@ function makeService(opts?: {
   const mentorRepo = {
     existsBy: jest.fn(async () => mentorExists),
   };
+  const userRepo = { findOneBy: jest.fn(async () => null) };
 
-  const service = new AvailabilityService(slotRepo as any, exceptionRepo as any, mentorRepo as any);
+  const service = new AvailabilityService(
+    slotRepo as any,
+    exceptionRepo as any,
+    mentorRepo as any,
+    userRepo as any,
+  );
   return { service, slotRepo, exceptionRepo, mentorRepo };
 }
 

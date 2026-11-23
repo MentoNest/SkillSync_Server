@@ -119,6 +119,12 @@ the seed reads the same variable there and never supplies a production-wallet fa
   education and certifications add up to 10 bonus points. The score is also
   included in `GET /users/me` and `GET /users`.
 - `GET /admin/users/completeness` — admin-only paginated view of all scores.
+- `POST /admin/mentors/:mentorId/verify` and
+  `DELETE /admin/mentors/:mentorId/verify` — admin-only verification and revocation.
+  Verification requires an `email`, `id`, or `credential` method; optional notes are
+  internal only. `POST /mentors/me/verification-request` creates a pending admin task,
+  listed by `GET /admin/mentors/verification-requests`. Public profile and mentor-card
+  responses include verification status, date, and badge.
 
 ## Production configuration
 

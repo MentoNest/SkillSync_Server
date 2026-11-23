@@ -1,4 +1,5 @@
 import { registerDecorator, ValidationOptions } from 'class-validator';
+import { isValidTimezone } from '../utils/timezone.utils';
 
 /** Validates IANA timezone names using the runtime's ICU data. */
 export function IsIanaTimezone(validationOptions?: ValidationOptions) {
@@ -13,13 +14,7 @@ export function IsIanaTimezone(validationOptions?: ValidationOptions) {
       },
       validator: {
         validate(value: unknown): boolean {
-          if (typeof value !== 'string' || value.length === 0) return false;
-          try {
-            new Intl.DateTimeFormat('en-US', { timeZone: value });
-            return true;
-          } catch {
-            return false;
-          }
+          return typeof value === 'string' && isValidTimezone(value);
         },
       },
     });

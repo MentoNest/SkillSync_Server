@@ -5,6 +5,7 @@ import {
 import { AvailabilityException } from '../availability-exception.entity';
 import { AvailabilitySlot } from '../availability-slot.entity';
 import { AvailabilityService } from '../availability.service';
+import { User } from '../../user/user.entity';
 
 const MENTOR = 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37';
 
@@ -49,6 +50,7 @@ function excludedId(value: unknown): string | undefined {
 function makeService(opts: {
   slots?: AvailabilitySlot[];
   exceptions?: AvailabilityException[];
+  userTimezone?: string;
 } = {}) {
   const slots = opts.slots ?? [];
   const exceptions = opts.exceptions ?? [];
@@ -106,8 +108,15 @@ function makeService(opts: {
   };
 
   const mentorRepo = { existsBy: jest.fn(async () => true) };
-  const service = new AvailabilityService(slotRepo as never, exceptionRepo as never, mentorRepo as never);
-  return { service, slotRepo, exceptionRepo, mentorRepo };
+  const user = opts.userTimezone ? Object.assign(new User(), { timezone: opts.userTimezone }) : null;
+  const userRepo = { findOneBy: jest.fn(async () => user) };
+  const service = new AvailabilityService(
+    slotRepo as never,
+    exceptionRepo as never,
+    mentorRepo as never,
+    userRepo as never,
+  );
+  return { service, slotRepo, exceptionRepo, mentorRepo, userRepo };
 }
 
 describe('AvailabilityService business rules', () => {
@@ -225,6 +234,43 @@ describe('AvailabilityService business rules', () => {
     ]);
     expect(windows[0].timezone).toBe('America/New_York');
     expect(windows[0].displayStart).toContain('2026-11-23');
+  });
+
+  it('uses the requested response timezone while keeping availability instants in UTC', async () => {
+    const { service } = makeService({
+      slots: [slot({ endTimeUtc: '12:00', timezone: 'UTC' })],
+    });
+
+    const result = await service.getNext30DaysAvailability(
+      MENTOR,
+      new Date('2026-03-02T00:00:00.000Z'),
+      'America/New_York',
+    );
+    const mondayWindows = result.windows.filter((window) => window.startUtc.startsWith('2026-03-02'));
+
+    expect(result.timezone).toBe('America/New_York');
+    expect(mondayWindows[0]).toMatchObject({
+      startUtc: '2026-03-02T10:00:00.000Z',
+      endUtc: '2026-03-02T12:00:00.000Z',
+      displayStart: expect.stringContaining('2026-03-02, 05:00'),
+      timezone: 'America/New_York',
+    });
+  });
+
+  it('uses the mentor timezone preference when no override is sent', async () => {
+    const { service } = makeService({
+      slots: [slot({ endTimeUtc: '12:00', timezone: 'UTC' })],
+      userTimezone: 'America/Los_Angeles',
+    });
+
+    const result = await service.getNext30DaysAvailability(
+      MENTOR,
+      new Date('2026-03-02T00:00:00.000Z'),
+    );
+    const mondayWindows = result.windows.filter((window) => window.startUtc.startsWith('2026-03-02'));
+
+    expect(result.timezone).toBe('America/Los_Angeles');
+    expect(mondayWindows[0].displayStart).toContain('2026-03-02, 02:00');
   });
 
   it('propagates repository errors instead of reporting availability', async () => {

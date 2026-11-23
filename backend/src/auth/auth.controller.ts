@@ -15,7 +15,7 @@ import {
   UnauthorizedResponseDto,
 } from '../common/dto/error-response.dto';
 import { AuthService } from './auth.service';
-import { AuthUser } from './auth.types';
+import type { AuthUser } from './auth.types';
 import { CurrentUser } from './decorators/current-user.decorator';
 import {
   LoginDto,

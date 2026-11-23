@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, TooManyRequestsException } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Keypair } from '@stellar/stellar-sdk';
 import { randomBytes, randomUUID } from 'crypto';
@@ -6,7 +6,8 @@ import { InvalidCredentialsException, TokenExpiredException } from '../common/er
 import { normalizeWalletAddress } from '../common/utils/wallet.utils';
 import { RedisNamespace } from '../redis/redis.config';
 import { RedisService } from '../redis/redis.service';
-import { AUTH_CONFIG, AuthConfig, AuthUser, JwtPayload, Role, TokenPair } from './auth.types';
+import { AUTH_CONFIG, Role } from './auth.types';
+import type { AuthConfig, AuthUser, JwtPayload, TokenPair } from './auth.types';
 
 export function loginMessage(address: string, nonce: string): string {
   return `SkillSync login\nAddress: ${normalizeWalletAddress(address)}\nNonce: ${nonce}`;
@@ -155,7 +156,10 @@ export class AuthService {
       60,
     );
     if (requestCount > 5) {
-      throw new TooManyRequestsException('Nonce request limit exceeded; try again in one minute');
+      throw new HttpException(
+        'Nonce request limit exceeded; try again in one minute',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
 
     const nonce = randomBytes(32).toString('hex');

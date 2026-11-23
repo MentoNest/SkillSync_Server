@@ -25,6 +25,7 @@ import { MenteeProfile } from '../profile/mentee-profile.entity';
 import { MentorProfile } from '../profile/mentor-profile.entity';
 import { RoleEntity } from './role.entity';
 import { UserStatus } from './user-status.enum';
+import { IsIanaTimezone } from '../common/validators/timezone.validator';
 
 @Entity('users')
 @Index('idx_users_status', ['status'])
@@ -118,12 +119,12 @@ export class User {
   @Column({ name: 'avatar_url', type: 'varchar', length: 2048, nullable: true })
   avatarUrl!: string | null;
 
-  @ApiPropertyOptional({ description: 'User timezone (IANA).', example: 'UTC', nullable: true })
-  @IsOptional()
+  @ApiProperty({ description: 'User timezone (IANA).', example: 'UTC', default: 'UTC' })
+  @IsIanaTimezone()
   @IsString()
   @MaxLength(64)
-  @Column({ type: 'varchar', length: 64, nullable: true, default: 'UTC' })
-  timezone!: string | null;
+  @Column({ type: 'varchar', length: 64, default: 'UTC' })
+  timezone!: string;
 
   @ApiPropertyOptional({ description: 'User locale.', example: 'en-US', nullable: true })
   @IsOptional()

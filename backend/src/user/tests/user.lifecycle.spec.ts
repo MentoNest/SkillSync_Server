@@ -7,9 +7,9 @@ import { User } from '../user.entity';
 import { UserStatus } from '../user-status.enum';
 import { UserService } from '../user.service';
 
-const WALLET = 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37';
-const OTHER = Keypair.random().publicKey();
-const UNKNOWN = Keypair.random().publicKey();
+const WALLET = 'gdqp2kpqgkihyjgxnuiyomharuarca7djt5fo2ffooky3b2wsqhg4w37';
+const OTHER = Keypair.random().publicKey().toLowerCase();
+const UNKNOWN = Keypair.random().publicKey().toLowerCase();
 
 function makeUser(overrides: Partial<User> = {}): User {
   const user = new User();
@@ -42,6 +42,7 @@ function makeRepo(rows: User[] = []) {
   };
 
   const qb = {
+    leftJoinAndSelect: jest.fn().mockReturnThis(),
     where: jest.fn((where: Record<string, unknown>) => {
       query.where = where;
       return qb;
@@ -51,6 +52,7 @@ function makeRepo(rows: User[] = []) {
       return qb;
     }),
     orderBy: jest.fn(() => qb),
+    addOrderBy: jest.fn(() => qb),
     skip: jest.fn((value: number) => {
       query.skip = value;
       return qb;
@@ -109,7 +111,11 @@ function makeRepo(rows: User[] = []) {
 
 function makeService(repo: ReturnType<typeof makeRepo>) {
   const portfolioLinks = { listByWallet: jest.fn().mockResolvedValue([]) };
-  return new UserService(repo as never, portfolioLinks as never);
+  const completeness = {
+    getForUser: jest.fn().mockResolvedValue({ score: 0 }),
+    invalidate: jest.fn().mockResolvedValue(undefined),
+  };
+  return new UserService(repo as never, portfolioLinks as never, completeness as never);
 }
 
 describe('UserService lifecycle rules', () => {
@@ -124,6 +130,7 @@ describe('UserService lifecycle rules', () => {
     });
 
     expect(created.email).toBe('alice@example.com');
+    expect(created.timezone).toBe('UTC');
     expect(created.walletAddress).toBe(WALLET.toLowerCase());
     expect(repo.findOneBy).toHaveBeenCalledWith({ walletAddress: WALLET.toLowerCase() });
     await expect(
