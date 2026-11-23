@@ -17,6 +17,12 @@ export class UserResponseDto {
   isFeatured?: boolean;
   @ApiPropertyOptional({ nullable: true, description: 'Badge shown on featured mentor cards.' })
   featuredBadge?: string | null;
+  @ApiProperty({ description: 'Whether this user has a verified mentor profile.' })
+  isVerified!: boolean;
+  @ApiPropertyOptional({ nullable: true, description: 'UTC date of mentor verification.' })
+  verifiedAt!: Date | null;
+  @ApiPropertyOptional({ nullable: true, description: 'Badge shown on verified mentor cards.' })
+  verifiedBadge!: string | null;
   @ApiPropertyOptional({ description: 'Profile completeness score (0–110).', example: 85 })
   completenessScore?: number;
 }

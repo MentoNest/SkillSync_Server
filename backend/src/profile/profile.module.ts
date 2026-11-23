@@ -12,6 +12,11 @@ import { MenteeProfile } from './mentee-profile.entity';
 import { MentorProfile } from './mentor-profile.entity';
 import { ProfileController } from './profile.controller';
 import { ProfileService } from './profile.service';
+import {
+  MentorVerificationAdminController,
+  MentorVerificationRequestController,
+} from './mentor-verification.controller';
+import { MentorVerificationService } from './mentor-verification.service';
 
 @Module({
   imports: [
@@ -24,8 +29,10 @@ import { ProfileService } from './profile.service';
     ProfileController,
     FeaturedMentorAdminController,
     FeaturedMentorPublicController,
+    MentorVerificationAdminController,
+    MentorVerificationRequestController,
   ],
-  providers: [ProfileService, FeaturedMentorService],
-  exports: [ProfileService, FeaturedMentorService],
+  providers: [ProfileService, FeaturedMentorService, MentorVerificationService],
+  exports: [ProfileService, FeaturedMentorService, MentorVerificationService],
 })
 export class ProfileModule {}

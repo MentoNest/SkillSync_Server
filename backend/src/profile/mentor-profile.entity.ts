@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiHideProperty, ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   Column,
   CreateDateColumn,
@@ -93,6 +93,26 @@ export class MentorProfile {
   })
   @Column({ name: 'is_verified', type: 'boolean', default: false })
   isVerified!: boolean;
+
+  @ApiPropertyOptional({ description: 'UTC date the mentor was verified.', nullable: true })
+  @Column({ name: 'verified_at', type: 'timestamptz', precision: 3, nullable: true })
+  verifiedAt!: Date | null;
+
+  @ApiHideProperty()
+  @Column({ name: 'verified_by', type: 'varchar', length: 56, nullable: true })
+  verifiedBy!: string | null;
+
+  @ApiHideProperty()
+  @Column({ name: 'verification_method', type: 'varchar', length: 32, nullable: true })
+  verificationMethod!: string | null;
+
+  @ApiHideProperty()
+  @Column({ name: 'verification_notes', type: 'text', nullable: true })
+  verificationNotes!: string | null;
+
+  @ApiHideProperty()
+  @Column({ name: 'verification_requested_at', type: 'timestamptz', precision: 3, nullable: true })
+  verificationRequestedAt!: Date | null;
 
   @ApiProperty({
     description: 'Average review score (0-5, one decimal place) used for discovery sorting.',
