@@ -1,0 +1,11 @@
+{
+  "Rules": [
+    {
+      "ID": "skillsync-backup-30-day-retention",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "postgres/" },
+      "Expiration": { "Days": 30 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 7 }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1
+
+# Backup sidecar: runs the daily logical backup, weekly base backup, monthly
+# restore test and hourly freshness watchdog on a schedule (issue #1714).
+#
+# Based on postgres:16-alpine so pg_dump/pg_restore/psql match the server
+# version exactly; awscli and gnupg add offsite upload and AES-256 encryption.
+FROM postgres:16-alpine
+
+RUN apk add --no-cache aws-cli gnupg bash coreutils findutils tzdata
+
+COPY scripts/backup /opt/skillsync/scripts/backup
+RUN chmod +x /opt/skillsync/scripts/backup/*.sh
+
+RUN mkdir -p /var/log/skillsync /var/lib/skillsync/backups /var/lib/skillsync/wal-archive
+
+ENTRYPOINT ["/opt/skillsync/scripts/backup/entrypoint.sh"]
