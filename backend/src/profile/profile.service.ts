@@ -1,8 +1,15 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import type { AuthUser } from '../auth/auth.types';
 import { Role } from '../auth/auth.types';
-import { DuplicateResourceException } from '../common/errors/app-exceptions';
+import {
+  DuplicateResourceException,
+  FieldError,
+  ResourceNotFoundException,
+  ValidationFailedException,
+} from '../common/errors/app-exceptions';
+import { normalizeWalletAddress } from '../common/utils/wallet.utils';
 import { ChangeReason } from '../profile-history/profile-history.entity';
 import { ProfileHistoryService } from '../profile-history/profile-history.service';
 import { ProfileCompletenessService } from './profile-completeness.service';
@@ -13,10 +20,59 @@ import {
   ExperienceLevel,
   ProfileType,
 } from './dto/create-profile.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+
+interface ProfileFieldChange {
+  fieldName: string;
+  oldValue: unknown;
+  newValue: unknown;
+}
+
+const EDITABLE_PROFILE_FIELDS: Record<ProfileType, ReadonlySet<string>> = {
+  [ProfileType.MENTOR]: new Set([
+    'bio',
+    'skills',
+    'expertiseAreas',
+    'hourlyRateUsdCents',
+    'maxMentees',
+    'languages',
+    'isActive',
+  ]),
+  [ProfileType.MENTEE]: new Set([
+    'learningGoals',
+    'interests',
+    'budgetUsdCentsPerMonth',
+    'experienceLevel',
+    'languages',
+    'isActive',
+  ]),
+};
 
 export interface CreateProfileResult {
   profileType: ProfileType;
   profile: MentorProfile | MenteeProfile;
+}
+
+export interface UpdateProfileResult {
+  profileType: ProfileType;
+  profile: MentorProfile | MenteeProfile;
+}
+
+function appendChange<T extends object, K extends keyof T>(
+  profile: T,
+  fieldName: K,
+  newValue: T[K],
+  changes: ProfileFieldChange[],
+): void {
+  const oldValue = profile[fieldName];
+  if (
+    Object.is(oldValue, newValue) ||
+    JSON.stringify(oldValue) === JSON.stringify(newValue)
+  ) {
+    return;
+  }
+  Object.assign(profile, { [fieldName]: newValue });
+  changes.push({ fieldName: String(fieldName), oldValue, newValue });
 }
 
 @Injectable()
@@ -41,6 +97,196 @@ export class ProfileService {
       return this.createMentorProfile(walletAddress, dto);
     }
     return this.createMenteeProfile(walletAddress, dto);
+  }
+
+  async updateProfile(
+    type: ProfileType,
+    actor: AuthUser,
+    dto: UpdateProfileDto,
+  ): Promise<UpdateProfileResult> {
+    const actorAddress = normalizeWalletAddress(actor.address);
+    const targetAddress = normalizeWalletAddress(
+      dto.walletAddress ?? actorAddress,
+    );
+    const isAdmin = actor.roles.includes(Role.ADMIN);
+
+    if (!isAdmin && targetAddress !== actorAddress) {
+      throw new ForbiddenException('You can only update your own profile.');
+    }
+    if (type === ProfileType.MENTOR && !isAdmin) {
+      const hasMentorRole =
+        actor.roles.includes(Role.MENTOR) ||
+        (await this.hasPersistedRole(actorAddress, Role.MENTOR));
+      if (!hasMentorRole) {
+        throw new ForbiddenException(
+          'Only users with the mentor role can update a mentor profile.',
+        );
+      }
+    }
+
+    const allowedFields = EDITABLE_PROFILE_FIELDS[type];
+    const invalidFields: FieldError[] = Object.entries(dto)
+      .filter(
+        ([field, value]) =>
+          field !== 'walletAddress' &&
+          value !== undefined &&
+          !allowedFields.has(field),
+      )
+      .map(([field]) => ({
+        field,
+        errors: [`${field} cannot be updated on a ${type} profile.`],
+      }));
+    if (invalidFields.length > 0) {
+      throw new ValidationFailedException(invalidFields);
+    }
+
+    if (type === ProfileType.MENTOR) {
+      return this.updateMentorProfile(
+        targetAddress,
+        actorAddress,
+        isAdmin,
+        dto,
+      );
+    }
+    return this.updateMenteeProfile(targetAddress, actorAddress, isAdmin, dto);
+  }
+
+  private async hasPersistedRole(
+    walletAddress: string,
+    role: Role,
+  ): Promise<boolean> {
+    const rows: Array<{ role_name: string }> = await this.dataSource.query(
+      'SELECT role_name FROM user_roles WHERE wallet_address = $1 AND role_name = $2 LIMIT 1',
+      [walletAddress, role],
+    );
+    return rows.some((row) => row.role_name === String(role));
+  }
+
+  private async updateMentorProfile(
+    targetAddress: string,
+    actorAddress: string,
+    isAdmin: boolean,
+    dto: UpdateProfileDto,
+  ): Promise<UpdateProfileResult> {
+    const profile = await this.mentorRepo.findOneBy({
+      walletAddress: targetAddress,
+    });
+    if (!profile)
+      throw new ResourceNotFoundException('Mentor profile', targetAddress);
+
+    const changes: ProfileFieldChange[] = [];
+    if (dto.bio !== undefined) appendChange(profile, 'bio', dto.bio, changes);
+    if (dto.skills !== undefined)
+      appendChange(profile, 'skills', dto.skills, changes);
+    if (dto.expertiseAreas !== undefined) {
+      appendChange(profile, 'expertiseAreas', dto.expertiseAreas, changes);
+    }
+    if (dto.hourlyRateUsdCents !== undefined) {
+      appendChange(
+        profile,
+        'hourlyRateUsdCents',
+        dto.hourlyRateUsdCents,
+        changes,
+      );
+    }
+    if (dto.maxMentees !== undefined) {
+      appendChange(profile, 'maxMentees', dto.maxMentees, changes);
+    }
+    if (dto.languages !== undefined)
+      appendChange(profile, 'languages', dto.languages, changes);
+    if (dto.isActive !== undefined)
+      appendChange(profile, 'isActive', dto.isActive, changes);
+
+    if (changes.length === 0) {
+      return { profileType: ProfileType.MENTOR, profile };
+    }
+
+    const saved = await this.mentorRepo.save(profile);
+    await this.recordProfileChanges(
+      targetAddress,
+      actorAddress,
+      isAdmin,
+      ProfileType.MENTOR,
+      changes,
+    );
+    return { profileType: ProfileType.MENTOR, profile: saved };
+  }
+
+  private async updateMenteeProfile(
+    targetAddress: string,
+    actorAddress: string,
+    isAdmin: boolean,
+    dto: UpdateProfileDto,
+  ): Promise<UpdateProfileResult> {
+    const profile = await this.menteeRepo.findOneBy({
+      walletAddress: targetAddress,
+    });
+    if (!profile)
+      throw new ResourceNotFoundException('Mentee profile', targetAddress);
+
+    const changes: ProfileFieldChange[] = [];
+    if (dto.learningGoals !== undefined) {
+      appendChange(profile, 'learningGoals', dto.learningGoals, changes);
+    }
+    if (dto.interests !== undefined)
+      appendChange(profile, 'interests', dto.interests, changes);
+    if (dto.budgetUsdCentsPerMonth !== undefined) {
+      appendChange(
+        profile,
+        'budgetUsdCentsPerMonth',
+        dto.budgetUsdCentsPerMonth,
+        changes,
+      );
+    }
+    if (dto.experienceLevel !== undefined) {
+      appendChange(profile, 'experienceLevel', dto.experienceLevel, changes);
+    }
+    if (dto.languages !== undefined)
+      appendChange(profile, 'languages', dto.languages, changes);
+    if (dto.isActive !== undefined)
+      appendChange(profile, 'isActive', dto.isActive, changes);
+
+    if (changes.length === 0) {
+      return { profileType: ProfileType.MENTEE, profile };
+    }
+
+    const saved = await this.menteeRepo.save(profile);
+    await this.recordProfileChanges(
+      targetAddress,
+      actorAddress,
+      isAdmin,
+      ProfileType.MENTEE,
+      changes,
+    );
+    return { profileType: ProfileType.MENTEE, profile: saved };
+  }
+
+  private async recordProfileChanges(
+    targetAddress: string,
+    actorAddress: string,
+    isAdmin: boolean,
+    profileType: ProfileType,
+    changes: ProfileFieldChange[],
+  ): Promise<void> {
+    const changedAt = new Date();
+    await this.history.recordMany(
+      changes.map((change) => ({
+        userId: targetAddress,
+        profileType,
+        fieldName: change.fieldName,
+        oldValue: change.oldValue,
+        newValue: change.newValue,
+        changedBy: actorAddress,
+        changeReason: isAdmin
+          ? ChangeReason.ADMIN_EDIT
+          : ChangeReason.USER_EDIT,
+        changedAt,
+      })),
+    );
+    this.audit.log(
+      `profile_updated type=${profileType} address=${targetAddress} actor=${actorAddress} fields=${changes.map((change) => change.fieldName).join(',')}`,
+    );
+    await this.completeness.invalidate(targetAddress);
   }
 
   // ─── Mentor ───────────────────────────────────────────────────────────────
@@ -160,7 +406,10 @@ export class ProfileService {
   ): Promise<void> {
     const changedAt = new Date();
     const entries = Object.entries(profile)
-      .filter(([key]) => !['id', 'walletAddress', 'createdAt', 'updatedAt'].includes(key))
+      .filter(
+        ([key]) =>
+          !['id', 'walletAddress', 'createdAt', 'updatedAt'].includes(key),
+      )
       .map(([fieldName, newValue]) => ({
         userId: walletAddress,
         profileType,

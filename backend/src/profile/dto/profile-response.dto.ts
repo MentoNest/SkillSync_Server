@@ -9,7 +9,24 @@ export class CreateProfileResponseDto {
 
   @ApiProperty({
     description: 'The created profile object. Shape varies by profileType.',
-    oneOf: [{ $ref: '#/components/schemas/MentorProfile' }, { $ref: '#/components/schemas/MenteeProfile' }],
+    oneOf: [
+      { $ref: '#/components/schemas/MentorProfile' },
+      { $ref: '#/components/schemas/MenteeProfile' },
+    ],
+  })
+  profile!: MentorProfile | MenteeProfile;
+}
+
+export class UpdateProfileResponseDto {
+  @ApiProperty({ enum: ProfileType, example: ProfileType.MENTOR })
+  profileType!: ProfileType;
+
+  @ApiProperty({
+    description: 'The updated profile object. Shape varies by profileType.',
+    oneOf: [
+      { $ref: '#/components/schemas/MentorProfile' },
+      { $ref: '#/components/schemas/MenteeProfile' },
+    ],
   })
   profile!: MentorProfile | MenteeProfile;
 }

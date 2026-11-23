@@ -8,6 +8,7 @@ import {
   OneToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
+  VersionColumn,
 } from 'typeorm';
 import { User } from '../user/user.entity';
 
@@ -88,4 +89,11 @@ export class MenteeProfile {
   @ApiProperty({ description: 'UTC last-updated timestamp.' })
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz', precision: 3 })
   updatedAt!: Date;
+
+  @ApiProperty({
+    description: 'Incremented whenever this profile is updated.',
+    example: 1,
+  })
+  @VersionColumn({ name: 'version' })
+  version!: number;
 }

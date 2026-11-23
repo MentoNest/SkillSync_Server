@@ -1,4 +1,8 @@
-import { ApiHideProperty, ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiHideProperty,
+  ApiProperty,
+  ApiPropertyOptional,
+} from '@nestjs/swagger';
 import {
   Column,
   CreateDateColumn,
@@ -8,6 +12,7 @@ import {
   OneToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
+  VersionColumn,
 } from 'typeorm';
 import { User } from '../user/user.entity';
 
@@ -57,7 +62,8 @@ export class MentorProfile {
   expertiseAreas!: string[];
 
   @ApiPropertyOptional({
-    description: 'Hourly rate in USD cents (e.g. 5000 = $50.00). Null means free / arrange offline.',
+    description:
+      'Hourly rate in USD cents (e.g. 5000 = $50.00). Null means free / arrange offline.',
     example: 5000,
     nullable: true,
   })
@@ -87,14 +93,23 @@ export class MentorProfile {
   isActive!: boolean;
 
   @ApiProperty({
-    description: 'Whether the mentor identity has been verified by an administrator.',
+    description:
+      'Whether the mentor identity has been verified by an administrator.',
     example: false,
   })
   @Column({ name: 'is_verified', type: 'boolean', default: false })
   isVerified!: boolean;
 
-  @ApiPropertyOptional({ description: 'UTC date the mentor was verified.', nullable: true })
-  @Column({ name: 'verified_at', type: 'timestamptz', precision: 3, nullable: true })
+  @ApiPropertyOptional({
+    description: 'UTC date the mentor was verified.',
+    nullable: true,
+  })
+  @Column({
+    name: 'verified_at',
+    type: 'timestamptz',
+    precision: 3,
+    nullable: true,
+  })
   verifiedAt!: Date | null;
 
   @ApiHideProperty()
@@ -102,7 +117,12 @@ export class MentorProfile {
   verifiedBy!: string | null;
 
   @ApiHideProperty()
-  @Column({ name: 'verification_method', type: 'varchar', length: 32, nullable: true })
+  @Column({
+    name: 'verification_method',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
   verificationMethod!: string | null;
 
   @ApiHideProperty()
@@ -110,14 +130,26 @@ export class MentorProfile {
   verificationNotes!: string | null;
 
   @ApiHideProperty()
-  @Column({ name: 'verification_requested_at', type: 'timestamptz', precision: 3, nullable: true })
+  @Column({
+    name: 'verification_requested_at',
+    type: 'timestamptz',
+    precision: 3,
+    nullable: true,
+  })
   verificationRequestedAt!: Date | null;
 
   @ApiProperty({
-    description: 'Average review score (0-5, one decimal place) used for discovery sorting.',
+    description:
+      'Average review score (0-5, one decimal place) used for discovery sorting.',
     example: 4.5,
   })
-  @Column({ name: 'average_rating', type: 'decimal', precision: 2, scale: 1, default: 0 })
+  @Column({
+    name: 'average_rating',
+    type: 'decimal',
+    precision: 2,
+    scale: 1,
+    default: 0,
+  })
   averageRating!: number;
 
   @ApiProperty({ description: 'UTC creation timestamp.' })
@@ -127,4 +159,11 @@ export class MentorProfile {
   @ApiProperty({ description: 'UTC last-updated timestamp.' })
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz', precision: 3 })
   updatedAt!: Date;
+
+  @ApiProperty({
+    description: 'Incremented whenever this profile is updated.',
+    example: 1,
+  })
+  @VersionColumn({ name: 'version' })
+  version!: number;
 }
