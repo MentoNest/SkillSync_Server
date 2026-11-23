@@ -3,14 +3,14 @@ import { UserStatus } from '../user-status.enum';
 
 export class UserResponseDto {
   @ApiProperty() walletAddress!: string;
-  @ApiPropertyOptional({ nullable: true }) email!: string | null;
-  @ApiPropertyOptional({ nullable: true }) username!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) email!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) username!: string | null;
   @ApiProperty() displayName!: string;
   @ApiProperty({ enum: UserStatus }) status!: UserStatus;
-  @ApiPropertyOptional({ nullable: true }) avatarUrl!: string | null;
-  @ApiPropertyOptional({ nullable: true }) timezone!: string | null;
-  @ApiPropertyOptional({ nullable: true }) locale!: string | null;
-  @ApiPropertyOptional({ nullable: true }) lastLoginAt!: Date | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) avatarUrl!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) timezone!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) locale!: string | null;
+  @ApiPropertyOptional({ type: String, format: 'date-time', nullable: true }) lastLoginAt!: Date | null;
   @ApiProperty() createdAt!: Date;
   @ApiProperty() updatedAt!: Date;
 }

@@ -11,6 +11,7 @@ export class PublicProfileResponseDto {
   @ApiPropertyOptional({
     description: 'Unique username, null if not yet set.',
     example: 'alice_dev',
+    type: String,
     nullable: true,
   })
   username!: string | null;

@@ -49,7 +49,7 @@ export class AvailabilityController {
 
   // ─── Mentor-owned slot CRUD ───────────────────────────────────────────────
 
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MENTOR)
   @Get('mentors/me/availability/slots')
@@ -61,7 +61,7 @@ export class AvailabilityController {
     return this.availabilityService.listSlots(user.address);
   }
 
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MENTOR)
   @Post('mentors/me/availability/slots')
@@ -74,7 +74,7 @@ export class AvailabilityController {
     return this.availabilityService.createSlot(user.address, dto);
   }
 
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MENTOR)
   @Put('mentors/me/availability/slots/:id')
@@ -91,7 +91,7 @@ export class AvailabilityController {
     return this.availabilityService.updateSlot(user.address, id, dto);
   }
 
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MENTOR)
   @Delete('mentors/me/availability/slots/:id')
@@ -109,7 +109,7 @@ export class AvailabilityController {
 
   // ─── Mentor-owned exception CRUD ──────────────────────────────────────────
 
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MENTOR)
   @Get('mentors/me/availability/exceptions')
@@ -119,7 +119,7 @@ export class AvailabilityController {
     return this.availabilityService.listExceptions(user.address);
   }
 
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MENTOR)
   @Post('mentors/me/availability/exceptions')
@@ -133,7 +133,7 @@ export class AvailabilityController {
     return this.availabilityService.createException(user.address, dto);
   }
 
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MENTOR)
   @Put('mentors/me/availability/exceptions/:id')
@@ -149,7 +149,7 @@ export class AvailabilityController {
     return this.availabilityService.updateException(user.address, id, dto);
   }
 
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MENTOR)
   @Delete('mentors/me/availability/exceptions/:id')

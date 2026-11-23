@@ -1,0 +1,3163 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "getHello",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Plain-text greeting confirming the API is reachable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "example": "Hello World!"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Service greeting",
+        "tags": [
+          "App"
+        ]
+      }
+    },
+    "/auth/nonce": {
+      "post": {
+        "description": "Issues a single-use nonce tied to the given Stellar wallet address. The response includes the exact UTF-8 message the wallet must sign with its ED25519 private key. The nonce expires after 5 minutes (configurable) and is consumed on the first login attempt, whether or not the signature is valid.",
+        "operationId": "requestNonce",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NonceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Nonce issued successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NonceResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request body failed validation (e.g. address is not a valid Stellar public key).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TooManyRequestsResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Request a login nonce",
+        "tags": [
+          "Authentication",
+          "Wallet"
+        ]
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "description": "Authenticates a Stellar wallet by verifying the ED25519 signature over the nonce message returned by POST /auth/nonce. On success, issues an access/refresh token pair. The nonce is consumed regardless of outcome and cannot be reused.",
+        "operationId": "login",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authentication successful. Returns a short-lived access token and a single-use refresh token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPairResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request body failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Signature is invalid, the nonce has already been used, or no nonce exists for this address.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TooManyRequestsResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Log in with a wallet signature",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "description": "Exchanges a valid refresh token for a new access/refresh token pair. The presented refresh token is immediately invalidated (single-use rotation), so concurrent refresh calls with the same token will result in one success and one 401.",
+        "operationId": "refreshTokens",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token pair rotated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPairResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "refreshToken is not a valid JWT string.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refresh token is expired, has already been used, or was issued for a different token type.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TooManyRequestsResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Rotate tokens",
+        "tags": [
+          "Authentication",
+          "Session Management"
+        ]
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "description": "Revokes the caller's current access token by adding its JTI to the blacklist, and optionally invalidates the accompanying refresh token if supplied in the body. Requires a valid Bearer access token in the Authorization header.",
+        "operationId": "logout",
+        "parameters": [],
+        "requestBody": {
+          "required": false,
+          "description": "Optionally supply the refresh token to invalidate it immediately.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Logged out successfully. No response body."
+          },
+          "401": {
+            "description": "Access token is missing, expired, or already revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TooManyRequestsResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Log out",
+        "tags": [
+          "Authentication",
+          "Session Management"
+        ]
+      }
+    },
+    "/users/me": {
+      "get": {
+        "operationId": "getMyProfile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get my profile",
+        "tags": [
+          "Users"
+        ]
+      },
+      "patch": {
+        "operationId": "updateMyProfile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Update my profile",
+        "tags": [
+          "Users"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteMyProfile",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Soft delete my account",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/users": {
+      "get": {
+        "operationId": "listUsers",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Filter by status",
+            "schema": {
+              "enum": [
+                "active",
+                "pending",
+                "suspended",
+                "deleted"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "Search by username/displayName prefix",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedUsersResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List users (query)",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/user/username/available": {
+      "get": {
+        "operationId": "checkUsernameAvailability",
+        "parameters": [
+          {
+            "name": "username",
+            "required": true,
+            "in": "query",
+            "description": "Username to check.",
+            "schema": {
+              "minLength": 3,
+              "maxLength": 30,
+              "example": "alice_dev",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsernameAvailableResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Check username availability",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/user/username": {
+      "patch": {
+        "operationId": "setUsername",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetUsernameDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TooManyRequestsResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Set or change username",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/user/display-name": {
+      "patch": {
+        "operationId": "setDisplayName",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDisplayNameDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TooManyRequestsResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Set or clear display name",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/profiles/{identifier}": {
+      "get": {
+        "operationId": "getPublicProfile",
+        "parameters": [
+          {
+            "name": "identifier",
+            "required": true,
+            "in": "path",
+            "description": "Wallet address or username",
+            "schema": {
+              "example": "alice_dev",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicProfileResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get public profile",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/user/portfolio-links": {
+      "post": {
+        "operationId": "createPortfolioLink",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePortfolioLinkDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioLinkResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Add a portfolio link to my profile",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/user/portfolio-links/{id}": {
+      "delete": {
+        "operationId": "deletePortfolioLink",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Delete my portfolio link",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/admin/portfolio-links/{id}": {
+      "delete": {
+        "operationId": "adminDeletePortfolioLink",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Admin remove inappropriate portfolio link",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/user/profile": {
+      "post": {
+        "description": "Creates a new mentor or mentee profile for the authenticated user. A user may hold at most one mentor profile and one mentee profile. On success the user's role is automatically updated to include the new profile type. Returns the full created profile with all timestamps.",
+        "operationId": "createProfile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Profile created successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateProfileResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request body failed validation. See the errors array for per-field details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid access token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A profile of the requested type already exists for this user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TooManyRequestsResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create a mentor or mentee profile",
+        "tags": [
+          "Profiles"
+        ]
+      }
+    },
+    "/mentors/me/availability/slots": {
+      "get": {
+        "operationId": "listMyAvailabilitySlots",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AvailabilitySlot"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List my weekly availability slots",
+        "tags": [
+          "Availability"
+        ]
+      },
+      "post": {
+        "operationId": "createAvailabilitySlot",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAvailabilitySlotDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailabilitySlot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create a weekly availability slot",
+        "tags": [
+          "Availability"
+        ]
+      }
+    },
+    "/mentors/me/availability/slots/{id}": {
+      "put": {
+        "operationId": "updateAvailabilitySlot",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Availability slot UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAvailabilitySlotDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailabilitySlot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Update a weekly availability slot",
+        "tags": [
+          "Availability"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteAvailabilitySlot",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Availability slot UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Delete a weekly availability slot",
+        "tags": [
+          "Availability"
+        ]
+      }
+    },
+    "/mentors/me/availability/exceptions": {
+      "get": {
+        "operationId": "listMyAvailabilityExceptions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AvailabilityException"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List my availability exceptions",
+        "tags": [
+          "Availability"
+        ]
+      },
+      "post": {
+        "operationId": "createAvailabilityException",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAvailabilityExceptionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailabilityException"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create an availability exception",
+        "tags": [
+          "Availability"
+        ]
+      }
+    },
+    "/mentors/me/availability/exceptions/{id}": {
+      "put": {
+        "operationId": "updateAvailabilityException",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Availability exception UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAvailabilityExceptionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailabilityException"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Update an availability exception",
+        "tags": [
+          "Availability"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteAvailabilityException",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Availability exception UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Delete an availability exception",
+        "tags": [
+          "Availability"
+        ]
+      }
+    },
+    "/mentors/{mentorId}/availability/slots": {
+      "get": {
+        "operationId": "listMentorAvailabilitySlots",
+        "parameters": [
+          {
+            "name": "mentorId",
+            "required": true,
+            "in": "path",
+            "description": "Mentor wallet address",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AvailabilitySlot"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List a mentor weekly availability slots",
+        "tags": [
+          "Availability"
+        ]
+      }
+    },
+    "/mentors/{mentorId}/availability/exceptions": {
+      "get": {
+        "operationId": "listMentorAvailabilityExceptions",
+        "parameters": [
+          {
+            "name": "mentorId",
+            "required": true,
+            "in": "path",
+            "description": "Mentor wallet address",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AvailabilityException"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "List a mentor availability exceptions",
+        "tags": [
+          "Availability"
+        ]
+      }
+    },
+    "/mentors/{mentorId}/availability/check": {
+      "get": {
+        "description": "dateTime must be an ISO 8601 datetime. Availability is evaluated in UTC.",
+        "operationId": "checkMentorAvailability",
+        "parameters": [
+          {
+            "name": "mentorId",
+            "required": true,
+            "in": "path",
+            "description": "Mentor wallet address",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dateTime",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "example": "2026-11-23T10:30:00.000Z",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailabilityCheckResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Check if mentor is available at a datetime",
+        "tags": [
+          "Availability"
+        ]
+      }
+    },
+    "/mentors/{mentorId}/availability/next-30-days": {
+      "get": {
+        "description": "Returns concrete available UTC windows derived from weekly slots minus unavailable exceptions. Each window includes display times in the slot timezone.",
+        "operationId": "getMentorNext30DaysAvailability",
+        "parameters": [
+          {
+            "name": "mentorId",
+            "required": true,
+            "in": "path",
+            "description": "Mentor wallet address",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Next30DaysAvailabilityResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get available windows for the next 30 days",
+        "tags": [
+          "Availability"
+        ]
+      }
+    },
+    "/admin/users/{userId}/profile-history": {
+      "get": {
+        "description": "Returns a paginated, reverse-chronological list of every tracked field change made to the specified user's profile. Sensitive field values are redacted. Requires ADMIN role.",
+        "operationId": "getProfileHistory",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "description": "Stellar wallet address of the user.",
+            "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Maximum number of entries to return. Capped at 200.",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "example": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "Number of entries to skip (for pagination).",
+            "schema": {
+              "minimum": 0,
+              "default": 0,
+              "example": 0,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated history entries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileHistoryPageDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid access token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller does not hold the ADMIN role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No history found for this user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get profile change history for a user",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/health/redis": {
+      "get": {
+        "description": "Returns the round-trip latency of a PING against Redis, or 503 when Redis is unreachable.",
+        "operationId": "checkRedisHealth",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Redis answered the PING.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "latencyMs"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "up"
+                      ],
+                      "example": "up"
+                    },
+                    "latencyMs": {
+                      "type": "number",
+                      "example": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Redis is not reachable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Check Redis connectivity",
+        "tags": [
+          "Health"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "SkillSync API",
+    "description": "REST API for the SkillSync platform. Authentication is wallet-based (Stellar ED25519): request a nonce, sign it, exchange the signature for JWT tokens.",
+    "version": "1.0",
+    "contact": {}
+  },
+  "tags": [
+    {
+      "name": "Authentication",
+      "description": "Wallet login and token lifecycle endpoints."
+    },
+    {
+      "name": "Wallet",
+      "description": "Nonce issuance for Stellar wallet sign-in."
+    },
+    {
+      "name": "Session Management",
+      "description": "Token refresh and revocation."
+    },
+    {
+      "name": "Users",
+      "description": "Username, display name, and public profile endpoints."
+    },
+    {
+      "name": "Profiles",
+      "description": "Mentor and mentee profile creation and management."
+    },
+    {
+      "name": "Admin",
+      "description": "Admin-only endpoints. Require the ADMIN role."
+    }
+  ],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http",
+        "description": "Paste the accessToken returned by POST /auth/login. Format: Bearer <token>"
+      }
+    },
+    "schemas": {
+      "NonceDto": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Stellar wallet public key (ED25519) that will sign the login message.",
+            "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+            "pattern": "^G[A-Z2-7]{55}$"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      },
+      "NonceResponseDto": {
+        "type": "object",
+        "properties": {
+          "nonce": {
+            "type": "string",
+            "description": "Single-use random nonce (32 hex characters). Embedded in the login message.",
+            "example": "a3f8c2e1b74d9056a3f8c2e1b74d9056"
+          },
+          "message": {
+            "type": "string",
+            "description": "The exact UTF-8 string the wallet must sign with its ED25519 private key. Do not modify the message before signing.",
+            "example": "SkillSync login\nAddress: GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37\nNonce: a3f8c2e1b74d9056a3f8c2e1b74d9056"
+          },
+          "expiresIn": {
+            "type": "number",
+            "description": "Seconds until this nonce expires. The default window is 300 seconds (5 minutes).",
+            "example": 300
+          }
+        },
+        "required": [
+          "nonce",
+          "message",
+          "expiresIn"
+        ]
+      },
+      "FieldErrorDto": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "example": "address",
+            "description": "Dotted path of the offending field."
+          },
+          "errors": {
+            "example": [
+              "address must be a valid Stellar public key"
+            ],
+            "description": "Human-readable validation messages for the field.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "field",
+          "errors"
+        ]
+      },
+      "ErrorResponseDto": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "example": 400,
+            "description": "HTTP status code."
+          },
+          "message": {
+            "type": "string",
+            "example": "Validation failed",
+            "description": "Human-readable error message."
+          },
+          "error": {
+            "type": "string",
+            "example": "Bad Request",
+            "description": "HTTP error label."
+          },
+          "code": {
+            "type": "string",
+            "example": "VALIDATION_FAILED",
+            "description": "Stable machine-readable error code. Clients should branch on this, not on message."
+          },
+          "timestamp": {
+            "type": "string",
+            "example": "2026-11-22T10:00:00.000Z",
+            "description": "ISO 8601 timestamp of the error."
+          },
+          "path": {
+            "type": "string",
+            "example": "/auth/nonce",
+            "description": "Request path that produced the error."
+          },
+          "requestId": {
+            "type": "string",
+            "example": "b1f2c3d4-e5f6-7890-abcd-ef1234567890",
+            "description": "Correlation id of the request (from the X-Request-Id header when supplied)."
+          },
+          "errors": {
+            "description": "Per-field validation details. Only present on VALIDATION_FAILED responses.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldErrorDto"
+            }
+          }
+        },
+        "required": [
+          "statusCode",
+          "message",
+          "error",
+          "code",
+          "timestamp",
+          "path",
+          "requestId"
+        ]
+      },
+      "TooManyRequestsResponseDto": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "example": 429
+          },
+          "message": {
+            "type": "string",
+            "example": "Too many requests"
+          },
+          "error": {
+            "type": "string",
+            "example": "Too Many Requests"
+          },
+          "code": {
+            "type": "string",
+            "example": "RATE_LIMITED"
+          },
+          "timestamp": {
+            "type": "string",
+            "example": "2026-11-22T10:00:00.000Z"
+          },
+          "path": {
+            "type": "string",
+            "example": "/auth/nonce"
+          },
+          "requestId": {
+            "type": "string",
+            "example": "b1f2c3d4-e5f6-7890-abcd-ef1234567890"
+          }
+        },
+        "required": [
+          "statusCode",
+          "message",
+          "error",
+          "code",
+          "timestamp",
+          "path",
+          "requestId"
+        ]
+      },
+      "InternalServerErrorResponseDto": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "example": 500
+          },
+          "message": {
+            "type": "string",
+            "example": "Internal server error"
+          },
+          "error": {
+            "type": "string",
+            "example": "Internal Server Error"
+          },
+          "code": {
+            "type": "string",
+            "example": "INTERNAL_ERROR"
+          },
+          "timestamp": {
+            "type": "string",
+            "example": "2026-11-22T10:00:00.000Z"
+          },
+          "path": {
+            "type": "string",
+            "example": "/users/me"
+          },
+          "requestId": {
+            "type": "string",
+            "example": "b1f2c3d4-e5f6-7890-abcd-ef1234567890"
+          }
+        },
+        "required": [
+          "statusCode",
+          "message",
+          "error",
+          "code",
+          "timestamp",
+          "path",
+          "requestId"
+        ]
+      },
+      "LoginDto": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Stellar wallet public key that owns the pending nonce.",
+            "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+            "pattern": "^G[A-Z2-7]{55}$"
+          },
+          "signature": {
+            "type": "string",
+            "description": "Base64-encoded ED25519 signature of the exact login message returned by POST /auth/nonce. The nonce is consumed on first use and cannot be replayed.",
+            "example": "ABC123+/base64signaturehere==",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "address",
+          "signature"
+        ]
+      },
+      "TokenPairResponseDto": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string",
+            "description": "Short-lived JWT for authenticating API requests. Send as \"Authorization: Bearer <token>\". Defaults to a 15-minute lifetime.",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJHRFFQMktQ..."
+          },
+          "refreshToken": {
+            "type": "string",
+            "description": "Long-lived JWT used exclusively to obtain a new token pair via POST /auth/refresh. Single-use; the previous refresh token is invalidated on each rotation. Defaults to a 7-day lifetime.",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJHRFFQMktQcmVm..."
+          },
+          "expiresIn": {
+            "type": "number",
+            "description": "Access token lifetime in seconds.",
+            "example": 900
+          }
+        },
+        "required": [
+          "accessToken",
+          "refreshToken",
+          "expiresIn"
+        ]
+      },
+      "UnauthorizedResponseDto": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "example": 401
+          },
+          "message": {
+            "type": "string",
+            "example": "Signature verification failed"
+          },
+          "error": {
+            "type": "string",
+            "example": "Unauthorized"
+          },
+          "code": {
+            "type": "string",
+            "example": "INVALID_CREDENTIALS"
+          },
+          "timestamp": {
+            "type": "string",
+            "example": "2026-11-22T10:00:00.000Z"
+          },
+          "path": {
+            "type": "string",
+            "example": "/auth/login"
+          },
+          "requestId": {
+            "type": "string",
+            "example": "b1f2c3d4-e5f6-7890-abcd-ef1234567890"
+          }
+        },
+        "required": [
+          "statusCode",
+          "message",
+          "error",
+          "code",
+          "timestamp",
+          "path",
+          "requestId"
+        ]
+      },
+      "RefreshDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "description": "The refresh token issued by POST /auth/login or a previous POST /auth/refresh. Each refresh token is single-use; a new pair is returned on success.",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJHRFFQMktQ..."
+          }
+        },
+        "required": [
+          "refreshToken"
+        ]
+      },
+      "ForbiddenResponseDto": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "example": 403
+          },
+          "message": {
+            "type": "string",
+            "example": "Forbidden resource"
+          },
+          "error": {
+            "type": "string",
+            "example": "Forbidden"
+          },
+          "code": {
+            "type": "string",
+            "example": "FORBIDDEN"
+          },
+          "timestamp": {
+            "type": "string",
+            "example": "2026-11-22T10:00:00.000Z"
+          },
+          "path": {
+            "type": "string",
+            "example": "/users/me"
+          },
+          "requestId": {
+            "type": "string",
+            "example": "b1f2c3d4-e5f6-7890-abcd-ef1234567890"
+          }
+        },
+        "required": [
+          "statusCode",
+          "message",
+          "error",
+          "code",
+          "timestamp",
+          "path",
+          "requestId"
+        ]
+      },
+      "UserResponseDto": {
+        "type": "object",
+        "properties": {
+          "walletAddress": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "nullable": true
+          },
+          "username": {
+            "type": "string",
+            "nullable": true
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "pending",
+              "suspended",
+              "deleted"
+            ]
+          },
+          "avatarUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "timezone": {
+            "type": "string",
+            "nullable": true
+          },
+          "locale": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastLoginAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "walletAddress",
+          "displayName",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "UpdateUserDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address",
+            "example": "alice@example.com",
+            "nullable": true
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Display name",
+            "example": "Alice",
+            "nullable": true
+          },
+          "avatarUrl": {
+            "type": "string",
+            "description": "Avatar URL",
+            "nullable": true
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone",
+            "example": "UTC",
+            "nullable": true
+          },
+          "locale": {
+            "type": "string",
+            "description": "Locale",
+            "example": "en-US",
+            "nullable": true
+          }
+        }
+      },
+      "PaginatedUsersResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserResponseDto"
+            }
+          },
+          "page": {
+            "type": "number",
+            "example": 1
+          },
+          "limit": {
+            "type": "number",
+            "example": 20
+          },
+          "total": {
+            "type": "number",
+            "example": 42
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "limit",
+          "total"
+        ]
+      },
+      "UsernameAvailableResponseDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "The username that was checked.",
+            "example": "alice_dev"
+          },
+          "available": {
+            "type": "boolean",
+            "description": "True when the username is both syntactically valid and not already taken.",
+            "example": true
+          },
+          "reason": {
+            "type": "string",
+            "description": "Human-readable reason when available is false.",
+            "example": "Username is already taken.",
+            "nullable": true
+          }
+        },
+        "required": [
+          "username",
+          "available"
+        ]
+      },
+      "SetUsernameDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Desired username. Must be 3–30 characters, contain only letters, digits, underscores, and dashes, start and end with a letter or digit, and have no consecutive special characters.",
+            "example": "alice_dev",
+            "minLength": 3,
+            "maxLength": 30
+          }
+        },
+        "required": [
+          "username"
+        ]
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "walletAddress": {
+            "type": "string",
+            "description": "Stellar wallet public key (ED25519). Unique account identifier.",
+            "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37"
+          },
+          "email": {
+            "type": "string",
+            "description": "Optional unique email address.",
+            "example": "alice@example.com",
+            "nullable": true
+          },
+          "username": {
+            "type": "string",
+            "description": "Unique username chosen by the user. 3–30 characters, alphanumeric plus underscores and dashes, no consecutive special characters, cannot start or end with a special character. Null until the user sets one.",
+            "example": "alice_dev",
+            "nullable": true
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Public display name. Up to 50 characters, no uniqueness requirement. Defaults to the first 8 characters of the wallet address when not set.",
+            "example": "Alice the Developer",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "description": "Account status.",
+            "enum": [
+              "active",
+              "pending",
+              "suspended",
+              "deleted"
+            ],
+            "example": "active"
+          },
+          "avatarUrl": {
+            "type": "string",
+            "description": "Avatar URL.",
+            "nullable": true
+          },
+          "timezone": {
+            "type": "string",
+            "description": "User timezone (IANA).",
+            "example": "UTC",
+            "nullable": true
+          },
+          "locale": {
+            "type": "string",
+            "description": "User locale.",
+            "example": "en-US",
+            "nullable": true
+          },
+          "usernameChangedAt": {
+            "type": "string",
+            "description": "When the username was last changed. Used to enforce the 30-day cooldown between changes.",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastLoginAt": {
+            "type": "string",
+            "description": "Last login timestamp.",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "UTC timestamp of account creation."
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "UTC timestamp of last update."
+          },
+          "deletedAt": {
+            "type": "string",
+            "description": "Soft delete timestamp.",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "walletAddress",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "SetDisplayNameDto": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "description": "Display name shown publicly on the profile. Up to 50 characters. Send null or omit the field to reset to the default (first 8 characters of the wallet address).",
+            "example": "Alice the Developer",
+            "maxLength": 50,
+            "nullable": true
+          }
+        }
+      },
+      "PortfolioLinkResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "github",
+              "linkedin",
+              "twitter",
+              "personal_website",
+              "behance",
+              "dribbble",
+              "medium",
+              "devto",
+              "youtube"
+            ]
+          },
+          "url": {
+            "type": "string"
+          },
+          "displayTitle": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "platform",
+          "url",
+          "createdAt"
+        ]
+      },
+      "PublicProfileResponseDto": {
+        "type": "object",
+        "properties": {
+          "walletAddress": {
+            "type": "string",
+            "description": "Stellar wallet address.",
+            "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37"
+          },
+          "username": {
+            "type": "string",
+            "description": "Unique username, null if not yet set.",
+            "example": "alice_dev",
+            "nullable": true
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Display name. Returns the user-set display name, or the first 8 characters of the wallet address when none has been set.",
+            "example": "Alice the Developer"
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "UTC timestamp of account creation.",
+            "example": "2024-01-15T10:00:00.000Z"
+          },
+          "portfolioLinks": {
+            "description": "Public portfolio links",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PortfolioLinkResponseDto"
+            }
+          }
+        },
+        "required": [
+          "walletAddress",
+          "displayName",
+          "createdAt"
+        ]
+      },
+      "CreatePortfolioLinkDto": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "example": "https://github.com/alice"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "github",
+              "linkedin",
+              "twitter",
+              "personal_website",
+              "behance",
+              "dribbble",
+              "medium",
+              "devto",
+              "youtube"
+            ],
+            "description": "Optional; detected from URL when omitted"
+          },
+          "displayTitle": {
+            "type": "string",
+            "example": "My GitHub",
+            "nullable": true
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "CreateProfileDto": {
+        "type": "object",
+        "properties": {
+          "profileType": {
+            "type": "string",
+            "description": "Which profile type to create. A user may hold at most one of each type.",
+            "enum": [
+              "mentor",
+              "mentee"
+            ],
+            "example": "mentor"
+          },
+          "bio": {
+            "type": "string",
+            "description": "[mentor] Short professional bio. Required when profileType is \"mentor\".",
+            "example": "Senior engineer with 10 years in distributed systems.",
+            "maxLength": 500
+          },
+          "skills": {
+            "description": "[mentor] Skills this mentor teaches. 1–20 strings, each up to 64 characters. Required when profileType is \"mentor\".",
+            "example": [
+              "TypeScript",
+              "NestJS"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hourlyRateUsdCents": {
+            "type": "number",
+            "description": "[mentor] Hourly rate in USD cents (e.g. 5000 = $50.00). Omit or send null to list as free / negotiate offline.",
+            "example": 5000,
+            "nullable": true
+          },
+          "maxMentees": {
+            "type": "number",
+            "description": "[mentor] Maximum number of active mentees to accept. Defaults to 3 if omitted.",
+            "example": 3,
+            "minimum": 1,
+            "maximum": 20
+          },
+          "learningGoals": {
+            "type": "string",
+            "description": "[mentee] What the mentee wants to learn or achieve. Required when profileType is \"mentee\".",
+            "example": "I want to transition from backend to full-stack development.",
+            "maxLength": 500
+          },
+          "interests": {
+            "description": "[mentee] Topics the mentee wants to focus on. 1–20 strings, each up to 64 characters. Required when profileType is \"mentee\".",
+            "example": [
+              "React",
+              "System Design"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "budgetUsdCentsPerMonth": {
+            "type": "number",
+            "description": "[mentee] Maximum monthly budget in USD cents. Omit or send null for no preference.",
+            "example": 10000,
+            "nullable": true
+          },
+          "experienceLevel": {
+            "type": "string",
+            "description": "[mentee] Self-assessed experience level. Required when profileType is \"mentee\".",
+            "enum": [
+              "beginner",
+              "intermediate",
+              "advanced"
+            ],
+            "example": "intermediate"
+          },
+          "languages": {
+            "description": "Languages for mentorship sessions. Defaults to [\"English\"] if omitted.",
+            "example": [
+              "English",
+              "Spanish"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "profileType"
+        ]
+      },
+      "CreateProfileResponseDto": {
+        "type": "object",
+        "properties": {
+          "profileType": {
+            "type": "string",
+            "enum": [
+              "mentor",
+              "mentee"
+            ],
+            "example": "mentor"
+          },
+          "profile": {
+            "description": "The created profile object. Shape varies by profileType.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MentorProfile"
+              },
+              {
+                "$ref": "#/components/schemas/MenteeProfile"
+              }
+            ]
+          }
+        },
+        "required": [
+          "profileType",
+          "profile"
+        ]
+      },
+      "AvailabilitySlot": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Auto-generated UUID.",
+            "example": "c3d4e5f6-0000-0000-0000-000000000001"
+          },
+          "mentorId": {
+            "type": "string",
+            "description": "Stellar wallet address of the mentor.",
+            "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37"
+          },
+          "dayOfWeek": {
+            "type": "number",
+            "description": "Day of week as 0-6, where 0 is Sunday and 6 is Saturday.",
+            "example": 1,
+            "minimum": 0,
+            "maximum": 6
+          },
+          "startTimeUtc": {
+            "type": "string",
+            "description": "Slot start time in UTC, HH:mm 24-hour format.",
+            "example": "10:00"
+          },
+          "endTimeUtc": {
+            "type": "string",
+            "description": "Slot end time in UTC, HH:mm 24-hour format.",
+            "example": "12:00"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone used for display/conversion, e.g. \"Africa/Lagos\".",
+            "example": "UTC"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "UTC creation timestamp."
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "UTC last-updated timestamp."
+          }
+        },
+        "required": [
+          "id",
+          "mentorId",
+          "dayOfWeek",
+          "startTimeUtc",
+          "endTimeUtc",
+          "timezone",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "CreateAvailabilitySlotDto": {
+        "type": "object",
+        "properties": {
+          "dayOfWeek": {
+            "type": "number",
+            "description": "Day of week (0=Sunday ... 6=Saturday).",
+            "example": 1,
+            "minimum": 0,
+            "maximum": 6
+          },
+          "startTimeUtc": {
+            "type": "string",
+            "description": "Start time in UTC (HH:mm).",
+            "example": "10:00"
+          },
+          "endTimeUtc": {
+            "type": "string",
+            "description": "End time in UTC (HH:mm), must be after startTimeUtc.",
+            "example": "12:00"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone for display/conversion.",
+            "example": "UTC",
+            "default": "UTC"
+          }
+        },
+        "required": [
+          "dayOfWeek",
+          "startTimeUtc",
+          "endTimeUtc"
+        ]
+      },
+      "UpdateAvailabilitySlotDto": {
+        "type": "object",
+        "properties": {
+          "dayOfWeek": {
+            "type": "number",
+            "description": "Day of week (0=Sunday ... 6=Saturday).",
+            "example": 1,
+            "minimum": 0,
+            "maximum": 6
+          },
+          "startTimeUtc": {
+            "type": "string",
+            "description": "Start time in UTC (HH:mm).",
+            "example": "10:00"
+          },
+          "endTimeUtc": {
+            "type": "string",
+            "description": "End time in UTC (HH:mm), must be after startTimeUtc.",
+            "example": "12:00"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone for display/conversion.",
+            "example": "UTC"
+          }
+        }
+      },
+      "AvailabilityException": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Auto-generated UUID.",
+            "example": "d4e5f6a7-0000-0000-0000-000000000001"
+          },
+          "mentorId": {
+            "type": "string",
+            "description": "Stellar wallet address of the mentor.",
+            "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37"
+          },
+          "date": {
+            "type": "string",
+            "description": "Specific date this exception applies to, in YYYY-MM-DD format (UTC date).",
+            "example": "2026-12-25"
+          },
+          "startTimeUtc": {
+            "type": "string",
+            "description": "Exception start time in UTC, HH:mm 24-hour format.",
+            "example": "00:00"
+          },
+          "endTimeUtc": {
+            "type": "string",
+            "description": "Exception end time in UTC, HH:mm 24-hour format.",
+            "example": "23:59"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for the exception (vacation, holiday, etc.).",
+            "example": "Holiday",
+            "nullable": true
+          },
+          "isUnavailable": {
+            "type": "boolean",
+            "description": "True if mentor is unavailable for this window; false can represent explicit availability override.",
+            "example": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "UTC creation timestamp."
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "UTC last-updated timestamp."
+          }
+        },
+        "required": [
+          "id",
+          "mentorId",
+          "date",
+          "startTimeUtc",
+          "endTimeUtc",
+          "isUnavailable",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "CreateAvailabilityExceptionDto": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "Date of exception in YYYY-MM-DD (UTC date).",
+            "example": "2026-12-25"
+          },
+          "startTimeUtc": {
+            "type": "string",
+            "description": "Exception start time in UTC (HH:mm).",
+            "example": "00:00"
+          },
+          "endTimeUtc": {
+            "type": "string",
+            "description": "Exception end time in UTC (HH:mm).",
+            "example": "23:59"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for exception.",
+            "example": "Holiday",
+            "nullable": true
+          },
+          "isUnavailable": {
+            "type": "boolean",
+            "description": "When true, this window marks mentor unavailable and overrides weekly slots.",
+            "example": true,
+            "default": true
+          }
+        },
+        "required": [
+          "date",
+          "startTimeUtc",
+          "endTimeUtc"
+        ]
+      },
+      "UpdateAvailabilityExceptionDto": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "Date of exception in YYYY-MM-DD (UTC date).",
+            "example": "2026-12-25"
+          },
+          "startTimeUtc": {
+            "type": "string",
+            "description": "Exception start time in UTC (HH:mm).",
+            "example": "00:00"
+          },
+          "endTimeUtc": {
+            "type": "string",
+            "description": "Exception end time in UTC (HH:mm).",
+            "example": "23:59"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for exception.",
+            "example": "Holiday",
+            "nullable": true
+          },
+          "isUnavailable": {
+            "type": "boolean",
+            "description": "Marks window unavailable when true.",
+            "example": true
+          }
+        }
+      },
+      "AvailabilityCheckResponseDto": {
+        "type": "object",
+        "properties": {
+          "mentorId": {
+            "type": "string"
+          },
+          "dateTime": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mentorId",
+          "dateTime",
+          "available"
+        ]
+      },
+      "AvailableWindowDto": {
+        "type": "object",
+        "properties": {
+          "startUtc": {
+            "type": "string",
+            "example": "2026-11-23T10:00:00.000Z"
+          },
+          "endUtc": {
+            "type": "string",
+            "example": "2026-11-23T12:00:00.000Z"
+          },
+          "displayStart": {
+            "type": "string",
+            "description": "Display start in slot timezone.",
+            "example": "11/23/2026, 10:00 GMT+0"
+          },
+          "displayEnd": {
+            "type": "string",
+            "description": "Display end in slot timezone.",
+            "example": "11/23/2026, 12:00 GMT+0"
+          },
+          "timezone": {
+            "type": "string",
+            "example": "UTC"
+          },
+          "slotId": {
+            "type": "string",
+            "description": "Source weekly slot ID.",
+            "example": "uuid"
+          }
+        },
+        "required": [
+          "startUtc",
+          "endUtc",
+          "displayStart",
+          "displayEnd",
+          "timezone",
+          "slotId"
+        ]
+      },
+      "Next30DaysAvailabilityResponseDto": {
+        "type": "object",
+        "properties": {
+          "mentorId": {
+            "type": "string"
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AvailableWindowDto"
+            }
+          }
+        },
+        "required": [
+          "mentorId",
+          "windows"
+        ]
+      },
+      "ProfileHistoryEntryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          },
+          "userId": {
+            "type": "string",
+            "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37"
+          },
+          "profileType": {
+            "type": "string",
+            "example": "user"
+          },
+          "fieldName": {
+            "type": "string",
+            "example": "username"
+          },
+          "oldValue": {
+            "description": "Value before the change. Null for initial writes. Sensitive values are redacted.",
+            "nullable": true,
+            "example": null,
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "object"
+              },
+              {
+                "type": "array"
+              }
+            ]
+          },
+          "newValue": {
+            "description": "Value after the change. Null when the field was cleared.",
+            "nullable": true,
+            "example": "alice_dev",
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "object"
+              },
+              {
+                "type": "array"
+              }
+            ]
+          },
+          "changedBy": {
+            "type": "string",
+            "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37"
+          },
+          "changeReason": {
+            "type": "string",
+            "enum": [
+              "user_edit",
+              "admin_edit",
+              "system"
+            ],
+            "example": "user_edit"
+          },
+          "changedAt": {
+            "type": "string",
+            "description": "UTC timestamp with millisecond precision.",
+            "example": "2024-06-01T12:00:00.123Z"
+          },
+          "retainUntil": {
+            "type": "string",
+            "description": "Minimum retention date (changedAt + 1 year).",
+            "example": "2025-06-01T12:00:00.123Z"
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "profileType",
+          "fieldName",
+          "oldValue",
+          "newValue",
+          "changedBy",
+          "changeReason",
+          "changedAt",
+          "retainUntil"
+        ]
+      },
+      "ProfileHistoryPageDto": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileHistoryEntryDto"
+            }
+          },
+          "total": {
+            "type": "number",
+            "description": "Total number of history entries for this user.",
+            "example": 7
+          },
+          "offset": {
+            "type": "number",
+            "description": "Offset used for this page.",
+            "example": 0
+          },
+          "limit": {
+            "type": "number",
+            "description": "Limit used for this page.",
+            "example": 50
+          }
+        },
+        "required": [
+          "entries",
+          "total",
+          "offset",
+          "limit"
+        ]
+      },
+      "MentorProfile": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Auto-generated UUID.",
+            "example": "a1b2c3d4-..."
+          },
+          "walletAddress": {
+            "type": "string",
+            "description": "Stellar wallet address of the owning user.",
+            "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37"
+          },
+          "bio": {
+            "type": "string",
+            "description": "Short professional bio.",
+            "example": "Senior engineer with 10 years in distributed systems.",
+            "maxLength": 500
+          },
+          "skills": {
+            "description": "List of skill tags the mentor teaches.",
+            "example": [
+              "TypeScript",
+              "NestJS",
+              "PostgreSQL"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hourlyRateUsdCents": {
+            "type": "number",
+            "description": "Hourly rate in USD cents (e.g. 5000 = $50.00). Null means free / arrange offline.",
+            "example": 5000,
+            "nullable": true
+          },
+          "maxMentees": {
+            "type": "number",
+            "description": "Maximum number of active mentees this mentor will accept.",
+            "example": 3
+          },
+          "languages": {
+            "description": "Languages the mentor is comfortable working in.",
+            "example": [
+              "English",
+              "Spanish"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isActive": {
+            "type": "boolean",
+            "description": "Profile is visible in search results.",
+            "example": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "UTC creation timestamp."
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "UTC last-updated timestamp."
+          }
+        },
+        "required": [
+          "id",
+          "walletAddress",
+          "bio",
+          "skills",
+          "maxMentees",
+          "languages",
+          "isActive",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "MenteeProfile": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Auto-generated UUID.",
+            "example": "b2c3d4e5-..."
+          },
+          "walletAddress": {
+            "type": "string",
+            "description": "Stellar wallet address of the owning user.",
+            "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37"
+          },
+          "learningGoals": {
+            "type": "string",
+            "description": "What the mentee wants to learn or achieve.",
+            "example": "I want to transition from backend to full-stack development.",
+            "maxLength": 500
+          },
+          "interests": {
+            "description": "Topics or skills the mentee wants to focus on.",
+            "example": [
+              "React",
+              "System Design"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "budgetUsdCentsPerMonth": {
+            "type": "number",
+            "description": "Maximum monthly budget in USD cents the mentee can spend (e.g. 10000 = $100.00). Null means no budget preference.",
+            "example": 10000,
+            "nullable": true
+          },
+          "experienceLevel": {
+            "type": "string",
+            "description": "Self-assessed experience level.",
+            "example": "intermediate",
+            "enum": [
+              "beginner",
+              "intermediate",
+              "advanced"
+            ]
+          },
+          "languages": {
+            "description": "Languages the mentee is comfortable working in.",
+            "example": [
+              "English"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isActive": {
+            "type": "boolean",
+            "description": "Profile is visible to mentors.",
+            "example": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "UTC creation timestamp."
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "UTC last-updated timestamp."
+          }
+        },
+        "required": [
+          "id",
+          "walletAddress",
+          "learningGoals",
+          "interests",
+          "experienceLevel",
+          "languages",
+          "isActive",
+          "createdAt",
+          "updatedAt"
+        ]
+      }
+    }
+  }
+}

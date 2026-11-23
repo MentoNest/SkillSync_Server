@@ -14,7 +14,7 @@ import { PortfolioLinksService } from './portfolio-links.service';
 export class PortfolioLinksController {
   constructor(private readonly portfolioLinks: PortfolioLinksService) {}
 
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @UseGuards(JwtAuthGuard)
   @Post('user/portfolio-links')
   @ApiOperation({ summary: 'Add a portfolio link to my profile', operationId: 'createPortfolioLink' })
@@ -25,7 +25,7 @@ export class PortfolioLinksController {
     return this.portfolioLinks.create(user.address, dto);
   }
 
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @UseGuards(JwtAuthGuard)
   @Delete('user/portfolio-links/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -36,7 +36,7 @@ export class PortfolioLinksController {
     await this.portfolioLinks.remove(user.address, id, user.roles?.includes(Role.ADMIN));
   }
 
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @Delete('admin/portfolio-links/:id')

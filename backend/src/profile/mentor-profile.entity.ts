@@ -48,6 +48,7 @@ export class MentorProfile {
   @ApiPropertyOptional({
     description: 'Hourly rate in USD cents (e.g. 5000 = $50.00). Null means free / arrange offline.',
     example: 5000,
+    type: Number,
     nullable: true,
   })
   @Column({ name: 'hourly_rate_usd_cents', type: 'int', nullable: true })

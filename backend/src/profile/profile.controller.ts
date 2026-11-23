@@ -28,7 +28,7 @@ import { CreateProfileResponseDto } from './dto/profile-response.dto';
 import { ProfileService } from './profile.service';
 
 @ApiTags('Profiles')
-@ApiBearerAuth('Bearer Auth')
+@ApiBearerAuth('BearerAuth')
 @UseGuards(JwtAuthGuard)
 @Controller('user')
 export class ProfileController {

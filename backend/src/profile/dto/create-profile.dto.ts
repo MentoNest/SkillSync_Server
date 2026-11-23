@@ -79,6 +79,7 @@ export class CreateProfileDto {
       '[mentor] Hourly rate in USD cents (e.g. 5000 = $50.00). ' +
       'Omit or send null to list as free / negotiate offline.',
     example: 5000,
+    type: Number,
     nullable: true,
   })
   @ValidateIf(isMentor)
@@ -134,6 +135,7 @@ export class CreateProfileDto {
     description:
       '[mentee] Maximum monthly budget in USD cents. Omit or send null for no preference.',
     example: 10000,
+    type: Number,
     nullable: true,
   })
   @ValidateIf(isMentee)
