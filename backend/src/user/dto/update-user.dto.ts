@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsArray, IsEmail, IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
+import { IsIanaTimezone } from '../../common/validators';
 
 export class UpdateUserDto {
   @ApiPropertyOptional({ description: 'Email address', example: 'alice@example.com', nullable: true })
@@ -24,6 +25,7 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   @MaxLength(64)
+  @IsIanaTimezone()
   timezone?: string | null;
 
   @ApiPropertyOptional({ description: 'Locale', example: 'en-US', nullable: true })

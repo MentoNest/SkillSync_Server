@@ -3,6 +3,7 @@ import {
   getUtcDayOfWeek,
   getUtcTimeString,
   isEndAfterStart,
+  isValidTimezone,
   parseTimeToMinutes,
   timeRangesOverlap,
 } from '../availability.utils';
@@ -30,5 +31,10 @@ describe('availability.utils', () => {
     expect(getUtcDateString(dt)).toBe('2026-11-23');
     expect(getUtcTimeString(dt)).toBe('10:30');
     expect(getUtcDayOfWeek(dt)).toBe(1);
+  });
+
+  it('validates IANA timezone names', () => {
+    expect(isValidTimezone('America/New_York')).toBe(true);
+    expect(isValidTimezone('Mars/Olympus')).toBe(false);
   });
 });
