@@ -57,13 +57,54 @@ describe('createRateLimitMiddleware', () => {
   it('uses a separate, higher bucket for authenticated callers', () => {
     const middleware = createRateLimitMiddleware(config);
     const authHeader = 'Bearer token';
-    middleware(makeRequest('/users', authHeader) as never, makeResponse() as never, jest.fn());
-    middleware(makeRequest('/users', authHeader) as never, makeResponse() as never, jest.fn());
+    middleware(
+      makeRequest('/users', authHeader) as never,
+      makeResponse() as never,
+      jest.fn(),
+    );
+    middleware(
+      makeRequest('/users', authHeader) as never,
+      makeResponse() as never,
+      jest.fn(),
+    );
     const third = makeResponse();
-    middleware(makeRequest('/users', authHeader) as never, third as never, jest.fn());
+    middleware(
+      makeRequest('/users', authHeader) as never,
+      third as never,
+      jest.fn(),
+    );
 
     expect(third.statusCode).toBe(429);
     expect(third.headers['X-RateLimit-Limit']).toBe('2');
+  });
+
+  it('uses a higher bucket for authenticated admin requests', () => {
+    const middleware = createRateLimitMiddleware(config);
+    const authHeader = 'Bearer token';
+    const first = makeResponse();
+    middleware(
+      makeRequest('/admin/users', authHeader) as never,
+      first as never,
+      jest.fn(),
+    );
+
+    expect(first.statusCode).toBe(200);
+    expect(first.headers['X-RateLimit-Limit']).toBe('20');
+
+    for (let i = 0; i < 19; i += 1) {
+      middleware(
+        makeRequest('/admin/users', authHeader) as never,
+        makeResponse() as never,
+        jest.fn(),
+      );
+    }
+    const denied = makeResponse();
+    middleware(
+      makeRequest('/admin/users', authHeader) as never,
+      denied as never,
+      jest.fn(),
+    );
+    expect(denied.statusCode).toBe(429);
   });
 
   it('does not throttle health checks or when disabled', () => {
@@ -92,7 +133,11 @@ describe('createCookieSecurityMiddleware', () => {
     res.cookie.mockImplementation(original);
 
     middleware(makeRequest() as never, res as never, jest.fn());
-    res.cookie('session', 'value', { httpOnly: false, secure: false, sameSite: 'lax' });
+    res.cookie('session', 'value', {
+      httpOnly: false,
+      secure: false,
+      sameSite: 'lax',
+    });
 
     expect(original).toHaveBeenCalledWith('session', 'value', {
       httpOnly: true,

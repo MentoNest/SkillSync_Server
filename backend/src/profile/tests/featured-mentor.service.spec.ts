@@ -28,6 +28,7 @@ function makeService(options: { existing?: MentorProfile | null; count?: number;
   const profile = options.existing === undefined ? mentor() : options.existing;
   const qb = {
     select: jest.fn().mockReturnThis(),
+    update: jest.fn().mockReturnThis(),
     set: jest.fn().mockReturnThis(),
     where: jest.fn().mockReturnThis(),
     getRawOne: jest.fn().mockResolvedValue({ max: options.count ?? 0 }),

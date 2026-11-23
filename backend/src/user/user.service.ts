@@ -143,6 +143,43 @@ export class UserService {
     await this.completeness.invalidate(normalizedAddress);
   }
 
+  async setStatus(walletAddress: string, status: UserStatus): Promise<UserResponseDto> {
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
+    const user = await this.users.findOne({
+      where: { walletAddress: normalizedAddress },
+      withDeleted: true,
+    });
+    if (!user) throw new ResourceNotFoundException('User', normalizedAddress);
+
+    user.status = status;
+    const saved = await this.users.save(user);
+
+    if (status === UserStatus.DELETED) {
+      await this.users.softDelete({ walletAddress: normalizedAddress });
+    } else if (status === UserStatus.ACTIVE) {
+      await this.users.restore({ walletAddress: normalizedAddress });
+    }
+
+    await this.completeness.invalidate(normalizedAddress);
+    this.audit.log(`status_changed address=${normalizedAddress} status=${status}`);
+    return this.toResponseDto(saved);
+  }
+
+  async restore(walletAddress: string): Promise<UserResponseDto> {
+    const normalizedAddress = normalizeWalletAddress(walletAddress);
+    const user = await this.users.findOne({
+      where: { walletAddress: normalizedAddress },
+      withDeleted: true,
+    });
+    if (!user) throw new ResourceNotFoundException('User', normalizedAddress);
+
+    await this.users.restore({ walletAddress: normalizedAddress });
+    user.status = UserStatus.ACTIVE;
+    const saved = await this.users.save(user);
+    await this.completeness.invalidate(normalizedAddress);
+    return this.toResponseDto(saved);
+  }
+
   // ─── Existing username/display/profile flows (kept for compatibility) ─────
 
   async checkAvailability(username: string): Promise<UsernameAvailableResponseDto> {

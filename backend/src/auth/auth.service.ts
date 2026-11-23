@@ -8,7 +8,6 @@ import { InvalidCredentialsException, TokenExpiredException } from '../common/er
 import { normalizeWalletAddress } from '../common/utils/wallet.utils';
 import { RedisNamespace } from '../redis/redis.config';
 import { RedisService } from '../redis/redis.service';
-import { User } from '../user/user.entity';
 import { AUTH_CONFIG, Role } from './auth.types';
 import type { AuthConfig, AuthUser, JwtPayload, TokenPair } from './auth.types';
 
@@ -218,7 +217,10 @@ export class AuthService {
       60,
     );
     if (requestCount > 5) {
-      throw new HttpException('Nonce request limit exceeded; try again in one minute', HttpStatus.TOO_MANY_REQUESTS);
+      throw new HttpException(
+        'Nonce request limit exceeded; try again in one minute',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
 
     const nonce = randomBytes(32).toString('hex');
