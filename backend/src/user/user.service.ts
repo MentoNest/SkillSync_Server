@@ -194,7 +194,6 @@ export class UserService {
       .getOne();
     if (!user) throw new ResourceNotFoundException('Profile', identifier);
 
-    return this.toPublicDto(user);
     return await this.toPublicDto(user);
   }
 

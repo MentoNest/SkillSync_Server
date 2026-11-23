@@ -11,7 +11,6 @@ import { UserController } from './user.controller';
 import { UserService } from './user.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, RoleEntity, PortfolioLink]), AuthModule],
   imports: [TypeOrmModule.forFeature([User, RoleEntity, PortfolioLink]), AuthModule, ProfileCompletenessModule],
   controllers: [UserController, PortfolioLinksController],
   providers: [UserService, PortfolioLinksService],
