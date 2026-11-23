@@ -1,0 +1,17 @@
+.git
+.gitignore
+node_modules
+dist
+build
+coverage
+.nyc_output
+.env
+.env.*
+!.env.docker.example
+npm-debug.log*
+*.log
+.temp
+.tmp
+.vscode
+.idea
+README.md

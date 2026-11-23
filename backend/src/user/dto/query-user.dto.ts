@@ -1,9 +1,14 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 import { UserStatus } from '../user-status.enum';
 
-export class QueryUserDto {
+/**
+ * List-users query. Pagination parameters come from the shared DTO so every
+ * paginated endpoint documents the same `page`, `limit`, `order` and `cursor`
+ * parameters in Swagger (#1693, #1692).
+ */
+export class QueryUserDto extends PaginationQueryDto {
   @ApiPropertyOptional({ description: 'Filter by status', enum: UserStatus })
   @IsOptional()
   @IsEnum(UserStatus)
@@ -13,19 +18,4 @@ export class QueryUserDto {
   @IsOptional()
   @IsString()
   search?: string;
-
-  @ApiPropertyOptional({ default: 1, minimum: 1 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page?: number = 1;
-
-  @ApiPropertyOptional({ default: 20, minimum: 1, maximum: 100 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number = 20;
 }

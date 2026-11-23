@@ -25,6 +25,10 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import {
+  AvailabilityCheckQueryDto,
+  MentorIdParamDto,
+} from '../common/dto/base.dto';
 import { ErrorResponseDto, ForbiddenResponseDto, UnauthorizedResponseDto } from '../common/dto/error-response.dto';
 import { AvailabilityException } from './availability-exception.entity';
 import { AvailabilitySlot } from './availability-slot.entity';
@@ -171,16 +175,16 @@ export class AvailabilityController {
   @ApiParam({ name: 'mentorId', description: 'Mentor wallet address' })
   @ApiResponse({ status: HttpStatus.OK, type: [AvailabilitySlot] })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, type: ErrorResponseDto })
-  listMentorSlots(@Param('mentorId') mentorId: string): Promise<AvailabilitySlot[]> {
-    return this.availabilityService.listSlots(mentorId);
+  listMentorSlots(@Param() params: MentorIdParamDto): Promise<AvailabilitySlot[]> {
+    return this.availabilityService.listSlots(params.mentorId);
   }
 
   @Get('mentors/:mentorId/availability/exceptions')
   @ApiOperation({ summary: 'List a mentor availability exceptions', operationId: 'listMentorAvailabilityExceptions' })
   @ApiParam({ name: 'mentorId', description: 'Mentor wallet address' })
   @ApiResponse({ status: HttpStatus.OK, type: [AvailabilityException] })
-  listMentorExceptions(@Param('mentorId') mentorId: string): Promise<AvailabilityException[]> {
-    return this.availabilityService.listExceptions(mentorId);
+  listMentorExceptions(@Param() params: MentorIdParamDto): Promise<AvailabilityException[]> {
+    return this.availabilityService.listExceptions(params.mentorId);
   }
 
   @Get('mentors/:mentorId/availability/check')
@@ -194,10 +198,10 @@ export class AvailabilityController {
   @ApiResponse({ status: HttpStatus.OK, type: AvailabilityCheckResponseDto })
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, type: ErrorResponseDto })
   checkAvailability(
-    @Param('mentorId') mentorId: string,
-    @Query('dateTime') dateTime: string,
+    @Param() params: MentorIdParamDto,
+    @Query() query: AvailabilityCheckQueryDto,
   ): Promise<AvailabilityCheckResponseDto> {
-    return this.availabilityService.isAvailable(mentorId, dateTime);
+    return this.availabilityService.isAvailable(params.mentorId, query.dateTime);
   }
 
   @Get('mentors/:mentorId/availability/next-30-days')
@@ -210,7 +214,7 @@ export class AvailabilityController {
   })
   @ApiParam({ name: 'mentorId', description: 'Mentor wallet address' })
   @ApiResponse({ status: HttpStatus.OK, type: Next30DaysAvailabilityResponseDto })
-  getNext30Days(@Param('mentorId') mentorId: string): Promise<Next30DaysAvailabilityResponseDto> {
-    return this.availabilityService.getNext30DaysAvailability(mentorId);
+  getNext30Days(@Param() params: MentorIdParamDto): Promise<Next30DaysAvailabilityResponseDto> {
+    return this.availabilityService.getNext30DaysAvailability(params.mentorId);
   }
 }

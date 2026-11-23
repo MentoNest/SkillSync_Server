@@ -1,8 +1,9 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBody,
   ApiOperation,
+  ApiParam,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -18,6 +19,8 @@ import { AuthUser } from './auth.types';
 import { CurrentUser } from './decorators/current-user.decorator';
 import {
   LoginDto,
+  IssuedNonceResponseDto,
+  NonceAddressParamsDto,
   NonceDto,
   NonceResponseDto,
   RefreshDto,
@@ -32,6 +35,32 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   // ─── Wallet ─────────────────────────────────────────────────────────────────
+
+  @ApiTags('Wallet')
+  @ApiOperation({
+    summary: 'Request a wallet login nonce',
+    description:
+      'Issues a cryptographically secure, single-use nonce tied to the given Stellar wallet address. ' +
+      'The nonce expires after 5 minutes and replaces any previous unused nonce for this wallet.',
+    operationId: 'requestWalletNonce',
+  })
+  @ApiParam({ name: 'walletAddress', description: 'Stellar wallet public key (ED25519).' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Nonce issued successfully.',
+    type: IssuedNonceResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Wallet address is not a valid Stellar public key.',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
+  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
+  @Get('nonce/:walletAddress')
+  nonceForWallet(@Param() params: NonceAddressParamsDto): Promise<IssuedNonceResponseDto> {
+    return this.auth.createNonceWithExpiry(params.walletAddress);
+  }
 
   @ApiTags('Wallet')
   @ApiOperation({

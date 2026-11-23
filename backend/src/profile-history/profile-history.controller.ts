@@ -18,6 +18,7 @@ import { Role } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { UserIdParamDto } from '../common/dto/base.dto';
 import {
   ErrorResponseDto,
   ForbiddenResponseDto,
@@ -68,10 +69,10 @@ export class ProfileHistoryController {
   @Get('users/:userId/profile-history')
   @HttpCode(HttpStatus.OK)
   async getProfileHistory(
-    @Param('userId') userId: string,
+    @Param() params: UserIdParamDto,
     @Query() query: ProfileHistoryQueryDto,
   ): Promise<ProfileHistoryPageDto> {
-    const { entries, total } = await this.historyService.getHistoryForUser(userId, {
+    const { entries, total } = await this.historyService.getHistoryForUser(params.userId, {
       limit: query.limit,
       offset: query.offset,
     });

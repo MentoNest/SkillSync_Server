@@ -11,6 +11,8 @@ import {
 @Entity('availability_slots')
 @Index('idx_availability_slots_mentor', ['mentorId'])
 @Index('idx_availability_slots_mentor_day', ['mentorId', 'dayOfWeek'])
+@Index('idx_availability_slots_mentor_day_time', ['mentorId', 'dayOfWeek', 'startTimeUtc'])
+@Index('idx_availability_slots_mentor_created', ['mentorId', 'createdAt'])
 export class AvailabilitySlot {
   @ApiProperty({ description: 'Auto-generated UUID.', example: 'c3d4e5f6-0000-0000-0000-000000000001' })
   @PrimaryGeneratedColumn('uuid')

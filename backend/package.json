@@ -13,6 +13,8 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "lint:check": "eslint \"{src,apps,libs,test}/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
@@ -23,6 +25,9 @@
     "openapi:check": "node scripts/run-ts.js scripts/generate-openapi.ts --check",
     "contract:breaking": "node scripts/run-ts.js scripts/check-breaking-changes.ts",
     "api-client:generate": "openapi-typescript openapi/openapi.json -o ../api-client/src/schema.d.ts",
+    "test:ci": "jest --ci --runInBand --coverage",
+    "test:staged": "jest --bail --findRelatedTests --passWithNoTests",
+    "prepare": "husky",
     "typeorm": "typeorm-ts-node-commonjs -d src/database/data-source.ts",
     "migration:generate": "npm run typeorm -- migration:generate",
     "migration:create": "typeorm-ts-node-commonjs migration:create",
@@ -45,6 +50,10 @@
     "passport": "^0.7.0",
     "passport-custom": "^1.2.1",
     "passport-jwt": "^4.0.1",
+    "@stellar/stellar-sdk": "^13.0.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "helmet": "^8.0.0",
     "pg": "^8.13.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
@@ -67,10 +76,12 @@
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",
     "globals": "^17.0.0",
+    "husky": "^9.1.7",
     "jest": "^30.0.0",
     "jest-openapi": "^0.14.2",
     "openapi-diff": "^0.24.0",
     "openapi-typescript": "^7.4.4",
+    "lint-staged": "^15.2.10",
     "prettier": "^3.4.2",
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
@@ -96,6 +107,34 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "coverageReporters": ["text-summary", "lcov"],
+    "testEnvironment": "node",
+    "testPathIgnorePatterns": ["/node_modules/", "/dist/"],
+    "coverageThreshold": {
+      "global": {
+        "branches": 80,
+        "functions": 80,
+        "lines": 80,
+        "statements": 80
+      },
+      "**/auth/**/*.ts": {
+        "branches": 90,
+        "functions": 90,
+        "lines": 90,
+        "statements": 90
+      },
+      "**/user/**/*.ts": {
+        "branches": 85,
+        "functions": 85,
+        "lines": 85,
+        "statements": 85
+      },
+      "**/availability/**/*.ts": {
+        "branches": 80,
+        "functions": 80,
+        "lines": 80,
+        "statements": 80
+      }
+    }
   }
 }

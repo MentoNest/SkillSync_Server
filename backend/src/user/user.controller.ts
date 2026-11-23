@@ -11,9 +11,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { AuthUser } from '../auth/auth.types';
+import { AuthUser, Role } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { WalletIdentifierParamDto } from '../common/dto/base.dto';
 import {
   ErrorResponseDto,
   ForbiddenResponseDto,
@@ -28,6 +30,7 @@ import {
   SetDisplayNameDto,
   SetUsernameDto,
   UpdateUserDto,
+  UpdateUserStatusDto,
   UserResponseDto,
   UsernameAvailableQueryDto,
   UsernameAvailableResponseDto,
@@ -70,6 +73,21 @@ export class UserController {
   }
 
   @ApiBearerAuth('BearerAuth')
+  @ApiBearerAuth('Bearer Auth')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Patch('admin/users/:walletAddress/status')
+  @ApiOperation({ summary: 'Change an account status (admin)', operationId: 'setUserStatus' })
+  @ApiParam({ name: 'walletAddress', description: 'Wallet address of the account to update.' })
+  @ApiResponse({ status: HttpStatus.OK, type: UserResponseDto })
+  setStatus(
+    @Param('walletAddress') walletAddress: string,
+    @Body() dto: UpdateUserStatusDto,
+  ): Promise<UserResponseDto> {
+    return this.userService.setStatus(walletAddress, dto.status);
+  }
+
+  @ApiBearerAuth('Bearer Auth')
   @UseGuards(JwtAuthGuard)
   @Get('users')
   @ApiOperation({ summary: 'List users (query)', operationId: 'listUsers' })
@@ -124,7 +142,7 @@ export class UserController {
   @ApiParam({ name: 'identifier', description: 'Wallet address or username', example: 'alice_dev' })
   @ApiResponse({ status: HttpStatus.OK, type: PublicProfileResponseDto })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, type: ErrorResponseDto })
-  getPublicProfile(@Param('identifier') identifier: string): Promise<PublicProfileResponseDto> {
-    return this.userService.getPublicProfile(identifier);
+  getPublicProfile(@Param() params: WalletIdentifierParamDto): Promise<PublicProfileResponseDto> {
+    return this.userService.getPublicProfile(params.identifier);
   }
 }

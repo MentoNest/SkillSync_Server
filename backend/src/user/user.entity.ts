@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsArray,
   IsEmail,
   IsEnum,
   IsOptional,
@@ -29,6 +30,9 @@ import { UserStatus } from './user-status.enum';
 @Index('idx_users_status', ['status'])
 @Index('idx_users_created_at', ['createdAt'])
 @Index('idx_users_last_login_at', ['lastLoginAt'])
+@Index('idx_users_wallet_status', ['walletAddress', 'status'])
+@Index('idx_users_role_status_created', ['role', 'status', 'createdAt'])
+@Index('idx_users_status_role_created', ['status', 'role', 'createdAt'])
 export class User {
   @ApiProperty({
     description: 'Stellar wallet public key (ED25519). Unique account identifier.',
@@ -98,6 +102,20 @@ export class User {
   status!: UserStatus;
 
   @ApiPropertyOptional({ description: 'Avatar URL.', type: String, nullable: true })
+  @ApiPropertyOptional({
+    description:
+      'Primary role used for list filtering. Denormalised from the user_roles relation so the ' +
+      '(role, status, createdAt) composite index can serve admin list queries without a join.',
+    example: 'mentor',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  @Column({ name: 'role', type: 'varchar', length: 32, nullable: true })
+  role!: string | null;
+
+  @ApiPropertyOptional({ description: 'Avatar URL.', nullable: true })
   @IsOptional()
   @IsUrl({ require_tld: false })
   @MaxLength(2048)
@@ -117,6 +135,24 @@ export class User {
   @MaxLength(16)
   @Column({ type: 'varchar', length: 16, nullable: true, default: 'en' })
   locale!: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Optional education history. Contributes to the profile completeness bonus.',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @Column({ type: 'jsonb', default: [] })
+  education!: string[];
+
+  @ApiPropertyOptional({
+    description: 'Optional certifications. Contributes to the profile completeness bonus.',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @Column({ type: 'jsonb', default: [] })
+  certifications!: string[];
 
   @ApiPropertyOptional({
     description: 'When the username was last changed. Used to enforce the 30-day cooldown between changes.',

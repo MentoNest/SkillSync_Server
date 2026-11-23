@@ -1,3 +1,5 @@
+[![CI](https://github.com/MentoNest/SkillSync_Server/actions/workflows/ci.yml/badge.svg)](https://github.com/MentoNest/SkillSync_Server/actions/workflows/ci.yml)
+
 <p align="center">
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
 </p>
@@ -57,6 +59,40 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## Docker
+
+The backend ships a multi-stage `Dockerfile` (`node:20-alpine`) with a builder
+stage, a hot-reloading development target and a small production target that runs
+`node dist/main` as an unprivileged user. `GET /health` is the container liveness
+probe.
+
+```bash
+# 1. Configure secrets for Compose
+cp .env.docker.example .env
+
+# 2. Start the API, PostgreSQL and Redis together
+docker compose up --build
+
+# 3. Check service health
+docker compose ps
+
+# 4. Stop (add -v to remove the database/Redis volumes)
+docker compose down
+```
+
+Compose mounts the source into the container and runs `npm run start:dev`, so
+edits reload automatically. PostgreSQL and Redis data live in named volumes
+(`pgdata`, `redisdata`) and each service has a health check; the API waits for
+both dependencies to become healthy. Override host ports with `DB_PORT_HOST` and
+`REDIS_PORT_HOST` if needed.
+
+For a production image:
+
+```bash
+docker build --target production -t skillsync-backend .
+docker run --env-file .env -p 3000:3000 skillsync-backend
+```
+
 ## Admin startup seed
 
 Before starting the server, apply database migrations (`npm run migration:run`) so the
@@ -68,6 +104,47 @@ These operations run in one transaction and can be safely repeated.
 Set `DISABLE_SEED=true` to skip this step. When seeding is enabled,
 `DEFAULT_ADMIN_WALLET` is required. Configure a test-only wallet in test environments;
 the seed reads the same variable there and never supplies a production-wallet fallback.
+
+## Profile features
+
+- `GET /mentors/featured?page=1&limit=20` — public, paginated list of featured
+  mentors in manual sort order. Features expire automatically after
+  `FEATURED_MENTOR_DURATION_DAYS` (default 30) and the list is capped at
+  `FEATURED_MENTOR_LIMIT` (default 10).
+- `POST /admin/mentors/:mentorId/feature` and
+  `DELETE /admin/mentors/:mentorId/unfeature` — admin-only curation with audit
+  history; an optional `{ "featuredOrder": 1 }` body controls the display order.
+- `GET /user/profile/completeness` — dynamic completion score, missing fields
+  and suggestions (cached for five minutes). Optional portfolio links,
+  education and certifications add up to 10 bonus points. The score is also
+  included in `GET /users/me` and `GET /users`.
+- `GET /admin/users/completeness` — admin-only paginated view of all scores.
+
+## Production configuration
+
+Copy `.env.example` to `.env` and fill in every value. Startup **fails fast** when a
+required production variable is missing. The API enforces the following in
+`NODE_ENV=production`:
+
+- `JWT_SECRET` (>= 32 characters), `DB_NAME`, `DB_PASSWORD`, and either
+  `DEFAULT_ADMIN_WALLET` or `DISABLE_SEED=true` are mandatory.
+- `CORS_ALLOWED_ORIGINS` must contain exact `https://` origins (no `*`).
+- Swagger UI and the GraphQL playground are not mounted.
+- Helmet security headers, `trust proxy` (default: one reverse-proxy hop),
+  `Secure` + `HttpOnly` + `SameSite=Strict` cookies, and rate limits of
+  50 requests/minute authenticated and 10 requests/minute anonymous are active.
+
+Rate limits can be tuned with `RATE_LIMIT_*`, featured mentors with
+`FEATURED_MENTOR_*`, and profile completeness caching with
+`PROFILE_COMPLETENESS_*`.
+
+## CI
+
+The [GitHub Actions workflow](../.github/workflows/ci.yml) runs on every push to
+`main`/`develop` and on every pull request. It performs linting, a Prettier
+format check, unit tests with coverage, E2E tests against PostgreSQL and Redis
+service containers, a production build check, and `npm audit` (high/critical
+advisories fail the pipeline).
 
 ## Deployment
 

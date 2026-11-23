@@ -13,6 +13,9 @@ import { User } from '../user/user.entity';
 
 @Entity('mentee_profiles')
 @Index('idx_mentee_wallet', ['walletAddress'], { unique: true })
+@Index('idx_mentee_wallet_active', ['walletAddress', 'isActive'])
+@Index('idx_mentee_active_experience', ['isActive', 'experienceLevel'])
+@Index('idx_mentee_created_at', ['createdAt'])
 export class MenteeProfile {
   @ApiProperty({ description: 'Auto-generated UUID.', example: 'b2c3d4e5-...' })
   @PrimaryGeneratedColumn('uuid')
