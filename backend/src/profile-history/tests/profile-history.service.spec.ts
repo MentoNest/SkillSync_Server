@@ -1,6 +1,7 @@
 import { ResourceNotFoundException } from '../../common/errors/app-exceptions';
 import { ChangeReason, ProfileHistory } from '../profile-history.entity';
 import { ProfileHistoryService, RecordChangeOptions } from '../profile-history.service';
+import { maybeRedact } from '../sensitive-fields';
 
 // ─── In-memory repository stub ────────────────────────────────────────────────
 
@@ -110,7 +111,6 @@ describe('ProfileHistoryService.record', () => {
 
     // Temporarily make 'username' sensitive for this test.
     // We test the redaction function directly because REDACTED_USER_FIELDS is a const set.
-    const { maybeRedact } = await import('../sensitive-fields');
     // username is not in the sensitive set by default — this tests the passthrough.
     expect(maybeRedact('username', 'alice_dev')).toBe('alice_dev');
     // A hypothetical sensitive field would return '[REDACTED]'.

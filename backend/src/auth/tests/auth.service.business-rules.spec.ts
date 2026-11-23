@@ -12,6 +12,7 @@ import { AuthConfig, Role } from '../auth.types';
 class TtlRedis {
   now = Date.now();
   readonly store = new Map<string, { value: string; expiresAt?: number }>();
+  private readonly counters = new Map<string, number>();
   private key = (ns: RedisNamespace, key: string) => `${ns}:${key}`;
 
   async get(ns: RedisNamespace, key: string): Promise<string | null> {
@@ -29,6 +30,13 @@ class TtlRedis {
       value,
       expiresAt: ttlSeconds ? this.now + ttlSeconds * 1000 : undefined,
     });
+  }
+
+  async incrementWithExpiry(ns: RedisNamespace, key: string): Promise<number> {
+    const counterKey = this.key(ns, key);
+    const count = (this.counters.get(counterKey) ?? 0) + 1;
+    this.counters.set(counterKey, count);
+    return count;
   }
 
   async del(ns: RedisNamespace, key: string): Promise<number> {

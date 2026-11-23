@@ -5,7 +5,8 @@ import {
   BusinessRuleException,
   ResourceNotFoundException,
 } from '../common/errors/app-exceptions';
-import { APP_CONFIG, AppConfig } from '../config/app.config';
+import { APP_CONFIG } from '../config/app.config';
+import type { AppConfig } from '../config/app.config';
 import { ChangeReason } from '../profile-history/profile-history.entity';
 import { ProfileHistoryService } from '../profile-history/profile-history.service';
 import { MentorProfile } from './mentor-profile.entity';
@@ -175,7 +176,7 @@ export class FeaturedMentorService {
     const cutoff = new Date(
       Date.now() - this.config.featuredMentors.durationDays * DAY_MS,
     );
-    const result = await this.mentorRepo.update(
+    const result = await this.mentors.update(
       { isFeatured: true, featuredAt: LessThan(cutoff) },
       { isFeatured: false, featuredAt: null, featuredOrder: null },
     );
