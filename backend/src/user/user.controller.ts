@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -38,6 +39,7 @@ import {
 } from './dto';
 import { User } from './user.entity';
 import { UserService } from './user.service';
+import { resolveTimezone } from '../common/utils/timezone.utils';
 
 @ApiTags('Users')
 @Controller()
@@ -47,20 +49,31 @@ export class UserController {
   @ApiBearerAuth('Bearer Auth')
   @UseGuards(JwtAuthGuard)
   @Get('users/me')
+  @ApiHeader({ name: 'Accept-Timezone', required: false, description: 'IANA timezone override for this response.' })
   @ApiOperation({ summary: 'Get my profile', operationId: 'getMyProfile' })
   @ApiResponse({ status: HttpStatus.OK, type: UserResponseDto })
-  getMe(@CurrentUser() user: AuthUser): Promise<UserResponseDto> {
-    return this.userService.findMe(user.address);
+  async getMe(
+    @CurrentUser() user: AuthUser,
+    @Headers('accept-timezone') timezone?: string,
+  ): Promise<UserResponseDto> {
+    const profile = await this.userService.findMe(user.address);
+    return { ...profile, timezone: resolveTimezone(profile.timezone, timezone) };
   }
 
   @ApiBearerAuth('Bearer Auth')
   @UseGuards(JwtAuthGuard)
   @Patch('users/me')
+  @ApiHeader({ name: 'Accept-Timezone', required: false, description: 'IANA timezone override for this response.' })
   @ApiOperation({ summary: 'Update my profile', operationId: 'updateMyProfile' })
   @ApiResponse({ status: HttpStatus.OK, type: UserResponseDto })
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, type: ErrorResponseDto })
-  updateMe(@Body() dto: UpdateUserDto, @CurrentUser() user: AuthUser): Promise<UserResponseDto> {
-    return this.userService.updateMe(user.address, dto);
+  async updateMe(
+    @Body() dto: UpdateUserDto,
+    @CurrentUser() user: AuthUser,
+    @Headers('accept-timezone') timezone?: string,
+  ): Promise<UserResponseDto> {
+    const profile = await this.userService.updateMe(user.address, dto);
+    return { ...profile, timezone: resolveTimezone(profile.timezone, timezone) };
   }
 
   @ApiBearerAuth('Bearer Auth')

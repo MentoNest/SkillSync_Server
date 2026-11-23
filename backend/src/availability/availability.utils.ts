@@ -1,5 +1,8 @@
+import { formatUtcInTimezone } from '../common/utils/timezone.utils';
+
 export const TIME_HHMM_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 export const DATE_YYYY_MM_DD_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+export { isValidTimezone } from '../common/utils/timezone.utils';
 
 export function parseTimeToMinutes(value: string): number {
   if (!TIME_HHMM_REGEX.test(value)) {
@@ -46,29 +49,7 @@ export function getUtcDayOfWeek(date: Date): number {
 }
 
 export function formatInTimezone(date: Date, timezone: string): string {
-  try {
-    return new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      timeZoneName: 'short',
-    }).format(date);
-  } catch {
-    return date.toISOString();
-  }
-}
-
-export function isValidTimezone(timezone: string): boolean {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: timezone });
-    return true;
-  } catch {
-    return false;
-  }
+  return formatUtcInTimezone(date, timezone);
 }
 
 export function addDaysUtc(date: Date, days: number): Date {

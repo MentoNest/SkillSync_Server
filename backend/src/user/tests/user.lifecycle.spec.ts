@@ -130,6 +130,7 @@ describe('UserService lifecycle rules', () => {
     });
 
     expect(created.email).toBe('alice@example.com');
+    expect(created.timezone).toBe('UTC');
     expect(created.walletAddress).toBe(WALLET.toLowerCase());
     expect(repo.findOneBy).toHaveBeenCalledWith({ walletAddress: WALLET.toLowerCase() });
     await expect(

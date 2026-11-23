@@ -2,7 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
 import { BusinessRuleException, ResourceNotFoundException } from '../common/errors/app-exceptions';
+import { resolveTimezone } from '../common/utils/timezone.utils';
 import { MentorProfile } from '../profile/mentor-profile.entity';
+import { User } from '../user/user.entity';
 import { AvailabilityException } from './availability-exception.entity';
 import { AvailabilitySlot } from './availability-slot.entity';
 import {
@@ -42,6 +44,8 @@ export class AvailabilityService {
     private readonly exceptions: Repository<AvailabilityException>,
     @InjectRepository(MentorProfile)
     private readonly mentorProfiles: Repository<MentorProfile>,
+    @InjectRepository(User)
+    private readonly users: Repository<User>,
   ) {}
 
   // ─── Slots ────────────────────────────────────────────────────────────────
@@ -145,20 +149,35 @@ export class AvailabilityService {
 
   // ─── Availability checks ──────────────────────────────────────────────────
 
-  async isAvailable(mentorId: string, dateTime: string | Date): Promise<AvailabilityCheckResponseDto> {
+  async isAvailable(
+    mentorId: string,
+    dateTime: string | Date,
+    timezone = 'UTC',
+  ): Promise<AvailabilityCheckResponseDto> {
     await this.ensureMentorExists(mentorId);
     const dt = typeof dateTime === 'string' ? parseDateTime(dateTime) : dateTime;
     const available = await this.isAvailableAt(mentorId, dt);
-    return { mentorId, dateTime: dt.toISOString(), available };
+    return { mentorId, timezone, dateTime: dt.toISOString(), available };
   }
 
-  async getNext30DaysAvailability(mentorId: string, from?: Date): Promise<Next30DaysAvailabilityResponseDto> {
+  async getNext30DaysAvailability(
+    mentorId: string,
+    from?: Date,
+    responseTimezone?: string,
+  ): Promise<Next30DaysAvailabilityResponseDto> {
     await this.ensureMentorExists(mentorId);
     const start = startOfUtcDay(from ?? new Date());
     const end = addDaysUtc(start, 30);
 
-    const slots = await this.slots.find({ where: { mentorId } });
-    const exceptions = await this.exceptions.find({ where: { mentorId } });
+    const [slots, exceptions, user] = await Promise.all([
+      this.slots.find({ where: { mentorId } }),
+      this.exceptions.find({ where: { mentorId } }),
+      this.users.findOneBy({ walletAddress: mentorId }),
+    ]);
+    const timezone = resolveTimezone(
+      user?.timezone ?? slots[0]?.timezone ?? 'UTC',
+      responseTimezone,
+    );
 
     const windows: AvailableWindowDto[] = [];
     for (let day = new Date(start.getTime()); day < end; day = addDaysUtc(day, 1)) {
@@ -169,13 +188,13 @@ export class AvailabilityService {
 
       const dayExceptions = exceptions.filter((e) => e.date === dateStr);
       for (const slot of daySlots) {
-        const slotWindows = this.applyExceptionsToSlot(dateStr, slot, dayExceptions);
+        const slotWindows = this.applyExceptionsToSlot(dateStr, slot, dayExceptions, timezone);
         windows.push(...slotWindows);
       }
     }
 
     windows.sort((a, b) => a.startUtc.localeCompare(b.startUtc));
-    return { mentorId, windows };
+    return { mentorId, timezone, windows };
   }
 
   // ─── Internal helpers ─────────────────────────────────────────────────────
@@ -255,6 +274,7 @@ export class AvailabilityService {
     dateStr: string,
     slot: AvailabilitySlot,
     exceptions: AvailabilityException[],
+    timezone: string,
   ): AvailableWindowDto[] {
     let windows: Array<{ start: number; end: number }> = [
       { start: parseTimeToMinutes(slot.startTimeUtc), end: parseTimeToMinutes(slot.endTimeUtc) },
@@ -275,9 +295,9 @@ export class AvailabilityService {
         return {
           startUtc: startUtc.toISOString(),
           endUtc: endUtc.toISOString(),
-          displayStart: formatInTimezone(startUtc, slot.timezone || 'UTC'),
-          displayEnd: formatInTimezone(endUtc, slot.timezone || 'UTC'),
-          timezone: slot.timezone || 'UTC',
+          displayStart: formatInTimezone(startUtc, timezone),
+          displayEnd: formatInTimezone(endUtc, timezone),
+          timezone,
           slotId: slot.id,
         };
       });
