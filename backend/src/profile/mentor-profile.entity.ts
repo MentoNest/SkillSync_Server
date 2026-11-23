@@ -16,6 +16,7 @@ import { User } from '../user/user.entity';
 @Index('idx_mentor_verified_rating', ['isVerified', 'averageRating'])
 @Index('idx_mentor_discovery', ['isActive', 'isVerified', 'averageRating'])
 @Index('idx_mentor_created_at', ['createdAt'])
+@Index('idx_mentor_featured_order', ['isFeatured', 'featuredOrder'])
 export class MentorProfile {
   @ApiProperty({ description: 'Auto-generated UUID.', example: 'a1b2c3d4-...' })
   @PrimaryGeneratedColumn('uuid')
@@ -119,6 +120,18 @@ export class MentorProfile {
   })
   @Column({ name: 'average_rating', type: 'decimal', precision: 2, scale: 1, default: 0 })
   averageRating!: number;
+
+  @ApiPropertyOptional({ description: 'Whether this mentor is in the curated featured list.', example: false })
+  @Column({ name: 'is_featured', type: 'boolean', default: false })
+  isFeatured!: boolean;
+
+  @ApiPropertyOptional({ description: 'UTC timestamp when the mentor was featured.', nullable: true })
+  @Column({ name: 'featured_at', type: 'timestamptz', precision: 3, nullable: true })
+  featuredAt!: Date | null;
+
+  @ApiPropertyOptional({ description: 'Manual display position in the featured list.', nullable: true })
+  @Column({ name: 'featured_order', type: 'int', nullable: true })
+  featuredOrder!: number | null;
 
   @ApiProperty({ description: 'UTC creation timestamp.' })
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz', precision: 3 })

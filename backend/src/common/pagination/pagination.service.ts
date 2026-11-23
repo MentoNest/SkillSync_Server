@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import {
+import type {
   CursorPage,
   CursorPaginationOptions,
   CursorQueryBuilder,
