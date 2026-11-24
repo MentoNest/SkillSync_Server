@@ -37,7 +37,7 @@ import { ProfileService } from './profile.service';
 import { ProfileUpdateRateLimitGuard } from './profile-update-rate-limit.guard';
 
 @ApiTags('Profiles')
-@ApiBearerAuth('Bearer Auth')
+@ApiBearerAuth('BearerAuth')
 @UseGuards(JwtAuthGuard)
 @Controller('user')
 export class ProfileController {

@@ -18,6 +18,7 @@ export class ProfileHistoryEntryDto {
     description: 'Value before the change. Null for initial writes. Sensitive values are redacted.',
     nullable: true,
     example: null,
+    oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }, { type: 'object' }, { type: 'array' }],
   })
   oldValue!: unknown;
 
@@ -25,6 +26,7 @@ export class ProfileHistoryEntryDto {
     description: 'Value after the change. Null when the field was cleared.',
     nullable: true,
     example: 'alice_dev',
+    oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }, { type: 'object' }, { type: 'array' }],
   })
   newValue!: unknown;
 

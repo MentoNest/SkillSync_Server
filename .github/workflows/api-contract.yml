@@ -1,0 +1,43 @@
+name: API Contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  contract:
+    name: OpenAPI spec, contract tests & breaking-change check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Verify the committed OpenAPI spec is up to date
+        run: npm run openapi:check
+
+      - name: Run response contract tests
+        run: npm run test:contract
+
+      - name: Detect breaking API changes
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --depth=1 origin "${{ github.base_ref }}"
+          if git cat-file -e "FETCH_HEAD:backend/openapi/openapi.json" 2>/dev/null; then
+            git show "FETCH_HEAD:backend/openapi/openapi.json" > base-openapi.json
+            npm run contract:breaking -- --base base-openapi.json
+          else
+            echo "No baseline OpenAPI spec on '${{ github.base_ref }}'; skipping breaking-change detection."
+          fi

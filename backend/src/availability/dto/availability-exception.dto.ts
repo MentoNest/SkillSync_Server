@@ -52,7 +52,7 @@ export class CreateAvailabilityExceptionDto {
   @IsEndAfterStartProperty('startTimeUtc')
   endTimeUtc!: string;
 
-  @ApiPropertyOptional({ description: 'Reason for exception.', example: 'Holiday', nullable: true })
+  @ApiPropertyOptional({ description: 'Reason for exception.', example: 'Holiday', type: String, nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(255)
@@ -87,7 +87,7 @@ export class UpdateAvailabilityExceptionDto {
   @Matches(TIME_HHMM_REGEX, { message: 'endTimeUtc must be in HH:mm 24-hour format.' })
   endTimeUtc?: string;
 
-  @ApiPropertyOptional({ description: 'Reason for exception.', example: 'Holiday', nullable: true })
+  @ApiPropertyOptional({ description: 'Reason for exception.', example: 'Holiday', type: String, nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(255)

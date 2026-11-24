@@ -1,0 +1,26 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testEnvironment": "node",
+  "testRegex": "\\.contract-spec\\.ts$",
+  "transform": {
+    "^.+\\.(t|j)s$": [
+      "ts-jest",
+      {
+        "diagnostics": false,
+        "tsconfig": {
+          "module": "commonjs",
+          "moduleResolution": "node",
+          "resolvePackageJsonExports": false,
+          "isolatedModules": true,
+          "emitDecoratorMetadata": true,
+          "experimentalDecorators": true,
+          "esModuleInterop": true,
+          "allowSyntheticDefaultImports": true,
+          "target": "ES2023",
+          "skipLibCheck": true
+        }
+      }
+    ]
+  }
+}

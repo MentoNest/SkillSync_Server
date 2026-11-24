@@ -14,7 +14,7 @@ export class CreatePortfolioLinkDto {
   @IsEnum(PortfolioPlatform)
   platform?: PortfolioPlatform;
 
-  @ApiPropertyOptional({ example: 'My GitHub', nullable: true })
+  @ApiPropertyOptional({ example: 'My GitHub', type: String, nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(120)
@@ -25,6 +25,6 @@ export class PortfolioLinkResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty({ enum: PortfolioPlatform }) platform!: PortfolioPlatform;
   @ApiProperty() url!: string;
-  @ApiPropertyOptional({ nullable: true }) displayTitle!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) displayTitle!: string | null;
   @ApiProperty() createdAt!: Date;
 }

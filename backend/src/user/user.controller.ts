@@ -27,6 +27,7 @@ import {
   UnauthorizedResponseDto,
 } from '../common/dto/error-response.dto';
 import {
+  PaginatedUsersResponseDto,
   PublicProfileResponseDto,
   QueryUserDto,
   SetDisplayNameDto,
@@ -46,7 +47,7 @@ import { resolveTimezone } from '../common/utils/timezone.utils';
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @UseGuards(JwtAuthGuard)
   @Get('users/me')
   @ApiHeader({ name: 'Accept-Timezone', required: false, description: 'IANA timezone override for this response.' })
@@ -60,7 +61,7 @@ export class UserController {
     return { ...profile, timezone: resolveTimezone(profile.timezone, timezone) };
   }
 
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @UseGuards(JwtAuthGuard)
   @Patch('users/me')
   @ApiHeader({ name: 'Accept-Timezone', required: false, description: 'IANA timezone override for this response.' })
@@ -76,7 +77,7 @@ export class UserController {
     return { ...profile, timezone: resolveTimezone(profile.timezone, timezone) };
   }
 
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @UseGuards(JwtAuthGuard)
   @Delete('users/me')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -86,6 +87,7 @@ export class UserController {
     await this.userService.removeMe(user.address);
   }
 
+  @ApiBearerAuth('BearerAuth')
   @ApiBearerAuth('Bearer Auth')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
@@ -104,7 +106,7 @@ export class UserController {
   @UseGuards(JwtAuthGuard)
   @Get('users')
   @ApiOperation({ summary: 'List users (query)', operationId: 'listUsers' })
-  @ApiResponse({ status: HttpStatus.OK })
+  @ApiResponse({ status: HttpStatus.OK, type: PaginatedUsersResponseDto })
   listUsers(@Query() query: QueryUserDto) {
     return this.userService.findAll(query);
   }
@@ -119,7 +121,7 @@ export class UserController {
     return this.userService.checkAvailability(query.username);
   }
 
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @Patch('user/username')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
@@ -135,7 +137,7 @@ export class UserController {
     return this.userService.setUsername(user.address, dto.username);
   }
 
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @Patch('user/display-name')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)

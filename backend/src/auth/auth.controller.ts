@@ -165,7 +165,7 @@ export class AuthController {
   }
 
   @ApiTags('Session Management')
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @ApiOperation({
     summary: 'Log out',
     description:

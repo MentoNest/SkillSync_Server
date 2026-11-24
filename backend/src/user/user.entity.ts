@@ -48,6 +48,7 @@ export class User {
   @ApiPropertyOptional({
     description: 'Optional unique email address.',
     example: 'alice@example.com',
+    type: String,
     nullable: true,
   })
   @IsOptional()
@@ -63,6 +64,7 @@ export class User {
       'no consecutive special characters, cannot start or end with a special character. ' +
       'Null until the user sets one.',
     example: 'alice_dev',
+    type: String,
     nullable: true,
   })
   @IsOptional()
@@ -77,6 +79,7 @@ export class User {
       'Public display name. Up to 50 characters, no uniqueness requirement. ' +
       'Defaults to the first 8 characters of the wallet address when not set.',
     example: 'Alice the Developer',
+    type: String,
     nullable: true,
   })
   @IsOptional()
@@ -112,21 +115,21 @@ export class User {
   @Column({ name: 'role', type: 'varchar', length: 32, nullable: true })
   role!: string | null;
 
-  @ApiPropertyOptional({ description: 'Avatar URL.', nullable: true })
+  @ApiPropertyOptional({ description: 'Avatar URL.', type: String, nullable: true })
   @IsOptional()
   @IsUrl({ require_tld: false })
   @MaxLength(2048)
   @Column({ name: 'avatar_url', type: 'varchar', length: 2048, nullable: true })
   avatarUrl!: string | null;
 
-  @ApiProperty({ description: 'User timezone (IANA).', example: 'UTC', default: 'UTC' })
+  @ApiProperty({ description: 'User timezone (IANA).', example: 'UTC', default: 'UTC', type: String })
   @IsIanaTimezone()
   @IsString()
   @MaxLength(64)
   @Column({ type: 'varchar', length: 64, default: 'UTC' })
   timezone!: string;
 
-  @ApiPropertyOptional({ description: 'User locale.', example: 'en-US', nullable: true })
+  @ApiPropertyOptional({ description: 'User locale.', example: 'en-US', type: String, nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(16)
@@ -153,12 +156,14 @@ export class User {
 
   @ApiPropertyOptional({
     description: 'When the username was last changed. Used to enforce the 30-day cooldown between changes.',
+    type: String,
+    format: 'date-time',
     nullable: true,
   })
   @Column({ name: 'username_changed_at', type: 'timestamptz', nullable: true })
   usernameChangedAt!: Date | null;
 
-  @ApiPropertyOptional({ description: 'Last login timestamp.', nullable: true })
+  @ApiPropertyOptional({ description: 'Last login timestamp.', type: String, format: 'date-time', nullable: true })
   @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })
   lastLoginAt!: Date | null;
 
@@ -173,7 +178,7 @@ export class User {
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt!: Date;
 
-  @ApiPropertyOptional({ description: 'Soft delete timestamp.', nullable: true })
+  @ApiPropertyOptional({ description: 'Soft delete timestamp.', type: String, format: 'date-time', nullable: true })
   @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt!: Date | null;
 

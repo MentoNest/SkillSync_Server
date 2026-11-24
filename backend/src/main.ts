@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import express, { type Application } from 'express';
 import { resolve } from 'path';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { APP_CONFIG, AppConfig } from './config/app.config';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -11,6 +11,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 import { createRequestLogger } from './common/logging/request-logger.middleware';
 import { createRateLimitMiddleware } from './common/security/rate-limit.middleware';
 import { DatabaseHealthService } from './database/database-health.service';
+import { buildSwaggerConfig, SWAGGER_EXTRA_MODELS } from './swagger.config';
 import { createShutdownMiddleware } from './shutdown/shutdown.middleware';
 import { ShutdownService } from './shutdown/shutdown.service';
 
@@ -55,35 +56,9 @@ async function bootstrap() {
 
   // Expose interactive Swagger UI at /api/docs in every environment except production.
   if (process.env.NODE_ENV !== 'production') {
-    const swaggerConfig = new DocumentBuilder()
-      .setTitle('SkillSync API')
-      .setDescription(
-        'REST API for the SkillSync platform. ' +
-          'Authentication is wallet-based (Stellar ED25519): request a nonce, sign it, exchange the signature for JWT tokens.',
-      )
-      .setVersion('1.0')
-      .addTag('Authentication', 'Wallet login and token lifecycle endpoints.')
-      .addTag('Wallet', 'Nonce issuance for Stellar wallet sign-in.')
-      .addTag('Session Management', 'Token refresh and revocation.')
-      .addTag('Users', 'Username, display name, and public profile endpoints.')
-      .addTag('Profiles', 'Mentor and mentee profile creation and management.')
-      .addTag('Admin', 'Admin-only endpoints. Require the ADMIN role.')
-      .addBearerAuth(
-        {
-          type: 'http',
-          scheme: 'bearer',
-          bearerFormat: 'JWT',
-          description:
-            'Paste the accessToken returned by POST /auth/login. ' +
-            'Format: Bearer <token>',
-          name: 'Authorization',
-          in: 'header',
-        },
-        'Bearer Auth',
-      )
-      .build();
-
-    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    const document = SwaggerModule.createDocument(app, buildSwaggerConfig(), {
+      extraModels: SWAGGER_EXTRA_MODELS,
+    });
     SwaggerModule.setup('api/docs', app, document, {
       swaggerOptions: {
         persistAuthorization: true,

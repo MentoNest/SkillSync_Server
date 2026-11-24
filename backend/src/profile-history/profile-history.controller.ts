@@ -33,7 +33,7 @@ import {
 import { ProfileHistoryService } from './profile-history.service';
 
 @ApiTags('Admin')
-@ApiBearerAuth('Bearer Auth')
+@ApiBearerAuth('BearerAuth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN)
 @Controller('admin')

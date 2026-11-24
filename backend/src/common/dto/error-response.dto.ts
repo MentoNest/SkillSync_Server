@@ -1,5 +1,23 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+/** A single field-level validation failure, as returned inside `errors`. */
+export class FieldErrorDto {
+  @ApiProperty({ example: 'address', description: 'Dotted path of the offending field.' })
+  field!: string;
+
+  @ApiProperty({
+    example: ['address must be a valid Stellar public key'],
+    description: 'Human-readable validation messages for the field.',
+    type: [String],
+  })
+  errors!: string[];
+}
+
+/**
+ * Envelope produced by `AllExceptionsFilter` for every error response:
+ * `{ statusCode, message, error, code, timestamp, path, requestId }`, plus `errors`
+ * for validation failures. Kept in sync with `ErrorResponseBody` in the filter.
+ */
 export class ErrorResponseDto {
   @ApiProperty({ example: 400, description: 'HTTP status code.' })
   statusCode!: number;
@@ -15,6 +33,24 @@ export class ErrorResponseDto {
     description: 'Stable machine-readable error code. Clients should branch on this, not on message.',
   })
   code!: string;
+
+  @ApiProperty({ example: '2026-11-22T10:00:00.000Z', description: 'ISO 8601 timestamp of the error.' })
+  timestamp!: string;
+
+  @ApiProperty({ example: '/auth/nonce', description: 'Request path that produced the error.' })
+  path!: string;
+
+  @ApiProperty({
+    example: 'b1f2c3d4-e5f6-7890-abcd-ef1234567890',
+    description: 'Correlation id of the request (from the X-Request-Id header when supplied).',
+  })
+  requestId!: string;
+
+  @ApiPropertyOptional({
+    description: 'Per-field validation details. Only present on VALIDATION_FAILED responses.',
+    type: () => [FieldErrorDto],
+  })
+  errors?: FieldErrorDto[];
 }
 
 export class UnauthorizedResponseDto {
@@ -29,6 +65,15 @@ export class UnauthorizedResponseDto {
 
   @ApiProperty({ example: 'INVALID_CREDENTIALS' })
   code!: string;
+
+  @ApiProperty({ example: '2026-11-22T10:00:00.000Z' })
+  timestamp!: string;
+
+  @ApiProperty({ example: '/auth/login' })
+  path!: string;
+
+  @ApiProperty({ example: 'b1f2c3d4-e5f6-7890-abcd-ef1234567890' })
+  requestId!: string;
 }
 
 export class ForbiddenResponseDto {
@@ -43,6 +88,15 @@ export class ForbiddenResponseDto {
 
   @ApiProperty({ example: 'FORBIDDEN' })
   code!: string;
+
+  @ApiProperty({ example: '2026-11-22T10:00:00.000Z' })
+  timestamp!: string;
+
+  @ApiProperty({ example: '/users/me' })
+  path!: string;
+
+  @ApiProperty({ example: 'b1f2c3d4-e5f6-7890-abcd-ef1234567890' })
+  requestId!: string;
 }
 
 export class TooManyRequestsResponseDto {
@@ -57,6 +111,15 @@ export class TooManyRequestsResponseDto {
 
   @ApiProperty({ example: 'RATE_LIMITED' })
   code!: string;
+
+  @ApiProperty({ example: '2026-11-22T10:00:00.000Z' })
+  timestamp!: string;
+
+  @ApiProperty({ example: '/auth/nonce' })
+  path!: string;
+
+  @ApiProperty({ example: 'b1f2c3d4-e5f6-7890-abcd-ef1234567890' })
+  requestId!: string;
 }
 
 export class InternalServerErrorResponseDto {
@@ -71,4 +134,13 @@ export class InternalServerErrorResponseDto {
 
   @ApiProperty({ example: 'INTERNAL_ERROR' })
   code!: string;
+
+  @ApiProperty({ example: '2026-11-22T10:00:00.000Z' })
+  timestamp!: string;
+
+  @ApiProperty({ example: '/users/me' })
+  path!: string;
+
+  @ApiProperty({ example: 'b1f2c3d4-e5f6-7890-abcd-ef1234567890' })
+  requestId!: string;
 }

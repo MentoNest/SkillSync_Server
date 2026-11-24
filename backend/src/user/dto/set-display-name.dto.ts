@@ -8,6 +8,7 @@ export class SetDisplayNameDto {
       'Send null or omit the field to reset to the default (first 8 characters of the wallet address).',
     example: 'Alice the Developer',
     maxLength: 50,
+    type: String,
     nullable: true,
   })
   @IsOptional()

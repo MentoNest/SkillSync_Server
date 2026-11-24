@@ -54,6 +54,7 @@ export class MenteeProfile {
       'Maximum monthly budget in USD cents the mentee can spend (e.g. 10000 = $100.00). ' +
       'Null means no budget preference.',
     example: 10000,
+    type: Number,
     nullable: true,
   })
   @Column({ name: 'budget_usd_cents_per_month', type: 'int', nullable: true })

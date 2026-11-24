@@ -48,6 +48,7 @@ export class AvailabilityException {
   @ApiPropertyOptional({
     description: 'Reason for the exception (vacation, holiday, etc.).',
     example: 'Holiday',
+    type: String,
     nullable: true,
   })
   @Column({ name: 'reason', type: 'varchar', length: 255, nullable: true })
