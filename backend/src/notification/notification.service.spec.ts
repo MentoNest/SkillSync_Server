@@ -33,7 +33,8 @@ describe('NotificationService', () => {
     findOneBy: jest.Mock;
     findBy: jest.Mock;
   };
-  let redis: { incrementWithExpiry: jest.Mock };
+  let users: { findOneBy: jest.Mock; find: jest.Mock };
+  let redis: { consumeRateLimit: jest.Mock };
   let gateway: { emitToUser: jest.Mock };
   let queryBuilder: {
     delete: jest.Mock;
@@ -56,7 +57,11 @@ describe('NotificationService', () => {
       findOneBy: jest.fn().mockResolvedValue(null),
       findBy: jest.fn().mockResolvedValue([]),
     };
-    redis = { incrementWithExpiry: jest.fn().mockResolvedValue(1) };
+    users = {
+      findOneBy: jest.fn().mockResolvedValue({ walletAddress: userId }),
+      find: jest.fn().mockResolvedValue([{ walletAddress: userId }]),
+    };
+    redis = { consumeRateLimit: jest.fn().mockResolvedValue(true) };
     gateway = { emitToUser: jest.fn() };
     queryBuilder = {
       delete: jest.fn(),
@@ -70,6 +75,7 @@ describe('NotificationService', () => {
     service = new NotificationService(
       notifications as never,
       preferences as never,
+      users as never,
       redis as never,
       gateway as never,
     );
@@ -88,10 +94,13 @@ describe('NotificationService', () => {
     expect(notifications.create).toHaveBeenCalledWith(
       expect.objectContaining({ userId, data: notification.data }),
     );
-    expect(redis.incrementWithExpiry).toHaveBeenCalledWith(
+    expect(redis.consumeRateLimit).toHaveBeenCalledWith(
       expect.any(String),
-      expect.stringContaining(`${userId}:in_app:`),
-      3600,
+      `notification:${userId}:in_app`,
+      100,
+      3_600_000,
+      expect.any(Number),
+      expect.any(String),
     );
     expect(gateway.emitToUser).toHaveBeenCalledWith(userId, notification);
   });
@@ -111,13 +120,13 @@ describe('NotificationService', () => {
       }),
     ).resolves.toBeNull();
 
-    expect(redis.incrementWithExpiry).not.toHaveBeenCalled();
+    expect(redis.consumeRateLimit).not.toHaveBeenCalled();
     expect(notifications.save).not.toHaveBeenCalled();
     expect(gateway.emitToUser).not.toHaveBeenCalled();
   });
 
   it('enforces the per-user and per-channel hourly limit', async () => {
-    redis.incrementWithExpiry.mockResolvedValue(101);
+    redis.consumeRateLimit.mockResolvedValue(false);
 
     await expect(
       service.create(userId, {
@@ -204,6 +213,55 @@ describe('NotificationService', () => {
     expect(preferences.save).toHaveBeenCalledWith([
       { userId, type: NotificationType.PLATFORM_ANNOUNCEMENT, optedOut: true },
     ]);
+  });
+
+  it('creates event notifications only for existing users', async () => {
+    await service.createForUser(userId, {
+      type: NotificationType.SESSION_REMINDER,
+      title: 'Upcoming session',
+      body: 'Your session starts soon',
+    });
+
+    expect(users.findOneBy).toHaveBeenCalledWith({ walletAddress: userId });
+    expect(notifications.save).toHaveBeenCalled();
+  });
+
+  it('broadcasts announcements while respecting preferences and rate limits', async () => {
+    const optedOutUserId = 'H'.repeat(56);
+    const rateLimitedUserId = 'J'.repeat(56);
+    users.find.mockResolvedValue([
+      { walletAddress: userId },
+      { walletAddress: optedOutUserId },
+      { walletAddress: rateLimitedUserId },
+    ]);
+    preferences.findOneBy
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        userId: optedOutUserId,
+        type: NotificationType.PLATFORM_ANNOUNCEMENT,
+        optedOut: true,
+      })
+      .mockResolvedValueOnce(null);
+    redis.consumeRateLimit
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+
+    await expect(
+      service.broadcastAnnouncement({
+        title: 'Platform update',
+        body: 'New features are available',
+      }),
+    ).resolves.toEqual({
+      recipients: 3,
+      delivered: 1,
+      optedOut: 1,
+      rateLimited: 1,
+    });
+    expect(notifications.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: NotificationType.PLATFORM_ANNOUNCEMENT,
+      }),
+    );
   });
 
   it('deletes notifications older than 90 days', async () => {

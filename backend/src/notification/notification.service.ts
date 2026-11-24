@@ -6,11 +6,13 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { RedisNamespace } from '../redis/redis.config';
 import { RedisService } from '../redis/redis.service';
 import { ResourceNotFoundException } from '../common/errors/app-exceptions';
+import { User } from '../user/user.entity';
 import { NotificationPreference } from './notification-preference.entity';
 import { Notification } from './notification.entity';
 import {
@@ -23,6 +25,7 @@ import { NotificationChannel, NotificationType } from './notification.types';
 import { NotificationGateway } from './notification.gateway';
 
 const RATE_LIMIT_PER_HOUR = 100;
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const RETENTION_DAYS = 90;
 
@@ -36,6 +39,8 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     private readonly notifications: Repository<Notification>,
     @InjectRepository(NotificationPreference)
     private readonly preferences: Repository<NotificationPreference>,
+    @InjectRepository(User)
+    private readonly users: Repository<User>,
     private readonly redis: RedisService,
     private readonly gateway: NotificationGateway,
   ) {}
@@ -75,15 +80,16 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     const channels = dto.channels?.length
       ? dto.channels
       : [NotificationChannel.IN_APP];
-    const hourWindow = Math.floor(Date.now() / 3_600_000);
-
     for (const channel of channels) {
-      const count = await this.redis.incrementWithExpiry(
+      const allowed = await this.redis.consumeRateLimit(
         RedisNamespace.RATE_LIMIT,
-        `notification:${userId}:${channel}:${hourWindow}`,
-        3_600,
+        `notification:${userId}:${channel}`,
+        RATE_LIMIT_PER_HOUR,
+        RATE_LIMIT_WINDOW_MS,
+        Date.now(),
+        randomUUID(),
       );
-      if (count > RATE_LIMIT_PER_HOUR) {
+      if (!allowed) {
         throw new HttpException(
           `Notification limit exceeded for ${channel}; maximum ${RATE_LIMIT_PER_HOUR} per hour`,
           HttpStatus.TOO_MANY_REQUESTS,
@@ -114,6 +120,54 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     }
 
     return notification;
+  }
+
+  async createForUser(
+    userId: string,
+    dto: CreateNotificationDto,
+  ): Promise<Notification | null> {
+    const user = await this.users.findOneBy({ walletAddress: userId });
+    if (!user) throw new ResourceNotFoundException('User', userId);
+    return this.create(userId, dto);
+  }
+
+  async broadcastAnnouncement(
+    dto: Omit<CreateNotificationDto, 'type'>,
+  ): Promise<{
+    recipients: number;
+    delivered: number;
+    optedOut: number;
+    rateLimited: number;
+  }> {
+    const users = await this.users.find({ select: { walletAddress: true } });
+    const result = {
+      recipients: users.length,
+      delivered: 0,
+      optedOut: 0,
+      rateLimited: 0,
+    };
+
+    for (const user of users) {
+      try {
+        const notification = await this.create(user.walletAddress, {
+          ...dto,
+          type: NotificationType.PLATFORM_ANNOUNCEMENT,
+        });
+        if (notification) result.delivered++;
+        else result.optedOut++;
+      } catch (error) {
+        if (
+          error instanceof HttpException &&
+          error.getStatus() === Number(HttpStatus.TOO_MANY_REQUESTS)
+        ) {
+          result.rateLimited++;
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    return result;
   }
 
   async list(

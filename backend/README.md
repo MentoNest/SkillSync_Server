@@ -80,11 +80,14 @@ the update body is `{"preferences":[{"type":"message","enabled":false}]}`.
 
 Backend event handlers can inject `NotificationService` and call `create(userId, notification)`
 for session reminders, messages, profile verification, suspension warnings, and platform
-announcements. In-app notifications are emitted to the user's authenticated Socket.IO room
+announcements. Admins can also send those event notifications through
+`POST /admin/notifications/:userId` and publish platform-wide announcements through
+`POST /admin/notifications/announcements`; both endpoints require an admin access token.
+Announcement responses report delivered, opted-out, and rate-limited recipients. In-app notifications are emitted to the user's authenticated Socket.IO room
 through the `/notifications` namespace as the `notification` event. Connect with the access
 token in the Socket.IO `auth.token` handshake field or a Bearer authorization header. Email
 and push channels are placeholders and do not send messages until providers are configured.
-Each user and delivery channel is limited to 100 notifications per hour. Notifications older
+Each user and delivery channel is limited to 100 notifications in a rolling hour. Notifications older
 than 90 days are removed at startup and once daily.
 
 ## Deployment

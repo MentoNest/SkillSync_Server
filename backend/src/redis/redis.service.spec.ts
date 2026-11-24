@@ -48,27 +48,54 @@ describe('RedisService', () => {
     await expect(service.del(RedisNamespace.CACHE, 'k')).resolves.toBe(1);
     expect(client.del).toHaveBeenCalledWith('skillsync:cache:k');
 
-    await expect(service.expire(RedisNamespace.CACHE, 'k', 30)).resolves.toBe(true);
+    await expect(service.expire(RedisNamespace.CACHE, 'k', 30)).resolves.toBe(
+      true,
+    );
     expect(client.expire).toHaveBeenCalledWith('skillsync:cache:k', 30);
 
     client.expire.mockResolvedValue(0);
-    await expect(service.expire(RedisNamespace.CACHE, 'missing', 30)).resolves.toBe(false);
+    await expect(
+      service.expire(RedisNamespace.CACHE, 'missing', 30),
+    ).resolves.toBe(false);
 
-    await expect(service.exists(RedisNamespace.BLACKLIST, 'jti')).resolves.toBe(true);
+    await expect(service.exists(RedisNamespace.BLACKLIST, 'jti')).resolves.toBe(
+      true,
+    );
   });
 
-  it('atomically increments a namespaced counter with an expiry', async () => {
-    client.eval.mockResolvedValue(2);
-
+  it('atomically enforces a rolling-window rate limit', async () => {
     await expect(
-      service.incrementWithExpiry(RedisNamespace.RATE_LIMIT, 'notification:user', 3600),
-    ).resolves.toBe(2);
+      service.consumeRateLimit(
+        RedisNamespace.RATE_LIMIT,
+        'notification:user:in_app',
+        100,
+        3_600_000,
+        1_800_000,
+        'event-id',
+      ),
+    ).resolves.toBe(true);
     expect(client.eval).toHaveBeenCalledWith(
-      expect.stringContaining("redis.call('INCR', KEYS[1])"),
+      expect.stringContaining("redis.call('ZREMRANGEBYSCORE', KEYS[1]"),
       1,
-      'skillsync:ratelimit:notification:user',
-      3600,
+      'skillsync:ratelimit:notification:user:in_app',
+      1_800_000 - 3_600_000,
+      100,
+      1_800_000,
+      'event-id',
+      3_600_000,
     );
+
+    client.eval.mockResolvedValue(0);
+    await expect(
+      service.consumeRateLimit(
+        RedisNamespace.RATE_LIMIT,
+        'notification:user:in_app',
+        100,
+        3_600_000,
+        1_800_000,
+        'event-id-2',
+      ),
+    ).resolves.toBe(false);
   });
 
   it('pings and reports health', async () => {
@@ -93,14 +120,21 @@ describe('RedisService', () => {
 
 describe('RedisHealthController', () => {
   it('returns up with the latency', async () => {
-    const controller = new RedisHealthController({ ping: jest.fn().mockResolvedValue(3) } as never);
-    await expect(controller.check()).resolves.toEqual({ status: 'up', latencyMs: 3 });
+    const controller = new RedisHealthController({
+      ping: jest.fn().mockResolvedValue(3),
+    } as never);
+    await expect(controller.check()).resolves.toEqual({
+      status: 'up',
+      latencyMs: 3,
+    });
   });
 
   it('answers 503 when Redis does not respond', async () => {
     const controller = new RedisHealthController({
       ping: jest.fn().mockRejectedValue(new Error('timeout')),
     } as never);
-    await expect(controller.check()).rejects.toThrow('Redis is not reachable: timeout');
+    await expect(controller.check()).rejects.toThrow(
+      'Redis is not reachable: timeout',
+    );
   });
 });
