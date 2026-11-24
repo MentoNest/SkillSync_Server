@@ -181,3 +181,11 @@ export class MentorProfile {
   @VersionColumn({ name: 'version' })
   version!: number;
 }
+
+/**
+ * TODO (#1674): Extend MentorProfile with:
+ * - bio max 1000 chars, decimal hourlyRate (0-1000)
+ * - yearsOfExperience, currentRole, company, education, certifications, mentoringStyle
+ * - totalMentoringHours (default 0), reviewCount (default 0)
+ * - indexes on skills, hourlyRate, and averageRating
+ */
