@@ -45,3 +45,14 @@ export class PublicProfileResponseDto {
   @ApiPropertyOptional({ nullable: true, description: 'Badge shown on verified mentor profiles and cards.' })
   verifiedBadge!: string | null;
 }
+
+/**
+ * Public Profile Response DTO
+ * Issue: #1678
+ *
+ * TODO:
+ * - Expose GET /profiles/:userId without auth
+ * - Return sanitized mentor & mentee fields (strip walletAddress, email, internal notes/status)
+ * - Include profileType, isVerified, and optional profile completeness badge
+ * - Add Redis caching (5 min TTL) and IP rate limiting (100 req/min)
+ */
