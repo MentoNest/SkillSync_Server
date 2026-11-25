@@ -11,6 +11,8 @@ export class NonceAddressParamsDto {
   })
   @IsString()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
-  @IsValidWalletAddress({ message: 'walletAddress must be a valid Stellar public key' })
+  @IsValidWalletAddress({
+    message: 'walletAddress must be a valid Stellar public key',
+  })
   walletAddress!: string;
 }

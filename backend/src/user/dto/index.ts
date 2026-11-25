@@ -1,3 +1,4 @@
+export * from './avatar-upload-response.dto';
 export * from './portfolio-link.dto';
 export * from './create-user.dto';
 export * from './paginated-users-response.dto';

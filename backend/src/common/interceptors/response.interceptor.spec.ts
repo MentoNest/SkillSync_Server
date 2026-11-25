@@ -11,7 +11,10 @@ function run(payload: unknown, statusCode = 200, requestId?: string) {
   };
   const response = { statusCode };
   const context = {
-    switchToHttp: () => ({ getRequest: () => request, getResponse: () => response }),
+    switchToHttp: () => ({
+      getRequest: () => request,
+      getResponse: () => response,
+    }),
   } as unknown as ExecutionContext;
   const handler: CallHandler = { handle: () => of(payload) };
   return lastValueFrom(new ResponseInterceptor().intercept(context, handler));
@@ -33,18 +36,33 @@ describe('ResponseInterceptor (#1694)', () => {
   });
 
   it('uses the logger request id when present', async () => {
-    expect(await run([], 200, 'req-xyz')).toMatchObject({ requestId: 'req-xyz' });
+    expect(await run([], 200, 'req-xyz')).toMatchObject({
+      requestId: 'req-xyz',
+    });
   });
 
   it('moves pagination metadata inside data', async () => {
-    const meta = { page: 1, limit: 20, total: 2, totalPages: 1, hasNext: false, hasPrev: false };
-    const body = (await run({ data: [{ id: 'u1' }], meta })) as Record<string, unknown>;
+    const meta = {
+      page: 1,
+      limit: 20,
+      total: 2,
+      totalPages: 1,
+      hasNext: false,
+      hasPrev: false,
+    };
+    const body = (await run({ data: [{ id: 'u1' }], meta })) as Record<
+      string,
+      unknown
+    >;
 
     expect(body.data).toEqual({ items: [{ id: 'u1' }], meta });
   });
 
   it('uses the HTTP status message for created responses', async () => {
-    expect(await run({ id: 'u1' }, 201)).toMatchObject({ statusCode: 201, message: 'Created' });
+    expect(await run({ id: 'u1' }, 201)).toMatchObject({
+      statusCode: 201,
+      message: 'Created',
+    });
   });
 
   it('leaves 204 responses empty', async () => {

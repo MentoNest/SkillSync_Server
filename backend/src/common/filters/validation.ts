@@ -1,12 +1,18 @@
 import { ValidationPipe } from '@nestjs/common';
 import type { ValidationError } from 'class-validator';
-import { FieldError, ValidationFailedException } from '../errors/app-exceptions';
+import {
+  FieldError,
+  ValidationFailedException,
+} from '../errors/app-exceptions';
 
 /**
  * Flattens class-validator errors (including nested objects, with dotted paths) into
  * `{ field, errors: string[] }` entries with the validator's human-readable messages.
  */
-export function formatValidationErrors(errors: ValidationError[], parent = ''): FieldError[] {
+export function formatValidationErrors(
+  errors: ValidationError[],
+  parent = '',
+): FieldError[] {
   const out: FieldError[] = [];
   for (const error of errors) {
     const field = parent ? `${parent}.${error.property}` : error.property;
@@ -26,6 +32,7 @@ export function createValidationPipe(): ValidationPipe {
     whitelist: true,
     forbidNonWhitelisted: true,
     transform: true,
-    exceptionFactory: (errors) => new ValidationFailedException(formatValidationErrors(errors)),
+    exceptionFactory: (errors) =>
+      new ValidationFailedException(formatValidationErrors(errors)),
   });
 }

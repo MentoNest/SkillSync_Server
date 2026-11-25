@@ -202,9 +202,12 @@ export class DemoSeedService {
     const existing = await this.mentees.findOne({ where: { walletAddress } });
     const profile = existing ?? this.mentees.create({ walletAddress });
     Object.assign(profile, {
-      learningGoals: demo.learningGoals,
+      learningGoals: [...demo.learningGoals],
       interests: [...demo.interests],
       experienceLevel: demo.experienceLevel,
+      preferredMentoringStyle: [...demo.preferredMentoringStyle],
+      timeCommitmentHoursPerWeek: demo.timeCommitmentHoursPerWeek,
+      professionalBackground: demo.professionalBackground,
       budgetUsdCentsPerMonth: demo.budgetUsdCentsPerMonth,
       languages: [...demo.languages],
       isActive: true,

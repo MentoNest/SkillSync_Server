@@ -10,7 +10,12 @@ import { AvailabilityService } from './availability.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([AvailabilitySlot, AvailabilityException, MentorProfile, User]),
+    TypeOrmModule.forFeature([
+      AvailabilitySlot,
+      AvailabilityException,
+      MentorProfile,
+      User,
+    ]),
     AuthModule,
   ],
   controllers: [AvailabilityController],

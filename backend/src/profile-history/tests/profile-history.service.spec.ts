@@ -1,6 +1,9 @@
 import { ResourceNotFoundException } from '../../common/errors/app-exceptions';
 import { ChangeReason, ProfileHistory } from '../profile-history.entity';
-import { ProfileHistoryService, RecordChangeOptions } from '../profile-history.service';
+import {
+  ProfileHistoryService,
+  RecordChangeOptions,
+} from '../profile-history.service';
 import { maybeRedact } from '../sensitive-fields';
 
 // ─── In-memory repository stub ────────────────────────────────────────────────
@@ -22,17 +25,26 @@ function makeEntry(overrides: Partial<ProfileHistory> = {}): ProfileHistory {
 
 function makeRepo(rows: ProfileHistory[] = []) {
   return {
-    create: jest.fn((data: Partial<ProfileHistory>) => Object.assign(new ProfileHistory(), data)),
+    create: jest.fn((data: Partial<ProfileHistory>) =>
+      Object.assign(new ProfileHistory(), data),
+    ),
     save: jest.fn(async (entity: ProfileHistory) => {
       rows.push(entity);
       return entity;
     }),
     findAndCount: jest.fn(
-      async (opts: { where: { userId: string }; take: number; skip: number }) => {
+      async (opts: {
+        where: { userId: string };
+        take: number;
+        skip: number;
+      }) => {
         const filtered = rows
           .filter((r) => r.userId === opts.where.userId)
           .sort((a, b) => b.changedAt.getTime() - a.changedAt.getTime());
-        return [filtered.slice(opts.skip, opts.skip + opts.take), filtered.length] as const;
+        return [
+          filtered.slice(opts.skip, opts.skip + opts.take),
+          filtered.length,
+        ] as const;
       },
     ),
     createQueryBuilder: jest.fn(() => ({
@@ -67,7 +79,8 @@ describe('ProfileHistoryService.record', () => {
 
     expect(repo.create).toHaveBeenCalledTimes(1);
     expect(repo.save).toHaveBeenCalledTimes(1);
-    const created = (repo.create as jest.Mock).mock.calls[0][0] as Partial<ProfileHistory>;
+    const created = (repo.create as jest.Mock).mock
+      .calls[0][0] as Partial<ProfileHistory>;
     expect(created.userId).toBe(BASE_OPTS.userId);
     expect(created.fieldName).toBe('username');
     expect(created.newValue).toBe('alice_dev');
@@ -82,8 +95,11 @@ describe('ProfileHistoryService.record', () => {
 
     await service.record({ ...BASE_OPTS, changedAt });
 
-    const created = (repo.create as jest.Mock).mock.calls[0][0] as Partial<ProfileHistory>;
-    expect(created.retainUntil!.getTime()).toBe(changedAt.getTime() + ONE_YEAR_MS);
+    const created = (repo.create as jest.Mock).mock
+      .calls[0][0] as Partial<ProfileHistory>;
+    expect(created.retainUntil!.getTime()).toBe(
+      changedAt.getTime() + ONE_YEAR_MS,
+    );
   });
 
   it('uses the provided changedAt timestamp instead of now', async () => {
@@ -93,7 +109,8 @@ describe('ProfileHistoryService.record', () => {
 
     await service.record({ ...BASE_OPTS, changedAt });
 
-    const created = (repo.create as jest.Mock).mock.calls[0][0] as Partial<ProfileHistory>;
+    const created = (repo.create as jest.Mock).mock
+      .calls[0][0] as Partial<ProfileHistory>;
     expect(created.changedAt).toEqual(changedAt);
   });
 
@@ -160,7 +177,11 @@ describe('ProfileHistoryService.getHistoryForUser', () => {
   it('returns entries and total for a user with history', async () => {
     const rows = [
       makeEntry({ userId: USER, changedAt: new Date('2024-01-02T00:00:00Z') }),
-      makeEntry({ id: 'uuid-2', userId: USER, changedAt: new Date('2024-01-01T00:00:00Z') }),
+      makeEntry({
+        id: 'uuid-2',
+        userId: USER,
+        changedAt: new Date('2024-01-01T00:00:00Z'),
+      }),
     ];
     const repo = makeRepo(rows);
     const service = new ProfileHistoryService(repo as never);
@@ -175,17 +196,26 @@ describe('ProfileHistoryService.getHistoryForUser', () => {
     const repo = makeRepo([]);
     const service = new ProfileHistoryService(repo as never);
 
-    await expect(service.getHistoryForUser(USER)).rejects.toBeInstanceOf(ResourceNotFoundException);
+    await expect(service.getHistoryForUser(USER)).rejects.toBeInstanceOf(
+      ResourceNotFoundException,
+    );
   });
 
   it('applies limit and offset', async () => {
     const rows = Array.from({ length: 5 }, (_, i) =>
-      makeEntry({ id: `uuid-${i}`, userId: USER, changedAt: new Date(2024, 0, i + 1) }),
+      makeEntry({
+        id: `uuid-${i}`,
+        userId: USER,
+        changedAt: new Date(2024, 0, i + 1),
+      }),
     );
     const repo = makeRepo(rows);
     const service = new ProfileHistoryService(repo as never);
 
-    const result = await service.getHistoryForUser(USER, { limit: 2, offset: 1 });
+    const result = await service.getHistoryForUser(USER, {
+      limit: 2,
+      offset: 1,
+    });
 
     expect(result.entries).toHaveLength(2);
     expect(result.total).toBe(5);
@@ -197,7 +227,9 @@ describe('ProfileHistoryService.getHistoryForUser', () => {
 
     await service.getHistoryForUser(USER, { limit: 999 });
 
-    const call = (repo.findAndCount as jest.Mock).mock.calls[0][0] as { take: number };
+    const call = (repo.findAndCount as jest.Mock).mock.calls[0][0] as {
+      take: number;
+    };
     expect(call.take).toBe(200);
   });
 });

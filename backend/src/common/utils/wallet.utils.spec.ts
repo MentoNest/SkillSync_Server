@@ -5,13 +5,17 @@ const WALLET = 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37';
 
 describe('normalizeWalletAddress', () => {
   it('trims whitespace and returns a lowercase canonical address', () => {
-    expect(normalizeWalletAddress(` \t${WALLET}\n `)).toBe(WALLET.toLowerCase());
+    expect(normalizeWalletAddress(` \t${WALLET}\n `)).toBe(
+      WALLET.toLowerCase(),
+    );
   });
 
   it('normalizes mixed-case addresses consistently', () => {
-    const mixedCase = [...WALLET].map((character, index) =>
-      index % 2 === 0 ? character.toLowerCase() : character,
-    ).join('');
+    const mixedCase = [...WALLET]
+      .map((character, index) =>
+        index % 2 === 0 ? character.toLowerCase() : character,
+      )
+      .join('');
 
     expect(normalizeWalletAddress(mixedCase)).toBe(WALLET.toLowerCase());
   });
@@ -24,7 +28,9 @@ describe('normalizeWalletAddress', () => {
         throw new Error('Expected invalid address to be rejected');
       } catch (error) {
         expect(error).toBeInstanceOf(BadRequestException);
-        expect((error as BadRequestException).message).toContain('Invalid Stellar wallet address');
+        expect((error as BadRequestException).message).toContain(
+          'Invalid Stellar wallet address',
+        );
       }
     },
   );

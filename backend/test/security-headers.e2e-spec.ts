@@ -58,6 +58,8 @@ describe('Security Headers (e2e)', () => {
     expect(response.status).toBe(200);
 
     // HSTS enabled in production with max-age 31536000
-    expect(response.headers['strict-transport-security']).toContain('max-age=31536000');
+    expect(response.headers['strict-transport-security']).toContain(
+      'max-age=31536000',
+    );
   });
 });

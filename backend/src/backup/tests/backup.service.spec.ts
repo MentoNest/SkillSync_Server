@@ -44,7 +44,9 @@ beforeEach(() => {
 
 describe('BackupService.getStatus', () => {
   it('reports not_configured when the status file is missing', async () => {
-    mockedReadFile.mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }));
+    mockedReadFile.mockRejectedValue(
+      Object.assign(new Error('missing'), { code: 'ENOENT' }),
+    );
 
     const status = await service().getStatus(now);
 
@@ -82,7 +84,9 @@ describe('BackupService.getStatus', () => {
 
   it('reports failing when the latest run failed', async () => {
     mockedReadFile.mockResolvedValue(
-      JSON.stringify(run({ status: 'failed', finishedAt: null, error: 'pg_dump exited 1' })),
+      JSON.stringify(
+        run({ status: 'failed', finishedAt: null, error: 'pg_dump exited 1' }),
+      ),
     );
 
     const status = await service().getStatus(now);
@@ -111,7 +115,10 @@ describe('BackupService.getStatus', () => {
 
   it('normalizes a partial payload with safe defaults', async () => {
     mockedReadFile.mockResolvedValue(
-      JSON.stringify({ status: 'running', startedAt: '2026-11-23T03:55:00.000Z' }),
+      JSON.stringify({
+        status: 'running',
+        startedAt: '2026-11-23T03:55:00.000Z',
+      }),
     );
 
     const status = await service().getStatus(now);
@@ -146,7 +153,9 @@ describe('BackupService.getStatus', () => {
   });
 
   it('reports local storage when no bucket is configured', async () => {
-    mockedReadFile.mockResolvedValue(JSON.stringify(run({ uploadedToS3: false })));
+    mockedReadFile.mockResolvedValue(
+      JSON.stringify(run({ uploadedToS3: false })),
+    );
 
     const status = await service({ s3Bucket: undefined }).getStatus(now);
 

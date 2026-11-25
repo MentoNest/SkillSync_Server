@@ -12,6 +12,12 @@ import {
 } from 'typeorm';
 import { User } from '../user/user.entity';
 
+export enum SkillLevel {
+  BEGINNER = 'beginner',
+  INTERMEDIATE = 'intermediate',
+  ADVANCED = 'advanced',
+}
+
 @Entity('mentee_profiles')
 @Index('idx_mentee_wallet', ['walletAddress'], { unique: true })
 @Index('idx_mentee_wallet_active', ['walletAddress', 'isActive'])
@@ -34,12 +40,21 @@ export class MenteeProfile {
   user?: User;
 
   @ApiProperty({
-    description: 'What the mentee wants to learn or achieve.',
-    example: 'I want to transition from backend to full-stack development.',
-    maxLength: 500,
+    description:
+      'Learning goals the mentee wants to achieve (max 500 chars each).',
+    example: [
+      'Transition from backend to full-stack development',
+      'Master system design',
+    ],
+    type: [String],
   })
-  @Column({ name: 'learning_goals', type: 'varchar', length: 500 })
-  learningGoals!: string;
+  @Column({
+    name: 'learning_goals',
+    type: 'text',
+    array: true,
+    default: () => "'{}'::text[]",
+  })
+  learningGoals!: string[];
 
   @ApiProperty({
     description: 'Topics or skills the mentee wants to focus on.',
@@ -61,12 +76,83 @@ export class MenteeProfile {
   budgetUsdCentsPerMonth!: number | null;
 
   @ApiProperty({
-    description: 'Self-assessed experience level.',
-    example: 'intermediate',
-    enum: ['beginner', 'intermediate', 'advanced'],
+    description: 'Self-assessed current skill level.',
+    example: SkillLevel.INTERMEDIATE,
+    enum: SkillLevel,
   })
-  @Column({ name: 'experience_level', type: 'varchar', length: 16 })
-  experienceLevel!: string;
+  @Column({
+    name: 'experience_level',
+    type: 'enum',
+    enum: SkillLevel,
+    enumName: 'skill_level_enum',
+  })
+  experienceLevel!: SkillLevel;
+
+  @ApiProperty({
+    description:
+      'Preferred mentoring styles (e.g. career advice, technical skills, interview prep).',
+    example: ['technical skills', 'career advice'],
+    type: [String],
+  })
+  @Column({
+    name: 'preferred_mentoring_style',
+    type: 'text',
+    array: true,
+    default: () => "'{}'::text[]",
+  })
+  preferredMentoringStyle!: string[];
+
+  @ApiPropertyOptional({
+    description: 'Weekly time commitment in hours.',
+    example: 5,
+    type: Number,
+    nullable: true,
+  })
+  @Column({
+    name: 'time_commitment_hours_per_week',
+    type: 'int',
+    nullable: true,
+  })
+  timeCommitmentHoursPerWeek!: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Summary of the mentee professional background.',
+    example: '3 years working on backend Node.js microservices.',
+    type: String,
+    nullable: true,
+  })
+  @Column({ name: 'professional_background', type: 'text', nullable: true })
+  professionalBackground!: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Current job title (optional).',
+    example: 'Junior Backend Engineer',
+    type: String,
+    nullable: true,
+  })
+  @Column({ name: 'job_title', type: 'varchar', length: 120, nullable: true })
+  jobTitle!: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Industry sector (optional).',
+    example: 'FinTech',
+    type: String,
+    nullable: true,
+  })
+  @Column({ name: 'industry', type: 'varchar', length: 120, nullable: true })
+  industry!: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Optional portfolio or personal project URLs.',
+    example: ['https://github.com/alice'],
+    type: [String],
+  })
+  @Column({
+    name: 'portfolio_links',
+    type: 'jsonb',
+    default: () => "'[]'::jsonb",
+  })
+  portfolioLinks!: string[];
 
   @ApiProperty({
     description: 'Languages the mentee is comfortable working in.',

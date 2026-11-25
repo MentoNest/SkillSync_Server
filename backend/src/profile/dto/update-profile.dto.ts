@@ -10,6 +10,7 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  IsUrl,
   Max,
   MaxLength,
   Min,
@@ -17,7 +18,8 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { IsValidWalletAddress } from '../../common/validators';
-import { EXPERIENCE_LEVELS, ProfileType } from './create-profile.dto';
+import { SkillLevel } from '../mentee-profile.entity';
+import { ProfileType } from './create-profile.dto';
 
 function trimString({ value }: TransformFnParams): unknown {
   const input: unknown = value;
@@ -107,15 +109,24 @@ export class UpdateProfileDto {
   maxMentees?: number;
 
   @ApiPropertyOptional({
-    description: 'Mentee learning goals.',
-    maxLength: 500,
+    description: 'Mentee learning goals (max 500 characters each).',
+    type: [String],
   })
-  @Transform(trimString)
+  @Transform(trimStringArray)
   @ValidateIf((_object, value) => value !== undefined)
-  @IsString({ message: 'learningGoals must be a string.' })
-  @MinLength(10, { message: 'learningGoals must be at least 10 characters.' })
-  @MaxLength(500)
-  learningGoals?: string;
+  @IsArray()
+  @ArrayNotEmpty({ message: 'learningGoals must contain at least one entry.' })
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MinLength(3, {
+    each: true,
+    message: 'Each learning goal must be at least 3 characters.',
+  })
+  @MaxLength(500, {
+    each: true,
+    message: 'Each learning goal must not exceed 500 characters.',
+  })
+  learningGoals?: string[];
 
   @ApiPropertyOptional({
     description: 'Topics the mentee wants to focus on.',
@@ -144,15 +155,86 @@ export class UpdateProfileDto {
   budgetUsdCentsPerMonth?: number | null;
 
   @ApiPropertyOptional({
-    description: 'Mentee self-assessed experience level.',
-    enum: EXPERIENCE_LEVELS,
+    description: 'Mentee self-assessed skill level.',
+    enum: SkillLevel,
   })
   @ValidateIf((_object, value) => value !== undefined)
-  @IsEnum(EXPERIENCE_LEVELS, {
+  @IsEnum(SkillLevel, {
     message:
       'experienceLevel must be one of: beginner, intermediate, advanced.',
   })
-  experienceLevel?: 'beginner' | 'intermediate' | 'advanced';
+  experienceLevel?: SkillLevel | `${SkillLevel}`;
+
+  @ApiPropertyOptional({
+    description:
+      'Preferred mentoring styles (e.g. career advice, technical skills, interview prep).',
+    type: [String],
+  })
+  @Transform(trimStringArray)
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  @MinLength(1, { each: true })
+  @MaxLength(64, { each: true })
+  preferredMentoringStyle?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Weekly time commitment in hours.',
+    nullable: true,
+    minimum: 1,
+    maximum: 168,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(168)
+  timeCommitmentHoursPerWeek?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Mentee professional background summary.',
+    nullable: true,
+    maxLength: 2000,
+  })
+  @Transform(trimString)
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  professionalBackground?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Optional current job title.',
+    nullable: true,
+    maxLength: 120,
+  })
+  @Transform(trimString)
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  jobTitle?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Optional industry sector.',
+    nullable: true,
+    maxLength: 120,
+  })
+  @Transform(trimString)
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  industry?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Optional portfolio links.',
+    type: [String],
+  })
+  @Transform(trimStringArray)
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsUrl({ require_tld: false, require_protocol: true }, { each: true })
+  @MaxLength(2048, { each: true })
+  portfolioLinks?: string[];
 
   @ApiPropertyOptional({
     description: 'Languages for mentorship sessions.',

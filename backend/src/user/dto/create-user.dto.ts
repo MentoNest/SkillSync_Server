@@ -1,17 +1,29 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsEmail, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsEmail,
+  IsEnum,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import { IsIanaTimezone, IsValidWalletAddress } from '../../common/validators';
 import { UserStatus } from '../user-status.enum';
 
 export class CreateUserDto {
-  @ApiProperty({ description: 'Stellar wallet address', example: 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37' })
+  @ApiProperty({
+    description: 'Stellar wallet address',
+    example: 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37',
+  })
   @IsString()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsValidWalletAddress()
   walletAddress!: string;
 
-  @ApiPropertyOptional({ description: 'Email address', example: 'alice@example.com' })
+  @ApiPropertyOptional({
+    description: 'Email address',
+    example: 'alice@example.com',
+  })
   @IsOptional()
   @IsEmail()
   @MaxLength(255)
@@ -23,7 +35,11 @@ export class CreateUserDto {
   @MaxLength(50)
   displayName?: string | null;
 
-  @ApiPropertyOptional({ description: 'IANA timezone preference.', example: 'America/New_York', default: 'UTC' })
+  @ApiPropertyOptional({
+    description: 'IANA timezone preference.',
+    example: 'America/New_York',
+    default: 'UTC',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(64)

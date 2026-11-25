@@ -65,20 +65,26 @@ describe('UserEntitySubscriber', () => {
   });
 
   it('listens to the User entity', () => {
-    const subscriber = new UserEntitySubscriber(makeDataSource() as never, makeHistoryService() as never);
+    const subscriber = new UserEntitySubscriber(
+      makeDataSource() as never,
+      makeHistoryService() as never,
+    );
     expect(subscriber.listenTo()).toBe(User);
   });
 
   describe('afterInsert', () => {
     it('records initial writes for every non-null, non-ignored field', async () => {
       const historyService = makeHistoryService();
-      const subscriber = new UserEntitySubscriber(makeDataSource() as never, historyService as never);
+      const subscriber = new UserEntitySubscriber(
+        makeDataSource() as never,
+        historyService as never,
+      );
 
       const user = makeUser({ username: 'alice_dev', displayName: 'Alice' });
       await subscriber.afterInsert(makeInsertEvent(user) as never);
 
       expect(historyService.recordMany).toHaveBeenCalledTimes(1);
-      const entries = (historyService.recordMany as jest.Mock).mock.calls[0][0] as Array<{
+      const entries = historyService.recordMany.mock.calls[0][0] as Array<{
         fieldName: string;
         oldValue: unknown;
         newValue: unknown;
@@ -96,32 +102,46 @@ describe('UserEntitySubscriber', () => {
 
     it('skips null fields on insert', async () => {
       const historyService = makeHistoryService();
-      const subscriber = new UserEntitySubscriber(makeDataSource() as never, historyService as never);
+      const subscriber = new UserEntitySubscriber(
+        makeDataSource() as never,
+        historyService as never,
+      );
 
       const user = makeUser({ username: null, displayName: null });
       await subscriber.afterInsert(makeInsertEvent(user) as never);
 
       // No non-null tracked fields → no entries.
-      const calls = (historyService.recordMany as jest.Mock).mock.calls;
+      const calls = historyService.recordMany.mock.calls;
       const totalEntries = calls.flatMap((c) => c[0] as unknown[]);
-      const usernameEntries = totalEntries.filter((e: any) => e.fieldName === 'username');
+      const usernameEntries = totalEntries.filter(
+        (e: any) => e.fieldName === 'username',
+      );
       expect(usernameEntries).toHaveLength(0);
     });
 
     it('does not record walletAddress on insert', async () => {
       const historyService = makeHistoryService();
-      const subscriber = new UserEntitySubscriber(makeDataSource() as never, historyService as never);
+      const subscriber = new UserEntitySubscriber(
+        makeDataSource() as never,
+        historyService as never,
+      );
 
       const user = makeUser({ username: 'alice' });
       await subscriber.afterInsert(makeInsertEvent(user) as never);
 
-      const entries = (historyService.recordMany as jest.Mock).mock.calls[0]?.[0] as Array<{ fieldName: string }> ?? [];
+      const entries =
+        (historyService.recordMany.mock.calls[0]?.[0] as Array<{
+          fieldName: string;
+        }>) ?? [];
       expect(entries.every((e) => e.fieldName !== 'walletAddress')).toBe(true);
     });
 
     it('is a no-op when entity is undefined', async () => {
       const historyService = makeHistoryService();
-      const subscriber = new UserEntitySubscriber(makeDataSource() as never, historyService as never);
+      const subscriber = new UserEntitySubscriber(
+        makeDataSource() as never,
+        historyService as never,
+      );
 
       await subscriber.afterInsert({ entity: undefined } as never);
 
@@ -132,16 +152,23 @@ describe('UserEntitySubscriber', () => {
   describe('afterUpdate', () => {
     it('records only the changed fields', async () => {
       const historyService = makeHistoryService();
-      const subscriber = new UserEntitySubscriber(makeDataSource() as never, historyService as never);
+      const subscriber = new UserEntitySubscriber(
+        makeDataSource() as never,
+        historyService as never,
+      );
 
       const previous = makeUser({ username: 'old_name', displayName: 'Old' });
       const updated = makeUser({ username: 'new_name', displayName: 'Old' });
-      const event = makeUpdateEvent(updated, previous, ['username', 'displayName', 'walletAddress']);
+      const event = makeUpdateEvent(updated, previous, [
+        'username',
+        'displayName',
+        'walletAddress',
+      ]);
 
       await subscriber.afterUpdate(event as never);
 
       expect(historyService.recordMany).toHaveBeenCalledTimes(1);
-      const entries = (historyService.recordMany as jest.Mock).mock.calls[0][0] as Array<{
+      const entries = historyService.recordMany.mock.calls[0][0] as Array<{
         fieldName: string;
         oldValue: unknown;
         newValue: unknown;
@@ -155,10 +182,16 @@ describe('UserEntitySubscriber', () => {
 
     it('records nothing when no tracked fields changed', async () => {
       const historyService = makeHistoryService();
-      const subscriber = new UserEntitySubscriber(makeDataSource() as never, historyService as never);
+      const subscriber = new UserEntitySubscriber(
+        makeDataSource() as never,
+        historyService as never,
+      );
 
       const user = makeUser({ username: 'same' });
-      const event = makeUpdateEvent(user, { ...user } as User, ['username', 'displayName']);
+      const event = makeUpdateEvent(user, { ...user } as User, [
+        'username',
+        'displayName',
+      ]);
 
       await subscriber.afterUpdate(event as never);
 
@@ -167,11 +200,17 @@ describe('UserEntitySubscriber', () => {
 
     it('skips ignored fields (usernameChangedAt, createdAt)', async () => {
       const historyService = makeHistoryService();
-      const subscriber = new UserEntitySubscriber(makeDataSource() as never, historyService as never);
+      const subscriber = new UserEntitySubscriber(
+        makeDataSource() as never,
+        historyService as never,
+      );
 
       const previous = makeUser({ usernameChangedAt: new Date('2024-01-01') });
       const updated = makeUser({ usernameChangedAt: new Date('2024-06-01') });
-      const event = makeUpdateEvent(updated, previous, ['usernameChangedAt', 'createdAt']);
+      const event = makeUpdateEvent(updated, previous, [
+        'usernameChangedAt',
+        'createdAt',
+      ]);
 
       await subscriber.afterUpdate(event as never);
 
@@ -180,7 +219,10 @@ describe('UserEntitySubscriber', () => {
 
     it('records a null-to-value change (displayName set for the first time)', async () => {
       const historyService = makeHistoryService();
-      const subscriber = new UserEntitySubscriber(makeDataSource() as never, historyService as never);
+      const subscriber = new UserEntitySubscriber(
+        makeDataSource() as never,
+        historyService as never,
+      );
 
       const previous = makeUser({ displayName: null });
       const updated = makeUser({ displayName: 'Alice' });
@@ -188,8 +230,10 @@ describe('UserEntitySubscriber', () => {
 
       await subscriber.afterUpdate(event as never);
 
-      const entries = (historyService.recordMany as jest.Mock).mock.calls[0][0] as Array<{
-        fieldName: string; oldValue: unknown; newValue: unknown;
+      const entries = historyService.recordMany.mock.calls[0][0] as Array<{
+        fieldName: string;
+        oldValue: unknown;
+        newValue: unknown;
       }>;
       expect(entries[0].oldValue).toBeNull();
       expect(entries[0].newValue).toBe('Alice');
@@ -197,7 +241,10 @@ describe('UserEntitySubscriber', () => {
 
     it('records a value-to-null change (displayName cleared)', async () => {
       const historyService = makeHistoryService();
-      const subscriber = new UserEntitySubscriber(makeDataSource() as never, historyService as never);
+      const subscriber = new UserEntitySubscriber(
+        makeDataSource() as never,
+        historyService as never,
+      );
 
       const previous = makeUser({ displayName: 'Alice' });
       const updated = makeUser({ displayName: null });
@@ -205,8 +252,10 @@ describe('UserEntitySubscriber', () => {
 
       await subscriber.afterUpdate(event as never);
 
-      const entries = (historyService.recordMany as jest.Mock).mock.calls[0][0] as Array<{
-        fieldName: string; oldValue: unknown; newValue: unknown;
+      const entries = historyService.recordMany.mock.calls[0][0] as Array<{
+        fieldName: string;
+        oldValue: unknown;
+        newValue: unknown;
       }>;
       expect(entries[0].oldValue).toBe('Alice');
       expect(entries[0].newValue).toBeNull();
@@ -214,10 +263,19 @@ describe('UserEntitySubscriber', () => {
 
     it('warns and skips when databaseEntity is missing', async () => {
       const historyService = makeHistoryService();
-      const subscriber = new UserEntitySubscriber(makeDataSource() as never, historyService as never);
-      const warnSpy = jest.spyOn((subscriber as any).logger, 'warn').mockImplementation();
+      const subscriber = new UserEntitySubscriber(
+        makeDataSource() as never,
+        historyService as never,
+      );
+      const warnSpy = jest
+        .spyOn((subscriber as any).logger, 'warn')
+        .mockImplementation();
 
-      await subscriber.afterUpdate({ entity: makeUser(), databaseEntity: undefined, metadata: { columns: [] } } as never);
+      await subscriber.afterUpdate({
+        entity: makeUser(),
+        databaseEntity: undefined,
+        metadata: { columns: [] },
+      } as never);
 
       expect(historyService.recordMany).not.toHaveBeenCalled();
       expect(warnSpy).toHaveBeenCalled();
@@ -230,7 +288,10 @@ describe('UserEntitySubscriber', () => {
       });
 
       const historyService = makeHistoryService();
-      const subscriber = new UserEntitySubscriber(makeDataSource() as never, historyService as never);
+      const subscriber = new UserEntitySubscriber(
+        makeDataSource() as never,
+        historyService as never,
+      );
 
       const previous = makeUser({ username: 'old' });
       const updated = makeUser({ username: 'new' });
@@ -238,10 +299,13 @@ describe('UserEntitySubscriber', () => {
 
       await subscriber.afterUpdate(event as never);
 
-      const entries = (historyService.recordMany as jest.Mock).mock.calls[0][0] as Array<{
-        changedBy: string; changeReason: ChangeReason;
+      const entries = historyService.recordMany.mock.calls[0][0] as Array<{
+        changedBy: string;
+        changeReason: ChangeReason;
       }>;
-      expect(entries[0].changedBy).toBe('ADMIN_WALLET_ADDRESS_HERE_PLACEHOLDER0000');
+      expect(entries[0].changedBy).toBe(
+        'ADMIN_WALLET_ADDRESS_HERE_PLACEHOLDER0000',
+      );
       expect(entries[0].changeReason).toBe(ChangeReason.ADMIN_EDIT);
     });
   });

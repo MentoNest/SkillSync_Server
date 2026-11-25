@@ -7,7 +7,10 @@ import {
   DuplicateResourceException,
   ResourceNotFoundException,
 } from '../common/errors/app-exceptions';
-import { CreatePortfolioLinkDto, PortfolioLinkResponseDto } from './dto/portfolio-link.dto';
+import {
+  CreatePortfolioLinkDto,
+  PortfolioLinkResponseDto,
+} from './dto/portfolio-link.dto';
 import { PortfolioLink } from './portfolio-link.entity';
 import {
   detectPlatform,
@@ -26,35 +29,63 @@ export class PortfolioLinksService {
     private readonly config: ConfigService,
   ) {}
 
-  async listByWallet(walletAddress: string): Promise<PortfolioLinkResponseDto[]> {
-    const rows = await this.links.find({ where: { walletAddress }, order: { createdAt: 'ASC' } });
+  async listByWallet(
+    walletAddress: string,
+  ): Promise<PortfolioLinkResponseDto[]> {
+    const rows = await this.links.find({
+      where: { walletAddress },
+      order: { createdAt: 'ASC' },
+    });
     return rows.map((r) => this.toDto(r));
   }
 
-  async create(walletAddress: string, dto: CreatePortfolioLinkDto): Promise<PortfolioLinkResponseDto> {
+  async create(
+    walletAddress: string,
+    dto: CreatePortfolioLinkDto,
+  ): Promise<PortfolioLinkResponseDto> {
     let url: string;
     try {
       url = sanitizePortfolioUrl(dto.url);
     } catch (e) {
-      throw new BusinessRuleException(e instanceof Error ? e.message : 'Invalid URL.');
+      throw new BusinessRuleException(
+        e instanceof Error ? e.message : 'Invalid URL.',
+      );
     }
 
     const platform = dto.platform ?? detectPlatform(url);
     if (!isSupportedPlatformUrl(platform, url)) {
-      throw new BusinessRuleException(`URL does not match selected platform "${platform}".`);
+      throw new BusinessRuleException(
+        `URL does not match selected platform "${platform}".`,
+      );
     }
 
     const count = await this.links.count({ where: { walletAddress } });
     if (count >= MAX_PORTFOLIO_LINKS) {
-      throw new BusinessRuleException(`Maximum of ${MAX_PORTFOLIO_LINKS} portfolio links allowed.`);
+      throw new BusinessRuleException(
+        `Maximum of ${MAX_PORTFOLIO_LINKS} portfolio links allowed.`,
+      );
     }
 
-    const duplicate = await this.links.findOne({ where: { walletAddress, url } });
-    if (duplicate) throw new DuplicateResourceException('Portfolio link URL already exists.');
+    const duplicate = await this.links.findOne({
+      where: { walletAddress, url },
+    });
+    if (duplicate)
+      throw new DuplicateResourceException(
+        'Portfolio link URL already exists.',
+      );
 
-    const verifyEnabled = (this.config.get<string>('PORTFOLIO_OWNERSHIP_VERIFICATION') ?? 'false') === 'true';
-    const verified = await verifyOwnershipIfConfigured(url, walletAddress, verifyEnabled);
-    if (!verified) throw new BusinessRuleException('Ownership verification failed for the provided URL.');
+    const verifyEnabled =
+      (this.config.get<string>('PORTFOLIO_OWNERSHIP_VERIFICATION') ??
+        'false') === 'true';
+    const verified = await verifyOwnershipIfConfigured(
+      url,
+      walletAddress,
+      verifyEnabled,
+    );
+    if (!verified)
+      throw new BusinessRuleException(
+        'Ownership verification failed for the provided URL.',
+      );
 
     const saved = await this.links.save(
       this.links.create({
@@ -67,7 +98,11 @@ export class PortfolioLinksService {
     return this.toDto(saved);
   }
 
-  async remove(walletAddress: string, id: string, isAdmin = false): Promise<void> {
+  async remove(
+    walletAddress: string,
+    id: string,
+    isAdmin = false,
+  ): Promise<void> {
     const link = await this.links.findOne({ where: { id } });
     if (!link) throw new ResourceNotFoundException('Portfolio link', id);
     if (!isAdmin && link.walletAddress !== walletAddress) {

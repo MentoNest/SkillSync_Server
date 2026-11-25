@@ -1,15 +1,23 @@
 import { Controller, Get, HttpStatus, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Role } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
-import { ForbiddenResponseDto, UnauthorizedResponseDto } from '../common/dto/error-response.dto';
+import {
+  ForbiddenResponseDto,
+  UnauthorizedResponseDto,
+} from '../common/dto/error-response.dto';
 import { BackupService } from './backup.service';
 import { BackupStatusDto } from './dto/backup-status.dto';
 
 @ApiTags('Admin')
-@ApiBearerAuth('Bearer Auth')
+@ApiBearerAuth('BearerAuth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN)
 @Controller('admin/backups')
@@ -26,7 +34,10 @@ export class BackupController {
     operationId: 'getBackupStatus',
   })
   @ApiResponse({ status: HttpStatus.OK, type: BackupStatusDto })
-  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, type: UnauthorizedResponseDto })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    type: UnauthorizedResponseDto,
+  })
   @ApiResponse({ status: HttpStatus.FORBIDDEN, type: ForbiddenResponseDto })
   getStatus(): Promise<BackupStatusDto> {
     return this.backups.getStatus();

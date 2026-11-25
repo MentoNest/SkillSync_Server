@@ -1,5 +1,8 @@
 import { Logger } from '@nestjs/common';
-import { DEFAULT_SHUTDOWN_TIMEOUT_MS, ShutdownService } from './shutdown.service';
+import {
+  DEFAULT_SHUTDOWN_TIMEOUT_MS,
+  ShutdownService,
+} from './shutdown.service';
 
 describe('ShutdownService', () => {
   let exit: jest.Mock;
@@ -80,7 +83,9 @@ describe('ShutdownService', () => {
     service.listen();
     service.listen();
 
-    const sigtermRegistrations = onSpy.mock.calls.filter(([event]) => event === 'SIGTERM');
+    const sigtermRegistrations = onSpy.mock.calls.filter(
+      ([event]) => event === 'SIGTERM',
+    );
     expect(sigtermRegistrations).toHaveLength(1);
 
     onSpy.mockRestore();

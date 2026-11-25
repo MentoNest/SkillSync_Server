@@ -1,11 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  Check,
-  Column,
-  Entity,
-  Index,
-  PrimaryGeneratedColumn,
-} from 'typeorm';
+import { Check, Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 /**
  * Who or what triggered the change.
@@ -43,7 +37,10 @@ export type ProfileType = 'user' | 'mentor' | 'mentee' | string;
 @Index('idx_ph_user_type_changed', ['userId', 'profileType', 'changedAt'])
 @Index('idx_ph_reason_changed', ['changeReason', 'changedAt'])
 export class ProfileHistory {
-  @ApiProperty({ description: 'Auto-generated UUID primary key.', example: 'a1b2c3d4-...' })
+  @ApiProperty({
+    description: 'Auto-generated UUID primary key.',
+    example: 'a1b2c3d4-...',
+  })
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
@@ -63,14 +60,16 @@ export class ProfileHistory {
   profileType!: ProfileType;
 
   @ApiProperty({
-    description: 'Name of the entity property (TypeORM field name) that changed.',
+    description:
+      'Name of the entity property (TypeORM field name) that changed.',
     example: 'username',
   })
   @Column({ name: 'field_name', type: 'varchar', length: 64 })
   fieldName!: string;
 
   @ApiPropertyOptional({
-    description: 'Value before the change. Null for a first-time write. Sensitive values are redacted.',
+    description:
+      'Value before the change. Null for a first-time write. Sensitive values are redacted.',
     nullable: true,
     example: null,
   })
@@ -78,7 +77,8 @@ export class ProfileHistory {
   oldValue!: unknown;
 
   @ApiPropertyOptional({
-    description: 'Value after the change. Null when the field was cleared. Sensitive values are redacted.',
+    description:
+      'Value after the change. Null when the field was cleared. Sensitive values are redacted.',
     nullable: true,
     example: 'alice_dev',
   })

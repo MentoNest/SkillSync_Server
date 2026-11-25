@@ -13,13 +13,19 @@ import { ShutdownService } from './shutdown.service';
 export function createShutdownMiddleware(shutdown: ShutdownService) {
   const logger = new Logger('ShutdownMiddleware');
 
-  return function shutdownMiddleware(req: Request, res: Response, next: NextFunction): void {
+  return function shutdownMiddleware(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): void {
     if (!shutdown.isShuttingDown()) {
       next();
       return;
     }
 
-    logger.warn(`Rejecting ${req.method} ${req.originalUrl ?? req.url} - server is shutting down.`);
+    logger.warn(
+      `Rejecting ${req.method} ${req.originalUrl ?? req.url} - server is shutting down.`,
+    );
     res.setHeader('Connection', 'close');
     res.setHeader('Retry-After', '1');
     res.status(503).json({

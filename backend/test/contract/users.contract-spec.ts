@@ -40,21 +40,27 @@ describe('Users contract', () => {
   });
 
   it('GET /users returns a spec-compliant response', async () => {
-    const res = await request(app.getHttpServer()).get('/users?page=1&limit=20');
+    const res = await request(app.getHttpServer()).get(
+      '/users?page=1&limit=20',
+    );
 
     expect(res.status).toBe(200);
     expect(res).toSatisfyApiSpec();
   });
 
   it('GET /user/username/available returns a spec-compliant response', async () => {
-    const res = await request(app.getHttpServer()).get('/user/username/available?username=alice_dev');
+    const res = await request(app.getHttpServer()).get(
+      '/user/username/available?username=alice_dev',
+    );
 
     expect(res.status).toBe(200);
     expect(res).toSatisfyApiSpec();
   });
 
   it('PATCH /user/username returns a spec-compliant user', async () => {
-    const res = await request(app.getHttpServer()).patch('/user/username').send({ username: 'alice_dev' });
+    const res = await request(app.getHttpServer())
+      .patch('/user/username')
+      .send({ username: 'alice_dev' });
 
     expect(res.status).toBe(200);
     expect(res).toSatisfyApiSpec();
@@ -79,23 +85,43 @@ describe('Users contract', () => {
   it('POST /user/portfolio-links returns a spec-compliant created link', async () => {
     const res = await request(app.getHttpServer())
       .post('/user/portfolio-links')
-      .send({ url: 'https://github.com/alice', platform: 'github', displayTitle: 'My GitHub' });
+      .send({
+        url: 'https://github.com/alice',
+        platform: 'github',
+        displayTitle: 'My GitHub',
+      });
 
     expect(res.status).toBe(201);
     expect(res).toSatisfyApiSpec();
   });
 
   it('DELETE /user/portfolio-links/:id returns a spec-compliant 204', async () => {
-    const res = await request(app.getHttpServer()).delete(`/user/portfolio-links/${LINK_ID}`);
+    const res = await request(app.getHttpServer()).delete(
+      `/user/portfolio-links/${LINK_ID}`,
+    );
 
     expect(res.status).toBe(204);
     expect(res).toSatisfyApiSpec();
   });
 
   it('DELETE /admin/portfolio-links/:id returns a spec-compliant 204', async () => {
-    const res = await request(app.getHttpServer()).delete(`/admin/portfolio-links/${LINK_ID}`);
+    const res = await request(app.getHttpServer()).delete(
+      `/admin/portfolio-links/${LINK_ID}`,
+    );
 
     expect(res.status).toBe(204);
+    expect(res).toSatisfyApiSpec();
+  });
+
+  it('POST /user/avatar returns a spec-compliant avatar upload response', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/user/avatar')
+      .attach('file', Buffer.from('fake-image'), {
+        filename: 'avatar.png',
+        contentType: 'image/png',
+      });
+
+    expect(res.status).toBe(200);
     expect(res).toSatisfyApiSpec();
   });
 });

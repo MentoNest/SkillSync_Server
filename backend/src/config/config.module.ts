@@ -15,7 +15,9 @@ import { APP_CONFIG, validateEnvironment } from './app.config';
       validate: (env: Record<string, unknown>) => {
         validateEnvironment((key) => {
           const value = env[key];
-          return value === undefined || value === null ? undefined : String(value);
+          return value === undefined || value === null
+            ? undefined
+            : String(value);
         });
         return env;
       },

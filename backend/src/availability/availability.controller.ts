@@ -33,7 +33,11 @@ import {
   MentorIdParamDto,
 } from '../common/dto/base.dto';
 import { resolveTimezone } from '../common/utils/timezone.utils';
-import { ErrorResponseDto, ForbiddenResponseDto, UnauthorizedResponseDto } from '../common/dto/error-response.dto';
+import {
+  ErrorResponseDto,
+  ForbiddenResponseDto,
+  UnauthorizedResponseDto,
+} from '../common/dto/error-response.dto';
 import { AvailabilityException } from './availability-exception.entity';
 import { AvailabilitySlot } from './availability-slot.entity';
 import { AvailabilityService } from './availability.service';
@@ -61,9 +65,15 @@ export class AvailabilityController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MENTOR)
   @Get('mentors/me/availability/slots')
-  @ApiOperation({ summary: 'List my weekly availability slots', operationId: 'listMyAvailabilitySlots' })
+  @ApiOperation({
+    summary: 'List my weekly availability slots',
+    operationId: 'listMyAvailabilitySlots',
+  })
   @ApiResponse({ status: HttpStatus.OK, type: [AvailabilitySlot] })
-  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, type: UnauthorizedResponseDto })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    type: UnauthorizedResponseDto,
+  })
   @ApiResponse({ status: HttpStatus.FORBIDDEN, type: ForbiddenResponseDto })
   listMySlots(@CurrentUser() user: AuthUser): Promise<AvailabilitySlot[]> {
     return this.availabilityService.listSlots(user.address);
@@ -73,12 +83,21 @@ export class AvailabilityController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MENTOR)
   @Post('mentors/me/availability/slots')
-  @ApiOperation({ summary: 'Create a weekly availability slot', operationId: 'createAvailabilitySlot' })
+  @ApiOperation({
+    summary: 'Create a weekly availability slot',
+    operationId: 'createAvailabilitySlot',
+  })
   @ApiResponse({ status: HttpStatus.CREATED, type: AvailabilitySlot })
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, type: ErrorResponseDto })
-  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, type: UnauthorizedResponseDto })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    type: UnauthorizedResponseDto,
+  })
   @ApiResponse({ status: HttpStatus.FORBIDDEN, type: ForbiddenResponseDto })
-  createSlot(@Body() dto: CreateAvailabilitySlotDto, @CurrentUser() user: AuthUser): Promise<AvailabilitySlot> {
+  createSlot(
+    @Body() dto: CreateAvailabilitySlotDto,
+    @CurrentUser() user: AuthUser,
+  ): Promise<AvailabilitySlot> {
     return this.availabilityService.createSlot(user.address, dto);
   }
 
@@ -86,7 +105,10 @@ export class AvailabilityController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MENTOR)
   @Put('mentors/me/availability/slots/:id')
-  @ApiOperation({ summary: 'Update a weekly availability slot', operationId: 'updateAvailabilitySlot' })
+  @ApiOperation({
+    summary: 'Update a weekly availability slot',
+    operationId: 'updateAvailabilitySlot',
+  })
   @ApiParam({ name: 'id', description: 'Availability slot UUID' })
   @ApiResponse({ status: HttpStatus.OK, type: AvailabilitySlot })
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, type: ErrorResponseDto })
@@ -104,7 +126,10 @@ export class AvailabilityController {
   @Roles(Role.MENTOR)
   @Delete('mentors/me/availability/slots/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete a weekly availability slot', operationId: 'deleteAvailabilitySlot' })
+  @ApiOperation({
+    summary: 'Delete a weekly availability slot',
+    operationId: 'deleteAvailabilitySlot',
+  })
   @ApiParam({ name: 'id', description: 'Availability slot UUID' })
   @ApiResponse({ status: HttpStatus.NO_CONTENT, description: 'Deleted.' })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, type: ErrorResponseDto })
@@ -121,9 +146,14 @@ export class AvailabilityController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MENTOR)
   @Get('mentors/me/availability/exceptions')
-  @ApiOperation({ summary: 'List my availability exceptions', operationId: 'listMyAvailabilityExceptions' })
+  @ApiOperation({
+    summary: 'List my availability exceptions',
+    operationId: 'listMyAvailabilityExceptions',
+  })
   @ApiResponse({ status: HttpStatus.OK, type: [AvailabilityException] })
-  listMyExceptions(@CurrentUser() user: AuthUser): Promise<AvailabilityException[]> {
+  listMyExceptions(
+    @CurrentUser() user: AuthUser,
+  ): Promise<AvailabilityException[]> {
     return this.availabilityService.listExceptions(user.address);
   }
 
@@ -131,7 +161,10 @@ export class AvailabilityController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MENTOR)
   @Post('mentors/me/availability/exceptions')
-  @ApiOperation({ summary: 'Create an availability exception', operationId: 'createAvailabilityException' })
+  @ApiOperation({
+    summary: 'Create an availability exception',
+    operationId: 'createAvailabilityException',
+  })
   @ApiResponse({ status: HttpStatus.CREATED, type: AvailabilityException })
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, type: ErrorResponseDto })
   createException(
@@ -145,7 +178,10 @@ export class AvailabilityController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MENTOR)
   @Put('mentors/me/availability/exceptions/:id')
-  @ApiOperation({ summary: 'Update an availability exception', operationId: 'updateAvailabilityException' })
+  @ApiOperation({
+    summary: 'Update an availability exception',
+    operationId: 'updateAvailabilityException',
+  })
   @ApiParam({ name: 'id', description: 'Availability exception UUID' })
   @ApiResponse({ status: HttpStatus.OK, type: AvailabilityException })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, type: ErrorResponseDto })
@@ -162,7 +198,10 @@ export class AvailabilityController {
   @Roles(Role.MENTOR)
   @Delete('mentors/me/availability/exceptions/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete an availability exception', operationId: 'deleteAvailabilityException' })
+  @ApiOperation({
+    summary: 'Delete an availability exception',
+    operationId: 'deleteAvailabilityException',
+  })
   @ApiParam({ name: 'id', description: 'Availability exception UUID' })
   @ApiResponse({ status: HttpStatus.NO_CONTENT, description: 'Deleted.' })
   async deleteException(
@@ -175,31 +214,50 @@ export class AvailabilityController {
   // ─── Public reads ─────────────────────────────────────────────────────────
 
   @Get('mentors/:mentorId/availability/slots')
-  @ApiOperation({ summary: 'List a mentor weekly availability slots', operationId: 'listMentorAvailabilitySlots' })
+  @ApiOperation({
+    summary: 'List a mentor weekly availability slots',
+    operationId: 'listMentorAvailabilitySlots',
+  })
   @ApiParam({ name: 'mentorId', description: 'Mentor wallet address' })
   @ApiResponse({ status: HttpStatus.OK, type: [AvailabilitySlot] })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, type: ErrorResponseDto })
-  listMentorSlots(@Param() params: MentorIdParamDto): Promise<AvailabilitySlot[]> {
+  listMentorSlots(
+    @Param() params: MentorIdParamDto,
+  ): Promise<AvailabilitySlot[]> {
     return this.availabilityService.listSlots(params.mentorId);
   }
 
   @Get('mentors/:mentorId/availability/exceptions')
-  @ApiOperation({ summary: 'List a mentor availability exceptions', operationId: 'listMentorAvailabilityExceptions' })
+  @ApiOperation({
+    summary: 'List a mentor availability exceptions',
+    operationId: 'listMentorAvailabilityExceptions',
+  })
   @ApiParam({ name: 'mentorId', description: 'Mentor wallet address' })
   @ApiResponse({ status: HttpStatus.OK, type: [AvailabilityException] })
-  listMentorExceptions(@Param() params: MentorIdParamDto): Promise<AvailabilityException[]> {
+  listMentorExceptions(
+    @Param() params: MentorIdParamDto,
+  ): Promise<AvailabilityException[]> {
     return this.availabilityService.listExceptions(params.mentorId);
   }
 
   @Get('mentors/:mentorId/availability/check')
-  @ApiHeader({ name: 'Accept-Timezone', required: false, description: 'IANA timezone override for this response.' })
+  @ApiHeader({
+    name: 'Accept-Timezone',
+    required: false,
+    description: 'IANA timezone override for this response.',
+  })
   @ApiOperation({
     summary: 'Check if mentor is available at a datetime',
-    description: 'dateTime must be an ISO 8601 datetime. Availability is evaluated in UTC.',
+    description:
+      'dateTime must be an ISO 8601 datetime. Availability is evaluated in UTC.',
     operationId: 'checkMentorAvailability',
   })
   @ApiParam({ name: 'mentorId', description: 'Mentor wallet address' })
-  @ApiQuery({ name: 'dateTime', required: true, example: '2026-11-23T10:30:00.000Z' })
+  @ApiQuery({
+    name: 'dateTime',
+    required: true,
+    example: '2026-11-23T10:30:00.000Z',
+  })
   @ApiResponse({ status: HttpStatus.OK, type: AvailabilityCheckResponseDto })
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, type: ErrorResponseDto })
   checkAvailability(
@@ -215,7 +273,11 @@ export class AvailabilityController {
   }
 
   @Get('mentors/:mentorId/availability/next-30-days')
-  @ApiHeader({ name: 'Accept-Timezone', required: false, description: 'IANA timezone override for display fields.' })
+  @ApiHeader({
+    name: 'Accept-Timezone',
+    required: false,
+    description: 'IANA timezone override for display fields.',
+  })
   @ApiOperation({
     summary: 'Get available windows for the next 30 days',
     description:
@@ -224,7 +286,10 @@ export class AvailabilityController {
     operationId: 'getMentorNext30DaysAvailability',
   })
   @ApiParam({ name: 'mentorId', description: 'Mentor wallet address' })
-  @ApiResponse({ status: HttpStatus.OK, type: Next30DaysAvailabilityResponseDto })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    type: Next30DaysAvailabilityResponseDto,
+  })
   getNext30Days(
     @Param() params: MentorIdParamDto,
     @Headers('accept-timezone') timezone?: string,

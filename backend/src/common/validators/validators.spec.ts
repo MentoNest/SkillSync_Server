@@ -27,7 +27,9 @@ describe('common validators (#1692)', () => {
     const bad = plainToInstance(UserIdParamDto, { userId: 'not-a-wallet' });
 
     expect(await validate(good)).toHaveLength(0);
-    expect((await validate(bad)).map((error) => error.property)).toContain('userId');
+    expect((await validate(bad)).map((error) => error.property)).toContain(
+      'userId',
+    );
   });
 
   it('accepts ISO 8601 date-times with timezones only', async () => {
@@ -37,7 +39,9 @@ describe('common validators (#1692)', () => {
     }
 
     expect(
-      await validate(plainToInstance(Dto, { dateTime: '2026-11-23T10:30:00.000Z' })),
+      await validate(
+        plainToInstance(Dto, { dateTime: '2026-11-23T10:30:00.000Z' }),
+      ),
     ).toHaveLength(0);
     expect(
       await validate(plainToInstance(Dto, { dateTime: '2026-11-23T10:30:00' })),
@@ -54,11 +58,17 @@ describe('common validators (#1692)', () => {
 
     expect(
       await validate(
-        plainToInstance(Dto, { from: '2026-01-01T00:00:00Z', to: '2026-02-01T00:00:00Z' }),
+        plainToInstance(Dto, {
+          from: '2026-01-01T00:00:00Z',
+          to: '2026-02-01T00:00:00Z',
+        }),
       ),
     ).toHaveLength(0);
     const errors = await validate(
-      plainToInstance(Dto, { from: '2026-03-01T00:00:00Z', to: '2026-02-01T00:00:00Z' }),
+      plainToInstance(Dto, {
+        from: '2026-03-01T00:00:00Z',
+        to: '2026-02-01T00:00:00Z',
+      }),
     );
     expect(errors.map((error) => error.property)).toContain('to');
   });
@@ -69,9 +79,15 @@ describe('common validators (#1692)', () => {
       timezone!: string;
     }
 
-    expect(await validate(plainToInstance(Dto, { timezone: 'Africa/Lagos' }))).toHaveLength(0);
-    expect(await validate(plainToInstance(Dto, { timezone: 'UTC' }))).toHaveLength(0);
-    expect(await validate(plainToInstance(Dto, { timezone: 'Mars/Olympus' }))).toHaveLength(1);
+    expect(
+      await validate(plainToInstance(Dto, { timezone: 'Africa/Lagos' })),
+    ).toHaveLength(0);
+    expect(
+      await validate(plainToInstance(Dto, { timezone: 'UTC' })),
+    ).toHaveLength(0);
+    expect(
+      await validate(plainToInstance(Dto, { timezone: 'Mars/Olympus' })),
+    ).toHaveLength(1);
   });
 
   it('validates availability windows', async () => {
@@ -83,10 +99,14 @@ describe('common validators (#1692)', () => {
     }
 
     expect(
-      await validate(plainToInstance(Dto, { startTimeUtc: '10:00', endTimeUtc: '12:00' })),
+      await validate(
+        plainToInstance(Dto, { startTimeUtc: '10:00', endTimeUtc: '12:00' }),
+      ),
     ).toHaveLength(0);
     expect(
-      await validate(plainToInstance(Dto, { startTimeUtc: '12:00', endTimeUtc: '10:00' })),
+      await validate(
+        plainToInstance(Dto, { startTimeUtc: '12:00', endTimeUtc: '10:00' }),
+      ),
     ).toHaveLength(1);
   });
 
@@ -108,14 +128,18 @@ describe('common validators (#1692)', () => {
     const errors = await validate(
       plainToInstance(ParentDto, { nested: { label: 42 } }),
     );
-    expect(errors[0].children?.map((child) => child.property)).toContain('label');
+    expect(errors[0].children?.map((child) => child.property)).toContain(
+      'label',
+    );
   });
 
   it('exposes the availability check query DTO with its custom rules', async () => {
     const good = plainToInstance(AvailabilityCheckQueryDto, {
       dateTime: '2026-11-23T10:30:00.000Z',
     });
-    const bad = plainToInstance(AvailabilityCheckQueryDto, { dateTime: 'yesterday' });
+    const bad = plainToInstance(AvailabilityCheckQueryDto, {
+      dateTime: 'yesterday',
+    });
     expect(await validate(good)).toHaveLength(0);
     expect(await validate(bad)).toHaveLength(1);
   });

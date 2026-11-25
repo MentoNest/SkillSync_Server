@@ -1,4 +1,9 @@
-import { Controller, Get, HttpStatus, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  HttpStatus,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ErrorResponseDto } from '../common/dto/error-response.dto';
 import { RedisService } from './redis.service';
@@ -11,7 +16,8 @@ export class RedisHealthController {
   /** `GET /health/redis`: 200 with the round-trip latency, or 503 when Redis does not answer. */
   @ApiOperation({
     summary: 'Check Redis connectivity',
-    description: 'Returns the round-trip latency of a PING against Redis, or 503 when Redis is unreachable.',
+    description:
+      'Returns the round-trip latency of a PING against Redis, or 503 when Redis is unreachable.',
     operationId: 'checkRedisHealth',
   })
   @ApiResponse({

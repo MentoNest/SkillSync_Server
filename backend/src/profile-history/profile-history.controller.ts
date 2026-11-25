@@ -44,7 +44,7 @@ export class ProfileHistoryController {
     summary: 'Get profile change history for a user',
     description:
       'Returns a paginated, reverse-chronological list of every tracked field change ' +
-      'made to the specified user\'s profile. Sensitive field values are redacted. ' +
+      "made to the specified user's profile. Sensitive field values are redacted. " +
       'Requires ADMIN role.',
     operationId: 'getProfileHistory',
   })
@@ -63,19 +63,34 @@ export class ProfileHistoryController {
     description: 'No history found for this user.',
     type: ErrorResponseDto,
   })
-  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid access token.', type: UnauthorizedResponseDto })
-  @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Caller does not hold the ADMIN role.', type: ForbiddenResponseDto })
-  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Missing or invalid access token.',
+    type: UnauthorizedResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'Caller does not hold the ADMIN role.',
+    type: ForbiddenResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Unexpected server error.',
+    type: InternalServerErrorResponseDto,
+  })
   @Get('users/:userId/profile-history')
   @HttpCode(HttpStatus.OK)
   async getProfileHistory(
     @Param() params: UserIdParamDto,
     @Query() query: ProfileHistoryQueryDto,
   ): Promise<ProfileHistoryPageDto> {
-    const { entries, total } = await this.historyService.getHistoryForUser(params.userId, {
-      limit: query.limit,
-      offset: query.offset,
-    });
+    const { entries, total } = await this.historyService.getHistoryForUser(
+      params.userId,
+      {
+        limit: query.limit,
+        offset: query.offset,
+      },
+    );
 
     return {
       entries: entries.map(ProfileHistoryEntryDto.fromEntity),

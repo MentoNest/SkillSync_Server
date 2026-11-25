@@ -90,14 +90,16 @@ export class ProfileCompletenessService {
 
   /** Derives the score directly from the database; used by the cache and tests. */
   async computeForUser(walletAddress: string): Promise<CompletenessResult> {
-    const [user, availabilitySlotCount, portfolioLinkCount] = await Promise.all([
-      this.users.findOne({
-        where: { walletAddress },
-        relations: { mentorProfile: true, menteeProfile: true },
-      }),
-      this.slots.count({ where: { mentorId: walletAddress } }),
-      this.portfolioLinks.count({ where: { walletAddress } }),
-    ]);
+    const [user, availabilitySlotCount, portfolioLinkCount] = await Promise.all(
+      [
+        this.users.findOne({
+          where: { walletAddress },
+          relations: { mentorProfile: true, menteeProfile: true },
+        }),
+        this.slots.count({ where: { mentorId: walletAddress } }),
+        this.portfolioLinks.count({ where: { walletAddress } }),
+      ],
+    );
     if (!user) throw new ResourceNotFoundException('User', walletAddress);
 
     const profileType = user.mentorProfile ? 'mentor' : 'mentee';

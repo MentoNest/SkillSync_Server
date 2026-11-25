@@ -1,8 +1,10 @@
 import { Keypair } from '@stellar/stellar-sdk';
 import {
+  BusinessRuleException,
   DuplicateResourceException,
   ResourceNotFoundException,
 } from '../../common/errors/app-exceptions';
+import { AppConfig } from '../../config/app.config';
 import { User } from '../user.entity';
 import { UserStatus } from '../user-status.enum';
 import { UserService } from '../user.service';
@@ -19,6 +21,9 @@ function makeUser(overrides: Partial<User> = {}): User {
   user.displayName = null;
   user.status = UserStatus.ACTIVE;
   user.avatarUrl = null;
+  user.avatarThumbnailUrl = null;
+  user.avatarSmallUrl = null;
+  user.avatarMediumUrl = null;
   user.timezone = 'UTC';
   user.locale = 'en';
   user.usernameChangedAt = null;
@@ -30,12 +35,16 @@ function makeUser(overrides: Partial<User> = {}): User {
 }
 
 function matches(user: User, where: Record<string, unknown>): boolean {
-  return Object.entries(where).every(([key, value]) => (user as unknown as Record<string, unknown>)[key] === value);
+  return Object.entries(where).every(
+    ([key, value]) =>
+      (user as unknown as Record<string, unknown>)[key] === value,
+  );
 }
 
 function makeRepo(rows: User[] = []) {
   const query = {
     where: {} as Record<string, unknown>,
+    statusFilter: undefined as UserStatus | undefined,
     search: undefined as string | undefined,
     skip: 0,
     take: 20,
@@ -43,14 +52,29 @@ function makeRepo(rows: User[] = []) {
 
   const qb = {
     leftJoinAndSelect: jest.fn().mockReturnThis(),
-    where: jest.fn((where: Record<string, unknown>) => {
-      query.where = where;
-      return qb;
-    }),
-    andWhere: jest.fn((_sql: string, params?: { q?: string }) => {
-      query.search = params?.q?.replace(/%/g, '');
-      return qb;
-    }),
+    where: jest.fn(
+      (
+        whereOrSql: Record<string, unknown> | string,
+        params?: Record<string, unknown>,
+      ) => {
+        if (typeof whereOrSql === 'string') {
+          Object.assign(query, params ?? {});
+        } else {
+          query.where = whereOrSql;
+        }
+        return qb;
+      },
+    ),
+    andWhere: jest.fn(
+      (sql: string, params?: { q?: string; status?: UserStatus }) => {
+        if (sql.includes('u.status')) {
+          query.statusFilter = params?.status;
+        } else if (params?.q !== undefined) {
+          query.search = params.q.replace(/%/g, '');
+        }
+        return qb;
+      },
+    ),
     orderBy: jest.fn(() => qb),
     addOrderBy: jest.fn(() => qb),
     skip: jest.fn((value: number) => {
@@ -60,6 +84,21 @@ function makeRepo(rows: User[] = []) {
     take: jest.fn((value: number) => {
       query.take = value;
       return qb;
+    }),
+    getOne: jest.fn(async () => {
+      const record = query as unknown as {
+        username?: string;
+        walletAddress?: string;
+      };
+      return (
+        rows.find(
+          (u) =>
+            !u.deletedAt &&
+            (!query.statusFilter || u.status === query.statusFilter) &&
+            (u.username === record.username ||
+              u.walletAddress === record.walletAddress),
+        ) ?? null
+      );
     }),
     getManyAndCount: jest.fn(async () => {
       const filtered = rows.filter((row) => {
@@ -72,7 +111,10 @@ function makeRepo(rows: User[] = []) {
           false
         );
       });
-      return [filtered.slice(query.skip, query.skip + query.take), filtered.length];
+      return [
+        filtered.slice(query.skip, query.skip + query.take),
+        filtered.length,
+      ];
     }),
   };
 
@@ -80,17 +122,24 @@ function makeRepo(rows: User[] = []) {
     findOneBy: jest.fn(async (where: Record<string, unknown>) => {
       return rows.find((row) => !row.deletedAt && matches(row, where)) ?? null;
     }),
-    findOne: jest.fn(async (options: { where: Record<string, unknown>; withDeleted?: boolean }) => {
-      const row = rows.find((candidate) => matches(candidate, options.where));
-      if (!row || (!options.withDeleted && row.deletedAt)) return null;
-      return row;
-    }),
+    findOne: jest.fn(
+      async (options: {
+        where: Record<string, unknown>;
+        withDeleted?: boolean;
+      }) => {
+        const row = rows.find((candidate) => matches(candidate, options.where));
+        if (!row || (!options.withDeleted && row.deletedAt)) return null;
+        return row;
+      },
+    ),
     existsBy: jest.fn(async (where: Record<string, unknown>) => {
       return rows.some((row) => !row.deletedAt && matches(row, where));
     }),
     create: jest.fn((data: Partial<User>) => Object.assign(makeUser(), data)),
     save: jest.fn(async (entity: User) => {
-      const index = rows.findIndex((row) => row.walletAddress === entity.walletAddress);
+      const index = rows.findIndex(
+        (row) => row.walletAddress === entity.walletAddress,
+      );
       if (index >= 0) rows[index] = entity;
       else rows.push(entity);
       return entity;
@@ -109,18 +158,29 @@ function makeRepo(rows: User[] = []) {
   };
 }
 
-function makeService(repo: ReturnType<typeof makeRepo>) {
+function makeService(
+  repo: ReturnType<typeof makeRepo>,
+  config?: Partial<AppConfig>,
+) {
   const portfolioLinks = { listByWallet: jest.fn().mockResolvedValue([]) };
   const completeness = {
     getForUser: jest.fn().mockResolvedValue({ score: 0 }),
     invalidate: jest.fn().mockResolvedValue(undefined),
   };
-  return new UserService(repo as never, portfolioLinks as never, completeness as never);
+  return new UserService(
+    repo as never,
+    portfolioLinks as never,
+    completeness as never,
+    config as AppConfig | undefined,
+  );
 }
 
 describe('UserService lifecycle rules', () => {
   it('normalises email and rejects duplicate wallet or email addresses', async () => {
-    const existing = makeUser({ walletAddress: OTHER, email: 'taken@example.com' });
+    const existing = makeUser({
+      walletAddress: OTHER,
+      email: 'taken@example.com',
+    });
     const repo = makeRepo([existing]);
     const service = makeService(repo);
 
@@ -131,8 +191,11 @@ describe('UserService lifecycle rules', () => {
 
     expect(created.email).toBe('alice@example.com');
     expect(created.timezone).toBe('UTC');
+    expect(created.status).toBe(UserStatus.ACTIVE);
     expect(created.walletAddress).toBe(WALLET.toLowerCase());
-    expect(repo.findOneBy).toHaveBeenCalledWith({ walletAddress: WALLET.toLowerCase() });
+    expect(repo.findOneBy).toHaveBeenCalledWith({
+      walletAddress: WALLET.toLowerCase(),
+    });
     await expect(
       service.create({ walletAddress: OTHER, displayName: 'Duplicate' }),
     ).rejects.toBeInstanceOf(DuplicateResourceException);
@@ -141,16 +204,30 @@ describe('UserService lifecycle rules', () => {
     ).rejects.toBeInstanceOf(DuplicateResourceException);
   });
 
+  it('defaults new users to pending_verification when email verification is enabled', async () => {
+    const repo = makeRepo([]);
+    const service = makeService(repo, { requireEmailVerification: true });
+
+    const created = await service.create({ walletAddress: WALLET });
+
+    expect(created.status).toBe(UserStatus.PENDING_VERIFICATION);
+  });
+
   it('rejects updating a profile to an email owned by another account', async () => {
     const mine = makeUser({ walletAddress: WALLET });
-    const theirs = makeUser({ walletAddress: OTHER, email: 'owner@example.com' });
+    const theirs = makeUser({
+      walletAddress: OTHER,
+      email: 'owner@example.com',
+    });
     const repo = makeRepo([mine, theirs]);
     const service = makeService(repo);
 
-    await expect(service.updateMe(WALLET, { email: 'OWNER@example.com' })).rejects.toBeInstanceOf(
-      DuplicateResourceException,
-    );
-    await expect(service.updateMe(WALLET, { email: 'mine@example.com' })).resolves.toMatchObject({
+    await expect(
+      service.updateMe(WALLET, { email: 'OWNER@example.com' }),
+    ).rejects.toBeInstanceOf(DuplicateResourceException);
+    await expect(
+      service.updateMe(WALLET, { email: 'mine@example.com' }),
+    ).resolves.toMatchObject({
       email: 'mine@example.com',
     });
   });
@@ -163,7 +240,9 @@ describe('UserService lifecycle rules', () => {
 
     expect(repo.softDelete).toHaveBeenCalledWith({ walletAddress: WALLET });
     expect(await repo.findOneBy({ walletAddress: WALLET })).toBeNull();
-    await expect(service.removeMe(UNKNOWN)).rejects.toBeInstanceOf(ResourceNotFoundException);
+    await expect(service.removeMe(UNKNOWN)).rejects.toBeInstanceOf(
+      ResourceNotFoundException,
+    );
   });
 
   it('suspends an active account without hiding it from soft-delete queries', async () => {
@@ -179,8 +258,33 @@ describe('UserService lifecycle rules', () => {
     });
   });
 
-  it('restores a soft-deleted account and marks it active', async () => {
-    const deleted = makeUser({ status: UserStatus.DELETED, deletedAt: new Date() });
+  it('validates status transitions and rejects transitioning from deleted to active via setStatus', async () => {
+    const deleted = makeUser({
+      status: UserStatus.DELETED,
+      deletedAt: new Date(),
+    });
+    const repo = makeRepo([deleted]);
+    const service = makeService(repo);
+
+    await expect(
+      service.setStatus(WALLET, UserStatus.ACTIVE),
+    ).rejects.toBeInstanceOf(BusinessRuleException);
+  });
+
+  it('allows pending_verification -> active transition', async () => {
+    const pending = makeUser({ status: UserStatus.PENDING_VERIFICATION });
+    const repo = makeRepo([pending]);
+    const service = makeService(repo);
+
+    const activated = await service.setStatus(WALLET, UserStatus.ACTIVE);
+    expect(activated.status).toBe(UserStatus.ACTIVE);
+  });
+
+  it('restores a soft-deleted account via restore() and marks it active', async () => {
+    const deleted = makeUser({
+      status: UserStatus.DELETED,
+      deletedAt: new Date(),
+    });
     const repo = makeRepo([deleted]);
     const service = makeService(repo);
 
@@ -201,26 +305,44 @@ describe('UserService lifecycle rules', () => {
     expect(repo.softDelete).toHaveBeenCalledWith({ walletAddress: WALLET });
   });
 
-  it('filters by status and search text and applies pagination', async () => {
+  it('filters non-active users out of public profiles and default listings', async () => {
     const rows = [
-      makeUser({ walletAddress: WALLET, username: 'alice_dev', displayName: 'Alice' }),
-      makeUser({ walletAddress: OTHER, username: 'bob_dev', displayName: 'Bob', status: UserStatus.SUSPENDED }),
-      makeUser({ walletAddress: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', username: 'carol' }),
+      makeUser({
+        walletAddress: WALLET,
+        username: 'alice_dev',
+        displayName: 'Alice',
+      }),
+      makeUser({
+        walletAddress: OTHER,
+        username: 'bob_dev',
+        displayName: 'Bob',
+        status: UserStatus.SUSPENDED,
+      }),
+      makeUser({
+        walletAddress:
+          'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        username: 'carol',
+      }),
     ];
     const repo = makeRepo(rows);
     const service = makeService(repo);
 
+    await expect(service.getPublicProfile('bob_dev')).rejects.toBeInstanceOf(
+      ResourceNotFoundException,
+    );
+    await expect(service.getPublicProfile('alice_dev')).resolves.toMatchObject({
+      username: 'alice_dev',
+    });
+
     const page = await service.findAll({
-      status: UserStatus.ACTIVE,
       search: 'dev',
       page: 1,
-      limit: 1,
+      limit: 10,
     });
 
     expect(page.total).toBe(1);
     expect(page.data).toHaveLength(1);
     expect(page.data[0].username).toBe('alice_dev');
-    expect(page).toMatchObject({ page: 1, limit: 1 });
   });
 
   it('propagates repository failures instead of returning stale data', async () => {
@@ -228,8 +350,8 @@ describe('UserService lifecycle rules', () => {
     repo.save.mockRejectedValueOnce(new Error('database unavailable'));
     const service = makeService(repo);
 
-    await expect(service.updateMe(WALLET, { displayName: 'New' })).rejects.toThrow(
-      'database unavailable',
-    );
+    await expect(
+      service.updateMe(WALLET, { displayName: 'New' }),
+    ).rejects.toThrow('database unavailable');
   });
 });

@@ -4,7 +4,9 @@ describe('PaginationService (#1693)', () => {
   const service = new PaginationService();
 
   function queryBuilder(total: number) {
-    const rows = Array.from({ length: Math.min(total, 10) }, (_, i) => ({ id: i + 1 }));
+    const rows = Array.from({ length: Math.min(total, 10) }, (_, i) => ({
+      id: i + 1,
+    }));
     return {
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
@@ -57,19 +59,33 @@ describe('PaginationService (#1693)', () => {
     const result = await service.paginate(qb, 7, 20);
 
     expect(qb.skip).toHaveBeenCalledWith(120);
-    expect(result.meta).toMatchObject({ total: 0, totalPages: 0, hasNext: false, hasPrev: false });
+    expect(result.meta).toMatchObject({
+      total: 0,
+      totalPages: 0,
+      hasNext: false,
+      hasPrev: false,
+    });
   });
 
   it('builds first/prev/next/last links preserving the base query', () => {
-    const links = service.buildLinks('https://api.skillsync.dev/users?role=mentor', 2, 20, 5);
+    const links = service.buildLinks(
+      'https://api.skillsync.dev/users?role=mentor',
+      2,
+      20,
+      5,
+    );
 
     expect(links.prev).toContain('page=1');
     expect(links.prev).toContain('role=mentor');
     expect(links.next).toContain('page=3');
     expect(links.first).toContain('page=1');
     expect(links.last).toContain('page=5');
-    expect(service.buildLinks('https://api.skillsync.dev/users', 1, 20, 1).prev).toBeNull();
-    expect(service.buildLinks('https://api.skillsync.dev/users', 1, 20, 1).next).toBeNull();
+    expect(
+      service.buildLinks('https://api.skillsync.dev/users', 1, 20, 1).prev,
+    ).toBeNull();
+    expect(
+      service.buildLinks('https://api.skillsync.dev/users', 1, 20, 1).next,
+    ).toBeNull();
   });
 
   it('encodes and decodes cursors', () => {
@@ -98,7 +114,9 @@ describe('PaginationService (#1693)', () => {
       alias: 'user',
       cursor: first.nextCursor!,
     });
-    expect(qb.andWhere).toHaveBeenCalledWith('user.id > :cursor', { cursor: '2' });
+    expect(qb.andWhere).toHaveBeenCalledWith('user.id > :cursor', {
+      cursor: '2',
+    });
     expect(second.data).toEqual([{ id: '3' }]);
     expect(second.hasMore).toBe(false);
     expect(second.nextCursor).toBeNull();

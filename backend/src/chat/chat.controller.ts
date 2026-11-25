@@ -35,7 +35,7 @@ import {
 } from './dto/chat.dto';
 
 @ApiTags('Chat')
-@ApiBearerAuth('Bearer Auth')
+@ApiBearerAuth('BearerAuth')
 @UseGuards(JwtAuthGuard)
 @Controller('chat')
 export class ChatController {

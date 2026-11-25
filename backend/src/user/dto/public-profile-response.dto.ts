@@ -24,25 +24,58 @@ export class PublicProfileResponseDto {
   })
   displayName!: string;
 
-  @ApiProperty({ description: 'UTC timestamp of account creation.', example: '2024-01-15T10:00:00.000Z' })
+  @ApiProperty({
+    description: 'UTC timestamp of account creation.',
+    example: '2024-01-15T10:00:00.000Z',
+  })
   createdAt!: string;
 
-  @ApiPropertyOptional({ type: [PortfolioLinkResponseDto], description: 'Public portfolio links' })
+  @ApiPropertyOptional({
+    description: 'Avatar URL.',
+    type: String,
+    nullable: true,
+  })
+  avatarUrl?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Avatar thumbnail URL (64x64).',
+    type: String,
+    nullable: true,
+  })
+  avatarThumbnailUrl?: string | null;
+
+  @ApiPropertyOptional({
+    type: [PortfolioLinkResponseDto],
+    description: 'Public portfolio links',
+  })
   portfolioLinks?: PortfolioLinkResponseDto[];
 
-  @ApiPropertyOptional({ description: 'True when this user has an active featured mentor profile.' })
+  @ApiPropertyOptional({
+    description: 'True when this user has an active featured mentor profile.',
+  })
   isFeatured?: boolean;
 
-  @ApiPropertyOptional({ nullable: true, description: 'Badge shown on featured mentor cards.' })
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Badge shown on featured mentor cards.',
+  })
   featuredBadge?: string | null;
 
-  @ApiProperty({ description: 'Whether this mentor has been verified by an administrator.' })
+  @ApiProperty({
+    description: 'Whether this mentor has been verified by an administrator.',
+  })
   isVerified!: boolean;
 
-  @ApiPropertyOptional({ nullable: true, description: 'UTC date of mentor verification.' })
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'UTC date of mentor verification.',
+  })
   verifiedAt!: string | null;
 
-  @ApiPropertyOptional({ nullable: true, description: 'Badge shown on verified mentor profiles and cards.' })
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Badge shown on verified mentor profiles and cards.',
+  })
   verifiedBadge!: string | null;
 }
 

@@ -29,7 +29,10 @@ export class ProfileHistoryContextMiddleware implements NestMiddleware {
       const token = authHeader.slice(7);
       try {
         // Decode only — the guard verifies the signature; here we just need the sub.
-        const payload = this.jwt.decode(token) as { sub?: unknown; roles?: string[] } | null;
+        const payload = this.jwt.decode(token) as {
+          sub?: unknown;
+          roles?: string[];
+        } | null;
         if (typeof payload?.sub === 'string') {
           changedBy = payload.sub;
           reason = payload.roles?.includes('admin')

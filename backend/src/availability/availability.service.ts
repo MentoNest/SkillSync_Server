@@ -1,10 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
-import { BusinessRuleException, ResourceNotFoundException } from '../common/errors/app-exceptions';
+import {
+  BusinessRuleException,
+  ResourceNotFoundException,
+} from '../common/errors/app-exceptions';
 import { resolveTimezone } from '../common/utils/timezone.utils';
 import { MentorProfile } from '../profile/mentor-profile.entity';
 import { User } from '../user/user.entity';
+import { UserStatus } from '../user/user-status.enum';
 import { AvailabilityException } from './availability-exception.entity';
 import { AvailabilitySlot } from './availability-slot.entity';
 import {
@@ -52,13 +56,24 @@ export class AvailabilityService {
 
   async listSlots(mentorId: string): Promise<AvailabilitySlot[]> {
     await this.ensureMentorExists(mentorId);
-    return this.slots.find({ where: { mentorId }, order: { dayOfWeek: 'ASC', startTimeUtc: 'ASC' } });
+    return this.slots.find({
+      where: { mentorId },
+      order: { dayOfWeek: 'ASC', startTimeUtc: 'ASC' },
+    });
   }
 
-  async createSlot(mentorId: string, dto: CreateAvailabilitySlotDto): Promise<AvailabilitySlot> {
+  async createSlot(
+    mentorId: string,
+    dto: CreateAvailabilitySlotDto,
+  ): Promise<AvailabilitySlot> {
     await this.ensureMentorExists(mentorId);
     this.assertSlotTimes(dto.startTimeUtc, dto.endTimeUtc);
-    await this.assertNoSlotOverlap(mentorId, dto.dayOfWeek, dto.startTimeUtc, dto.endTimeUtc);
+    await this.assertNoSlotOverlap(
+      mentorId,
+      dto.dayOfWeek,
+      dto.startTimeUtc,
+      dto.endTimeUtc,
+    );
 
     const entity = this.slots.create({
       mentorId,
@@ -70,7 +85,11 @@ export class AvailabilityService {
     return this.slots.save(entity);
   }
 
-  async updateSlot(mentorId: string, slotId: string, dto: UpdateAvailabilitySlotDto): Promise<AvailabilitySlot> {
+  async updateSlot(
+    mentorId: string,
+    slotId: string,
+    dto: UpdateAvailabilitySlotDto,
+  ): Promise<AvailabilitySlot> {
     const slot = await this.slots.findOne({ where: { id: slotId, mentorId } });
     if (!slot) throw new ResourceNotFoundException('Availability slot', slotId);
 
@@ -81,7 +100,13 @@ export class AvailabilityService {
       timezone: dto.timezone ?? slot.timezone,
     };
     this.assertSlotTimes(next.startTimeUtc, next.endTimeUtc);
-    await this.assertNoSlotOverlap(mentorId, next.dayOfWeek, next.startTimeUtc, next.endTimeUtc, slotId);
+    await this.assertNoSlotOverlap(
+      mentorId,
+      next.dayOfWeek,
+      next.startTimeUtc,
+      next.endTimeUtc,
+      slotId,
+    );
 
     Object.assign(slot, next);
     return this.slots.save(slot);
@@ -97,7 +122,10 @@ export class AvailabilityService {
 
   async listExceptions(mentorId: string): Promise<AvailabilityException[]> {
     await this.ensureMentorExists(mentorId);
-    return this.exceptions.find({ where: { mentorId }, order: { date: 'ASC', startTimeUtc: 'ASC' } });
+    return this.exceptions.find({
+      where: { mentorId },
+      order: { date: 'ASC', startTimeUtc: 'ASC' },
+    });
   }
 
   async createException(
@@ -106,7 +134,12 @@ export class AvailabilityService {
   ): Promise<AvailabilityException> {
     await this.ensureMentorExists(mentorId);
     this.assertSlotTimes(dto.startTimeUtc, dto.endTimeUtc);
-    await this.assertNoExceptionOverlap(mentorId, dto.date, dto.startTimeUtc, dto.endTimeUtc);
+    await this.assertNoExceptionOverlap(
+      mentorId,
+      dto.date,
+      dto.startTimeUtc,
+      dto.endTimeUtc,
+    );
 
     const entity = this.exceptions.create({
       mentorId,
@@ -124,8 +157,14 @@ export class AvailabilityService {
     exceptionId: string,
     dto: UpdateAvailabilityExceptionDto,
   ): Promise<AvailabilityException> {
-    const exception = await this.exceptions.findOne({ where: { id: exceptionId, mentorId } });
-    if (!exception) throw new ResourceNotFoundException('Availability exception', exceptionId);
+    const exception = await this.exceptions.findOne({
+      where: { id: exceptionId, mentorId },
+    });
+    if (!exception)
+      throw new ResourceNotFoundException(
+        'Availability exception',
+        exceptionId,
+      );
 
     const next = {
       date: dto.date ?? exception.date,
@@ -135,15 +174,27 @@ export class AvailabilityService {
       isUnavailable: dto.isUnavailable ?? exception.isUnavailable,
     };
     this.assertSlotTimes(next.startTimeUtc, next.endTimeUtc);
-    await this.assertNoExceptionOverlap(mentorId, next.date, next.startTimeUtc, next.endTimeUtc, exceptionId);
+    await this.assertNoExceptionOverlap(
+      mentorId,
+      next.date,
+      next.startTimeUtc,
+      next.endTimeUtc,
+      exceptionId,
+    );
 
     Object.assign(exception, next);
     return this.exceptions.save(exception);
   }
 
   async deleteException(mentorId: string, exceptionId: string): Promise<void> {
-    const exception = await this.exceptions.findOne({ where: { id: exceptionId, mentorId } });
-    if (!exception) throw new ResourceNotFoundException('Availability exception', exceptionId);
+    const exception = await this.exceptions.findOne({
+      where: { id: exceptionId, mentorId },
+    });
+    if (!exception)
+      throw new ResourceNotFoundException(
+        'Availability exception',
+        exceptionId,
+      );
     await this.exceptions.remove(exception);
   }
 
@@ -155,7 +206,8 @@ export class AvailabilityService {
     timezone = 'UTC',
   ): Promise<AvailabilityCheckResponseDto> {
     await this.ensureMentorExists(mentorId);
-    const dt = typeof dateTime === 'string' ? parseDateTime(dateTime) : dateTime;
+    const dt =
+      typeof dateTime === 'string' ? parseDateTime(dateTime) : dateTime;
     const available = await this.isAvailableAt(mentorId, dt);
     return { mentorId, timezone, dateTime: dt.toISOString(), available };
   }
@@ -180,7 +232,11 @@ export class AvailabilityService {
     );
 
     const windows: AvailableWindowDto[] = [];
-    for (let day = new Date(start.getTime()); day < end; day = addDaysUtc(day, 1)) {
+    for (
+      let day = new Date(start.getTime());
+      day < end;
+      day = addDaysUtc(day, 1)
+    ) {
       const dateStr = getUtcDateString(day);
       const dayOfWeek = getUtcDayOfWeek(day);
       const daySlots = slots.filter((s) => s.dayOfWeek === dayOfWeek);
@@ -188,7 +244,12 @@ export class AvailabilityService {
 
       const dayExceptions = exceptions.filter((e) => e.date === dateStr);
       for (const slot of daySlots) {
-        const slotWindows = this.applyExceptionsToSlot(dateStr, slot, dayExceptions, timezone);
+        const slotWindows = this.applyExceptionsToSlot(
+          dateStr,
+          slot,
+          dayExceptions,
+          timezone,
+        );
         windows.push(...slotWindows);
       }
     }
@@ -200,8 +261,19 @@ export class AvailabilityService {
   // ─── Internal helpers ─────────────────────────────────────────────────────
 
   private async ensureMentorExists(mentorId: string): Promise<void> {
-    const exists = await this.mentorProfiles.existsBy({ walletAddress: mentorId });
-    if (!exists) throw new ResourceNotFoundException('Mentor profile', mentorId);
+    const exists = await this.mentorProfiles.existsBy({
+      walletAddress: mentorId,
+    });
+    if (!exists)
+      throw new ResourceNotFoundException('Mentor profile', mentorId);
+    const user = await this.users.findOneBy({ walletAddress: mentorId });
+    if (
+      user &&
+      user.status !== undefined &&
+      user.status !== UserStatus.ACTIVE
+    ) {
+      throw new ResourceNotFoundException('Mentor profile', mentorId);
+    }
   }
 
   private assertSlotTimes(start: string, end: string): void {
@@ -220,7 +292,9 @@ export class AvailabilityService {
     const where: Record<string, unknown> = { mentorId, dayOfWeek };
     if (excludeId) where.id = Not(excludeId);
     const sameDaySlots = await this.slots.find({ where: where as never });
-    const conflict = sameDaySlots.find((s) => timeRangesOverlap(start, end, s.startTimeUtc, s.endTimeUtc));
+    const conflict = sameDaySlots.find((s) =>
+      timeRangesOverlap(start, end, s.startTimeUtc, s.endTimeUtc),
+    );
     if (conflict) {
       throw new BusinessRuleException(
         `Availability slot overlaps with existing slot ${conflict.id} (${conflict.startTimeUtc}-${conflict.endTimeUtc}).`,
@@ -238,7 +312,9 @@ export class AvailabilityService {
     const where: Record<string, unknown> = { mentorId, date };
     if (excludeId) where.id = Not(excludeId);
     const sameDay = await this.exceptions.find({ where: where as never });
-    const conflict = sameDay.find((e) => timeRangesOverlap(start, end, e.startTimeUtc, e.endTimeUtc));
+    const conflict = sameDay.find((e) =>
+      timeRangesOverlap(start, end, e.startTimeUtc, e.endTimeUtc),
+    );
     if (conflict) {
       throw new BusinessRuleException(
         `Availability exception overlaps with existing exception ${conflict.id} (${conflict.startTimeUtc}-${conflict.endTimeUtc}).`,
@@ -256,11 +332,15 @@ export class AvailabilityService {
       this.exceptions.find({ where: { mentorId, date: dateStr } }),
     ]);
 
-    const inSlot = slots.some((s) => this.timeWithin(timeStr, s.startTimeUtc, s.endTimeUtc));
+    const inSlot = slots.some((s) =>
+      this.timeWithin(timeStr, s.startTimeUtc, s.endTimeUtc),
+    );
     if (!inSlot) return false;
 
     const blocked = exceptions.some(
-      (e) => e.isUnavailable && this.timeWithin(timeStr, e.startTimeUtc, e.endTimeUtc),
+      (e) =>
+        e.isUnavailable &&
+        this.timeWithin(timeStr, e.startTimeUtc, e.endTimeUtc),
     );
     return !blocked;
   }
@@ -277,14 +357,19 @@ export class AvailabilityService {
     timezone: string,
   ): AvailableWindowDto[] {
     let windows: Array<{ start: number; end: number }> = [
-      { start: parseTimeToMinutes(slot.startTimeUtc), end: parseTimeToMinutes(slot.endTimeUtc) },
+      {
+        start: parseTimeToMinutes(slot.startTimeUtc),
+        end: parseTimeToMinutes(slot.endTimeUtc),
+      },
     ];
 
     const blocking = exceptions.filter((e) => e.isUnavailable);
     for (const ex of blocking) {
       const exStart = parseTimeToMinutes(ex.startTimeUtc);
       const exEnd = parseTimeToMinutes(ex.endTimeUtc);
-      windows = windows.flatMap((w) => this.subtractWindow(w, { start: exStart, end: exEnd }));
+      windows = windows.flatMap((w) =>
+        this.subtractWindow(w, { start: exStart, end: exEnd }),
+      );
     }
 
     return windows
@@ -310,12 +395,17 @@ export class AvailabilityService {
     // No overlap
     if (cut.end <= base.start || cut.start >= base.end) return [base];
     const result: Array<{ start: number; end: number }> = [];
-    if (cut.start > base.start) result.push({ start: base.start, end: Math.min(cut.start, base.end) });
-    if (cut.end < base.end) result.push({ start: Math.max(cut.end, base.start), end: base.end });
+    if (cut.start > base.start)
+      result.push({ start: base.start, end: Math.min(cut.start, base.end) });
+    if (cut.end < base.end)
+      result.push({ start: Math.max(cut.end, base.start), end: base.end });
     return result;
   }
 
-  private utcDateTimeFromDateAndMinutes(dateStr: string, minutes: number): Date {
+  private utcDateTimeFromDateAndMinutes(
+    dateStr: string,
+    minutes: number,
+  ): Date {
     const [y, mo, d] = dateStr.split('-').map(Number);
     const h = Math.floor(minutes / 60);
     const m = minutes % 60;

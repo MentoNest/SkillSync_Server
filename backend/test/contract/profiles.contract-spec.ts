@@ -30,8 +30,17 @@ describe('Profiles contract', () => {
     expect(res).toSatisfyApiSpec();
   });
 
+  it('GET /user/mentee-profile returns a spec-compliant mentee profile with completion', async () => {
+    const res = await request(app.getHttpServer()).get('/user/mentee-profile');
+
+    expect(res.status).toBe(200);
+    expect(res).toSatisfyApiSpec();
+  });
+
   it('POST /user/profile rejects an invalid body with the documented error envelope', async () => {
-    const res = await request(app.getHttpServer()).post('/user/profile').send({ profileType: 'invalid' });
+    const res = await request(app.getHttpServer())
+      .post('/user/profile')
+      .send({ profileType: 'invalid' });
 
     expect(res.status).toBe(400);
     expect(res).toSatisfyApiSpec();

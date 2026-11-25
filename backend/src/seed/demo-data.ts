@@ -34,9 +34,12 @@ export interface DemoMentor extends DemoAccountIdentity {
 
 export interface DemoMentee extends DemoAccountIdentity {
   role: Role.MENTEE;
-  learningGoals: string;
+  learningGoals: string[];
   interests: string[];
   experienceLevel: ExperienceLevel;
+  preferredMentoringStyle: string[];
+  timeCommitmentHoursPerWeek: number;
+  professionalBackground: string;
   budgetUsdCentsPerMonth: number | null;
   languages: string[];
 }
@@ -174,9 +177,12 @@ export function buildDemoAccounts(): {
       username: `demo_mentee_${index}`,
       displayName: faker.person.fullName(),
       role: Role.MENTEE,
-      learningGoals: `${details.goal}. ${faker.lorem.sentence()}`,
+      learningGoals: [`${details.goal}. ${faker.lorem.sentence()}`],
       interests: [...details.interests],
       experienceLevel: details.experienceLevel,
+      preferredMentoringStyle: ['technical skills', 'career advice'],
+      timeCommitmentHoursPerWeek: 4 + index,
+      professionalBackground: `Background in ${details.interests[0] ?? 'software development'}.`,
       budgetUsdCentsPerMonth: details.budgetUsdCentsPerMonth,
       languages: index % 2 === 0 ? ['English', 'French'] : ['English'],
       education: [...details.education],

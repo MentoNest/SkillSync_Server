@@ -49,7 +49,9 @@ describe('RedisService', () => {
   it('atomically increments a counter with an expiry', async () => {
     client.eval.mockResolvedValue(3);
 
-    await expect(service.incrementWithExpiry(RedisNamespace.RATE_LIMIT, 'nonce:k', 60)).resolves.toBe(3);
+    await expect(
+      service.incrementWithExpiry(RedisNamespace.RATE_LIMIT, 'nonce:k', 60),
+    ).resolves.toBe(3);
     expect(client.eval).toHaveBeenCalledWith(
       expect.stringContaining("redis.call('INCR'"),
       1,
@@ -62,13 +64,19 @@ describe('RedisService', () => {
     await expect(service.del(RedisNamespace.CACHE, 'k')).resolves.toBe(1);
     expect(client.del).toHaveBeenCalledWith('skillsync:cache:k');
 
-    await expect(service.expire(RedisNamespace.CACHE, 'k', 30)).resolves.toBe(true);
+    await expect(service.expire(RedisNamespace.CACHE, 'k', 30)).resolves.toBe(
+      true,
+    );
     expect(client.expire).toHaveBeenCalledWith('skillsync:cache:k', 30);
 
     client.expire.mockResolvedValue(0);
-    await expect(service.expire(RedisNamespace.CACHE, 'missing', 30)).resolves.toBe(false);
+    await expect(
+      service.expire(RedisNamespace.CACHE, 'missing', 30),
+    ).resolves.toBe(false);
 
-    await expect(service.exists(RedisNamespace.BLACKLIST, 'jti')).resolves.toBe(true);
+    await expect(service.exists(RedisNamespace.BLACKLIST, 'jti')).resolves.toBe(
+      true,
+    );
   });
 
   it('deletes every refresh token belonging to the requested user', async () => {
@@ -83,7 +91,9 @@ describe('RedisService', () => {
       .mockResolvedValueOnce(['wallet-a', 'wallet-b'])
       .mockResolvedValueOnce(['wallet-a']);
 
-    await expect(service.revokeRefreshTokensForUser('wallet-a')).resolves.toBe(2);
+    await expect(service.revokeRefreshTokensForUser('wallet-a')).resolves.toBe(
+      2,
+    );
     expect(client.scan).toHaveBeenNthCalledWith(
       1,
       '0',
@@ -120,14 +130,21 @@ describe('RedisService', () => {
 
 describe('RedisHealthController', () => {
   it('returns up with the latency', async () => {
-    const controller = new RedisHealthController({ ping: jest.fn().mockResolvedValue(3) } as never);
-    await expect(controller.check()).resolves.toEqual({ status: 'up', latencyMs: 3 });
+    const controller = new RedisHealthController({
+      ping: jest.fn().mockResolvedValue(3),
+    } as never);
+    await expect(controller.check()).resolves.toEqual({
+      status: 'up',
+      latencyMs: 3,
+    });
   });
 
   it('answers 503 when Redis does not respond', async () => {
     const controller = new RedisHealthController({
       ping: jest.fn().mockRejectedValue(new Error('timeout')),
     } as never);
-    await expect(controller.check()).rejects.toThrow('Redis is not reachable: timeout');
+    await expect(controller.check()).rejects.toThrow(
+      'Redis is not reachable: timeout',
+    );
   });
 });

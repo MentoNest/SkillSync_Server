@@ -13,7 +13,9 @@ export class FakeRedisService {
   private now = Date.now();
   private k = (ns: RedisNamespace, key: string) => `${ns}:${key}`;
 
-  advance(ms: number) { this.now += ms; }
+  advance(ms: number) {
+    this.now += ms;
+  }
   reset() {
     this.store.clear();
     this.expiries.clear();
@@ -34,18 +36,28 @@ export class FakeRedisService {
     return value;
   }
 
-  async set(ns: RedisNamespace, key: string, value: string, ttlSeconds?: number) {
+  async set(
+    ns: RedisNamespace,
+    key: string,
+    value: string,
+    ttlSeconds?: number,
+  ) {
     const fullKey = this.k(ns, key);
     this.store.set(fullKey, value);
     if (ttlSeconds) this.expiries.set(fullKey, this.now + ttlSeconds * 1000);
     else this.expiries.delete(fullKey);
   }
 
-  async incrementWithExpiry(ns: RedisNamespace, key: string, windowSeconds?: number) {
+  async incrementWithExpiry(
+    ns: RedisNamespace,
+    key: string,
+    windowSeconds?: number,
+  ) {
     const counterKey = this.k(ns, key);
     const existing = this.counters.get(counterKey);
     const count =
-      existing && (existing.expiresAt === undefined || this.now < existing.expiresAt)
+      existing &&
+      (existing.expiresAt === undefined || this.now < existing.expiresAt)
         ? existing.count + 1
         : 1;
     this.counters.set(counterKey, {
@@ -60,5 +72,19 @@ export class FakeRedisService {
     this.expiries.delete(fullKey);
     return this.store.delete(fullKey) ? 1 : 0;
   }
-  async exists(ns: RedisNamespace, key: string) { return (await this.get(ns, key)) !== null; }
+  async revokeRefreshTokensForUser(address: string) {
+    const prefix = this.k(RedisNamespace.SESSION, 'refresh:');
+    let count = 0;
+    for (const [key, value] of this.store.entries()) {
+      if (key.startsWith(prefix) && value === address) {
+        this.store.delete(key);
+        this.expiries.delete(key);
+        count += 1;
+      }
+    }
+    return count;
+  }
+  async exists(ns: RedisNamespace, key: string) {
+    return (await this.get(ns, key)) !== null;
+  }
 }

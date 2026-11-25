@@ -12,14 +12,16 @@ import {
 import { normalizeWalletAddress } from '../common/utils/wallet.utils';
 import { ChangeReason } from '../profile-history/profile-history.entity';
 import { ProfileHistoryService } from '../profile-history/profile-history.service';
+import { calculateProfileCompleteness } from './profile-completeness.calculator';
 import { ProfileCompletenessService } from './profile-completeness.service';
-import { MenteeProfile } from './mentee-profile.entity';
+import { MenteeProfile, SkillLevel } from './mentee-profile.entity';
 import { MentorProfile } from './mentor-profile.entity';
+import { CreateProfileDto, ProfileType } from './dto/create-profile.dto';
 import {
-  CreateProfileDto,
-  ExperienceLevel,
-  ProfileType,
-} from './dto/create-profile.dto';
+  CreateMenteeProfileDto,
+  MenteeProfileWithCompletionDto,
+  UpdateMenteeProfileDto,
+} from './dto/mentee-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 
 interface ProfileFieldChange {
@@ -43,6 +45,12 @@ const EDITABLE_PROFILE_FIELDS: Record<ProfileType, ReadonlySet<string>> = {
     'interests',
     'budgetUsdCentsPerMonth',
     'experienceLevel',
+    'preferredMentoringStyle',
+    'timeCommitmentHoursPerWeek',
+    'professionalBackground',
+    'jobTitle',
+    'industry',
+    'portfolioLinks',
     'languages',
     'isActive',
   ]),
@@ -123,6 +131,16 @@ export class ProfileService {
         );
       }
     }
+    if (type === ProfileType.MENTEE && !isAdmin) {
+      const hasMenteeRole =
+        actor.roles.includes(Role.MENTEE) ||
+        (await this.hasPersistedRole(actorAddress, Role.MENTEE));
+      if (!hasMenteeRole) {
+        throw new ForbiddenException(
+          'Only users with the mentee role can update a mentee profile.',
+        );
+      }
+    }
 
     const allowedFields = EDITABLE_PROFILE_FIELDS[type];
     const invalidFields: FieldError[] = Object.entries(dto)
@@ -149,6 +167,85 @@ export class ProfileService {
       );
     }
     return this.updateMenteeProfile(targetAddress, actorAddress, isAdmin, dto);
+  }
+
+  // ─── Dedicated Mentee CRUD (restricted to mentee role) ────────────────────
+
+  async getMenteeProfile(
+    actor: AuthUser,
+  ): Promise<MenteeProfileWithCompletionDto> {
+    const walletAddress = normalizeWalletAddress(actor.address);
+    await this.assertMenteeAccess(actor, walletAddress);
+    const profile = await this.menteeRepo.findOneBy({ walletAddress });
+    if (!profile) {
+      throw new ResourceNotFoundException('Mentee profile', walletAddress);
+    }
+    return this.withMenteeCompletion(profile);
+  }
+
+  async createMenteeProfileForRole(
+    actor: AuthUser,
+    dto: CreateMenteeProfileDto,
+  ): Promise<MenteeProfileWithCompletionDto> {
+    const walletAddress = normalizeWalletAddress(actor.address);
+    await this.assertMenteeAccess(actor, walletAddress);
+    const created = await this.createMenteeProfile(walletAddress, {
+      profileType: ProfileType.MENTEE,
+      ...dto,
+    });
+    return this.withMenteeCompletion(created.profile as MenteeProfile);
+  }
+
+  async updateMenteeProfileForRole(
+    actor: AuthUser,
+    dto: UpdateMenteeProfileDto,
+  ): Promise<MenteeProfileWithCompletionDto> {
+    const result = await this.updateProfile(ProfileType.MENTEE, actor, dto);
+    return this.withMenteeCompletion(result.profile as MenteeProfile);
+  }
+
+  async deleteMenteeProfile(actor: AuthUser): Promise<void> {
+    const walletAddress = normalizeWalletAddress(actor.address);
+    await this.assertMenteeAccess(actor, walletAddress);
+    const profile = await this.menteeRepo.findOneBy({ walletAddress });
+    if (!profile) {
+      throw new ResourceNotFoundException('Mentee profile', walletAddress);
+    }
+    await this.menteeRepo.delete({ walletAddress });
+    await this.completeness.invalidate(walletAddress);
+    this.audit.log(`mentee_profile_deleted address=${walletAddress}`);
+  }
+
+  private async assertMenteeAccess(
+    actor: AuthUser,
+    address: string,
+  ): Promise<void> {
+    if (actor.roles.includes(Role.ADMIN)) return;
+    const hasMenteeRole =
+      actor.roles.includes(Role.MENTEE) ||
+      (await this.hasPersistedRole(address, Role.MENTEE));
+    if (!hasMenteeRole) {
+      throw new ForbiddenException(
+        'Only users with the mentee role can access mentee profiles.',
+      );
+    }
+  }
+
+  private withMenteeCompletion(
+    profile: MenteeProfile,
+  ): MenteeProfileWithCompletionDto {
+    const completeness = calculateProfileCompleteness({
+      profileType: 'mentee',
+      profile,
+      user: {},
+      availabilitySlotCount: 0,
+      portfolioLinkCount: profile.portfolioLinks?.length ?? 0,
+    });
+    return {
+      profile,
+      completionPercentage: completeness.baseScore,
+      missingFields: completeness.missingFields.map((field) => field.field),
+    };
   }
 
   private async hasPersistedRole(
@@ -239,7 +336,45 @@ export class ProfileService {
       );
     }
     if (dto.experienceLevel !== undefined) {
-      appendChange(profile, 'experienceLevel', dto.experienceLevel, changes);
+      appendChange(
+        profile,
+        'experienceLevel',
+        dto.experienceLevel as SkillLevel,
+        changes,
+      );
+    }
+    if (dto.preferredMentoringStyle !== undefined) {
+      appendChange(
+        profile,
+        'preferredMentoringStyle',
+        dto.preferredMentoringStyle,
+        changes,
+      );
+    }
+    if (dto.timeCommitmentHoursPerWeek !== undefined) {
+      appendChange(
+        profile,
+        'timeCommitmentHoursPerWeek',
+        dto.timeCommitmentHoursPerWeek,
+        changes,
+      );
+    }
+    if (dto.professionalBackground !== undefined) {
+      appendChange(
+        profile,
+        'professionalBackground',
+        dto.professionalBackground,
+        changes,
+      );
+    }
+    if (dto.jobTitle !== undefined) {
+      appendChange(profile, 'jobTitle', dto.jobTitle, changes);
+    }
+    if (dto.industry !== undefined) {
+      appendChange(profile, 'industry', dto.industry, changes);
+    }
+    if (dto.portfolioLinks !== undefined) {
+      appendChange(profile, 'portfolioLinks', dto.portfolioLinks, changes);
     }
     if (dto.languages !== undefined)
       appendChange(profile, 'languages', dto.languages, changes);
@@ -361,7 +496,13 @@ export class ProfileService {
         learningGoals: dto.learningGoals!,
         interests: dto.interests!,
         budgetUsdCentsPerMonth: dto.budgetUsdCentsPerMonth ?? null,
-        experienceLevel: dto.experienceLevel! as ExperienceLevel,
+        experienceLevel: dto.experienceLevel! as SkillLevel,
+        preferredMentoringStyle: dto.preferredMentoringStyle ?? [],
+        timeCommitmentHoursPerWeek: dto.timeCommitmentHoursPerWeek ?? null,
+        professionalBackground: dto.professionalBackground ?? null,
+        jobTitle: dto.jobTitle ?? null,
+        industry: dto.industry ?? null,
+        portfolioLinks: dto.portfolioLinks ?? [],
         languages: dto.languages ?? ['English'],
         isActive: true,
       });

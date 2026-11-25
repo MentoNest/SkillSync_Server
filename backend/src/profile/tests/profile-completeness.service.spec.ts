@@ -7,11 +7,15 @@ const WALLET = 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37';
 function makeService(user: unknown = null) {
   const store = new Map<string, string>();
   const redis = {
-    get: jest.fn(async (ns: string, key: string) => store.get(`${ns}:${key}`) ?? null),
+    get: jest.fn(
+      async (ns: string, key: string) => store.get(`${ns}:${key}`) ?? null,
+    ),
     set: jest.fn(async (ns: string, key: string, value: string) => {
       store.set(`${ns}:${key}`, value);
     }),
-    del: jest.fn(async (ns: string, key: string) => store.delete(`${ns}:${key}`) ? 1 : 0),
+    del: jest.fn(async (ns: string, key: string) =>
+      store.delete(`${ns}:${key}`) ? 1 : 0,
+    ),
   };
   const users = {
     findOne: jest.fn().mockResolvedValue(user),
@@ -56,7 +60,12 @@ describe('ProfileCompletenessService', () => {
     expect(first.cached).toBe(false);
     expect(second.cached).toBe(true);
     expect(second.score).toBe(first.score);
-    expect(redis.set).toHaveBeenCalledWith('cache', `completeness:${WALLET}`, expect.any(String), 300);
+    expect(redis.set).toHaveBeenCalledWith(
+      'cache',
+      `completeness:${WALLET}`,
+      expect.any(String),
+      300,
+    );
     expect(users.findOne).toHaveBeenCalledTimes(1);
   });
 
@@ -74,11 +83,16 @@ describe('ProfileCompletenessService', () => {
     const page = await service.getAll({ page: 1, limit: 10 });
 
     expect(page.total).toBe(1);
-    expect(page.data[0]).toMatchObject({ walletAddress: WALLET, profileType: 'mentor' });
+    expect(page.data[0]).toMatchObject({
+      walletAddress: WALLET,
+      profileType: 'mentor',
+    });
   });
 
   it('throws when the wallet does not exist', async () => {
     const { service } = makeService(null);
-    await expect(service.computeForUser(WALLET)).rejects.toBeInstanceOf(ResourceNotFoundException);
+    await expect(service.computeForUser(WALLET)).rejects.toBeInstanceOf(
+      ResourceNotFoundException,
+    );
   });
 });

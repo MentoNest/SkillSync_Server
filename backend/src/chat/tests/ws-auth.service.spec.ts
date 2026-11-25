@@ -4,6 +4,7 @@ import { Keypair } from '@stellar/stellar-sdk';
 import { Role } from '../../auth/auth.types';
 import type { AuthConfig } from '../../auth/auth.types';
 import { InvalidCredentialsException } from '../../common/errors/app-exceptions';
+import { UserStatus } from '../../user/user-status.enum';
 import { WsAuthService, extractToken } from '../ws-auth.service';
 
 const jwt = new JwtService();
@@ -14,6 +15,7 @@ const config: AuthConfig = {
   nonceTtlSeconds: 300,
   adminAddresses: [],
   mentorAddresses: [],
+  requireEmailVerification: false,
 };
 const address = Keypair.random().publicKey();
 
@@ -30,6 +32,7 @@ const sign = (
     {
       sub: address,
       roles: [Role.USER],
+      status: UserStatus.ACTIVE,
       type: 'access',
       jti: 'jti-1',
       ...overrides,
@@ -65,6 +68,7 @@ describe('WsAuthService', () => {
     ).resolves.toEqual({
       address,
       roles: [Role.USER],
+      status: UserStatus.ACTIVE,
       jti: 'jti-1',
     });
   });

@@ -1,6 +1,8 @@
 import {
   Body,
   Controller,
+  Delete,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
@@ -17,8 +19,11 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { AuthUser } from '../auth/auth.types';
+import { Role } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import {
   ErrorResponseDto,
   ForbiddenResponseDto,
@@ -27,12 +32,19 @@ import {
   UnauthorizedResponseDto,
 } from '../common/dto/error-response.dto';
 import { CreateProfileDto } from './dto/create-profile.dto';
-import { CreateProfileResponseDto } from './dto/profile-response.dto';
+import {
+  CreateMenteeProfileDto,
+  MenteeProfileWithCompletionDto,
+  UpdateMenteeProfileDto,
+} from './dto/mentee-profile.dto';
+import {
+  CreateProfileResponseDto,
+  UpdateProfileResponseDto,
+} from './dto/profile-response.dto';
 import {
   UpdateProfileDto,
   ProfileTypeParamDto,
 } from './dto/update-profile.dto';
-import { UpdateProfileResponseDto } from './dto/profile-response.dto';
 import { ProfileService } from './profile.service';
 import { ProfileUpdateRateLimitGuard } from './profile-update-rate-limit.guard';
 
@@ -141,5 +153,76 @@ export class ProfileController {
     @CurrentUser() user: AuthUser,
   ): Promise<UpdateProfileResponseDto> {
     return this.profileService.updateProfile(params.type, user, dto);
+  }
+
+  @ApiOperation({
+    summary: 'Get my mentee profile',
+    description:
+      'Returns the mentee profile and completion metrics for a user with the mentee role.',
+    operationId: 'getMenteeProfile',
+  })
+  @ApiResponse({ status: HttpStatus.OK, type: MenteeProfileWithCompletionDto })
+  @ApiResponse({ status: HttpStatus.FORBIDDEN, type: ForbiddenResponseDto })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, type: ErrorResponseDto })
+  @Get('mentee-profile')
+  @UseGuards(RolesGuard)
+  @Roles(Role.MENTEE, Role.ADMIN)
+  getMenteeProfile(
+    @CurrentUser() user: AuthUser,
+  ): Promise<MenteeProfileWithCompletionDto> {
+    return this.profileService.getMenteeProfile(user);
+  }
+
+  @ApiOperation({
+    summary: 'Create my mentee profile (mentee role required)',
+    operationId: 'createMenteeProfile',
+  })
+  @ApiBody({ type: CreateMenteeProfileDto })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    type: MenteeProfileWithCompletionDto,
+  })
+  @ApiResponse({ status: HttpStatus.FORBIDDEN, type: ForbiddenResponseDto })
+  @Post('mentee-profile')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(RolesGuard)
+  @Roles(Role.MENTEE, Role.ADMIN)
+  createMenteeProfile(
+    @Body() dto: CreateMenteeProfileDto,
+    @CurrentUser() user: AuthUser,
+  ): Promise<MenteeProfileWithCompletionDto> {
+    return this.profileService.createMenteeProfileForRole(user, dto);
+  }
+
+  @ApiOperation({
+    summary: 'Update my mentee profile (mentee role required)',
+    operationId: 'updateMenteeProfile',
+  })
+  @ApiBody({ type: UpdateMenteeProfileDto })
+  @ApiResponse({ status: HttpStatus.OK, type: MenteeProfileWithCompletionDto })
+  @ApiResponse({ status: HttpStatus.FORBIDDEN, type: ForbiddenResponseDto })
+  @Patch('mentee-profile')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(RolesGuard, ProfileUpdateRateLimitGuard)
+  @Roles(Role.MENTEE, Role.ADMIN)
+  updateMenteeProfile(
+    @Body() dto: UpdateMenteeProfileDto,
+    @CurrentUser() user: AuthUser,
+  ): Promise<MenteeProfileWithCompletionDto> {
+    return this.profileService.updateMenteeProfileForRole(user, dto);
+  }
+
+  @ApiOperation({
+    summary: 'Delete my mentee profile (mentee role required)',
+    operationId: 'deleteMenteeProfile',
+  })
+  @ApiResponse({ status: HttpStatus.NO_CONTENT })
+  @ApiResponse({ status: HttpStatus.FORBIDDEN, type: ForbiddenResponseDto })
+  @Delete('mentee-profile')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(RolesGuard)
+  @Roles(Role.MENTEE, Role.ADMIN)
+  deleteMenteeProfile(@CurrentUser() user: AuthUser): Promise<void> {
+    return this.profileService.deleteMenteeProfile(user);
   }
 }

@@ -37,7 +37,7 @@ import { Session } from './entities/session.entity';
 import { SessionsService } from './sessions.service';
 
 @ApiTags('Sessions')
-@ApiBearerAuth('Bearer Auth')
+@ApiBearerAuth('BearerAuth')
 @UseGuards(JwtAuthGuard)
 @Controller('sessions')
 export class SessionsController {

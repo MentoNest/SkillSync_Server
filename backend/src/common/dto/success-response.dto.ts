@@ -41,7 +41,9 @@ export class SuccessResponseDto {
   @ApiProperty({ example: 'OK' })
   message!: string;
 
-  @ApiProperty({ description: 'Endpoint payload, or { items, meta } for lists.' })
+  @ApiProperty({
+    description: 'Endpoint payload, or { items, meta } for lists.',
+  })
   data!: unknown;
 
   @ApiProperty({ example: '2026-11-22T10:00:00.000Z', format: 'date-time' })
@@ -50,7 +52,10 @@ export class SuccessResponseDto {
   @ApiProperty({ example: '/users?page=1' })
   path!: string;
 
-  @ApiProperty({ example: '0f1c...', description: 'Correlation id shared with logs and errors.' })
+  @ApiProperty({
+    example: '0f1c...',
+    description: 'Correlation id shared with logs and errors.',
+  })
   requestId!: string;
 }
 

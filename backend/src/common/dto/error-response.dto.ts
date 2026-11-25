@@ -2,7 +2,10 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /** A single field-level validation failure, as returned inside `errors`. */
 export class FieldErrorDto {
-  @ApiProperty({ example: 'address', description: 'Dotted path of the offending field.' })
+  @ApiProperty({
+    example: 'address',
+    description: 'Dotted path of the offending field.',
+  })
   field!: string;
 
   @ApiProperty({
@@ -22,7 +25,10 @@ export class ErrorResponseDto {
   @ApiProperty({ example: 400, description: 'HTTP status code.' })
   statusCode!: number;
 
-  @ApiProperty({ example: 'Validation failed', description: 'Human-readable error message.' })
+  @ApiProperty({
+    example: 'Validation failed',
+    description: 'Human-readable error message.',
+  })
   message!: string;
 
   @ApiProperty({ example: 'Bad Request', description: 'HTTP error label.' })
@@ -30,24 +36,33 @@ export class ErrorResponseDto {
 
   @ApiProperty({
     example: 'VALIDATION_FAILED',
-    description: 'Stable machine-readable error code. Clients should branch on this, not on message.',
+    description:
+      'Stable machine-readable error code. Clients should branch on this, not on message.',
   })
   code!: string;
 
-  @ApiProperty({ example: '2026-11-22T10:00:00.000Z', description: 'ISO 8601 timestamp of the error.' })
+  @ApiProperty({
+    example: '2026-11-22T10:00:00.000Z',
+    description: 'ISO 8601 timestamp of the error.',
+  })
   timestamp!: string;
 
-  @ApiProperty({ example: '/auth/nonce', description: 'Request path that produced the error.' })
+  @ApiProperty({
+    example: '/auth/nonce',
+    description: 'Request path that produced the error.',
+  })
   path!: string;
 
   @ApiProperty({
     example: 'b1f2c3d4-e5f6-7890-abcd-ef1234567890',
-    description: 'Correlation id of the request (from the X-Request-Id header when supplied).',
+    description:
+      'Correlation id of the request (from the X-Request-Id header when supplied).',
   })
   requestId!: string;
 
   @ApiPropertyOptional({
-    description: 'Per-field validation details. Only present on VALIDATION_FAILED responses.',
+    description:
+      'Per-field validation details. Only present on VALIDATION_FAILED responses.',
     type: () => [FieldErrorDto],
   })
   errors?: FieldErrorDto[];

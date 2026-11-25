@@ -36,7 +36,10 @@ function IsValidTimezone(validationOptions?: ValidationOptions) {
   };
 }
 
-function IsEndAfterStartProperty(property: string, validationOptions?: ValidationOptions) {
+function IsEndAfterStartProperty(
+  property: string,
+  validationOptions?: ValidationOptions,
+) {
   return function (object: object, propertyName: string) {
     registerDecorator({
       name: 'isEndAfterStartProperty',
@@ -47,9 +50,13 @@ function IsEndAfterStartProperty(property: string, validationOptions?: Validatio
       validator: {
         validate(value: unknown, args: ValidationArguments) {
           const [relatedPropertyName] = args.constraints as [string];
-          const related = (args.object as Record<string, unknown>)[relatedPropertyName];
-          if (typeof value !== 'string' || typeof related !== 'string') return true;
-          if (!TIME_HHMM_REGEX.test(value) || !TIME_HHMM_REGEX.test(related)) return true;
+          const related = (args.object as Record<string, unknown>)[
+            relatedPropertyName
+          ];
+          if (typeof value !== 'string' || typeof related !== 'string')
+            return true;
+          if (!TIME_HHMM_REGEX.test(value) || !TIME_HHMM_REGEX.test(related))
+            return true;
           return isEndAfterStart(related, value);
         },
         defaultMessage() {
@@ -61,7 +68,12 @@ function IsEndAfterStartProperty(property: string, validationOptions?: Validatio
 }
 
 export class CreateAvailabilitySlotDto {
-  @ApiProperty({ description: 'Day of week (0=Sunday ... 6=Saturday).', example: 1, minimum: 0, maximum: 6 })
+  @ApiProperty({
+    description: 'Day of week (0=Sunday ... 6=Saturday).',
+    example: 1,
+    minimum: 0,
+    maximum: 6,
+  })
   @IsInt()
   @Min(0)
   @Max(6)
@@ -69,16 +81,27 @@ export class CreateAvailabilitySlotDto {
 
   @ApiProperty({ description: 'Start time in UTC (HH:mm).', example: '10:00' })
   @IsString()
-  @Matches(TIME_HHMM_REGEX, { message: 'startTimeUtc must be in HH:mm 24-hour format.' })
+  @Matches(TIME_HHMM_REGEX, {
+    message: 'startTimeUtc must be in HH:mm 24-hour format.',
+  })
   startTimeUtc!: string;
 
-  @ApiProperty({ description: 'End time in UTC (HH:mm), must be after startTimeUtc.', example: '12:00' })
+  @ApiProperty({
+    description: 'End time in UTC (HH:mm), must be after startTimeUtc.',
+    example: '12:00',
+  })
   @IsString()
-  @Matches(TIME_HHMM_REGEX, { message: 'endTimeUtc must be in HH:mm 24-hour format.' })
+  @Matches(TIME_HHMM_REGEX, {
+    message: 'endTimeUtc must be in HH:mm 24-hour format.',
+  })
   @IsEndAfterStartProperty('startTimeUtc')
   endTimeUtc!: string;
 
-  @ApiPropertyOptional({ description: 'IANA timezone for display/conversion.', example: 'UTC', default: 'UTC' })
+  @ApiPropertyOptional({
+    description: 'IANA timezone for display/conversion.',
+    example: 'UTC',
+    default: 'UTC',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(64)
@@ -87,26 +110,44 @@ export class CreateAvailabilitySlotDto {
 }
 
 export class UpdateAvailabilitySlotDto {
-  @ApiPropertyOptional({ description: 'Day of week (0=Sunday ... 6=Saturday).', example: 1, minimum: 0, maximum: 6 })
+  @ApiPropertyOptional({
+    description: 'Day of week (0=Sunday ... 6=Saturday).',
+    example: 1,
+    minimum: 0,
+    maximum: 6,
+  })
   @IsOptional()
   @IsInt()
   @Min(0)
   @Max(6)
   dayOfWeek?: number;
 
-  @ApiPropertyOptional({ description: 'Start time in UTC (HH:mm).', example: '10:00' })
+  @ApiPropertyOptional({
+    description: 'Start time in UTC (HH:mm).',
+    example: '10:00',
+  })
   @IsOptional()
   @IsString()
-  @Matches(TIME_HHMM_REGEX, { message: 'startTimeUtc must be in HH:mm 24-hour format.' })
+  @Matches(TIME_HHMM_REGEX, {
+    message: 'startTimeUtc must be in HH:mm 24-hour format.',
+  })
   startTimeUtc?: string;
 
-  @ApiPropertyOptional({ description: 'End time in UTC (HH:mm), must be after startTimeUtc.', example: '12:00' })
+  @ApiPropertyOptional({
+    description: 'End time in UTC (HH:mm), must be after startTimeUtc.',
+    example: '12:00',
+  })
   @IsOptional()
   @IsString()
-  @Matches(TIME_HHMM_REGEX, { message: 'endTimeUtc must be in HH:mm 24-hour format.' })
+  @Matches(TIME_HHMM_REGEX, {
+    message: 'endTimeUtc must be in HH:mm 24-hour format.',
+  })
   endTimeUtc?: string;
 
-  @ApiPropertyOptional({ description: 'IANA timezone for display/conversion.', example: 'UTC' })
+  @ApiPropertyOptional({
+    description: 'IANA timezone for display/conversion.',
+    example: 'UTC',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(64)

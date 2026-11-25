@@ -42,9 +42,13 @@ export function levelForStatus(status: number): LogLevel {
 }
 
 /** A usable id from the caller's `X-Request-Id` header, or a fresh UUID. */
-export function resolveRequestId(header: string | string[] | undefined): string {
+export function resolveRequestId(
+  header: string | string[] | undefined,
+): string {
   const candidate = Array.isArray(header) ? header[0] : header;
-  return candidate && REQUEST_ID_PATTERN.test(candidate) ? candidate : randomUUID();
+  return candidate && REQUEST_ID_PATTERN.test(candidate)
+    ? candidate
+    : randomUUID();
 }
 
 function formatText(entry: RequestLogEntry): string {
@@ -61,13 +65,20 @@ function formatText(entry: RequestLogEntry): string {
  * appear only outside production.
  */
 export function createRequestLogger(options: RequestLoggerOptions = {}) {
-  const production = options.production ?? process.env.NODE_ENV === 'production';
-  const logHeaders = options.logHeaders ?? process.env.LOG_REQUEST_HEADERS === 'true';
+  const production =
+    options.production ?? process.env.NODE_ENV === 'production';
+  const logHeaders =
+    options.logHeaders ?? process.env.LOG_REQUEST_HEADERS === 'true';
   const logBody = options.logBody ?? process.env.LOG_REQUEST_BODY === 'true';
-  const write = options.write ?? ((line: string) => void process.stdout.write(`${line}\n`));
+  const write =
+    options.write ?? ((line: string) => void process.stdout.write(`${line}\n`));
   const hrtime = options.hrtime ?? (() => process.hrtime.bigint());
 
-  return function requestLogger(req: Request, res: Response, next: NextFunction): void {
+  return function requestLogger(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): void {
     const started = hrtime();
     const requestId = resolveRequestId(req.headers['x-request-id']);
     (req as Request & { id?: string }).id = requestId;
@@ -95,7 +106,10 @@ export function createRequestLogger(options: RequestLoggerOptions = {}) {
       // The exception filter leaves the error it handled here.
       const error = res.locals?.error as Error | undefined;
       if (error && level === 'error') {
-        entry.error = { message: error.message, ...(production ? {} : { stack: error.stack }) };
+        entry.error = {
+          message: error.message,
+          ...(production ? {} : { stack: error.stack }),
+        };
       }
       write(production ? JSON.stringify(entry) : formatText(entry));
     });

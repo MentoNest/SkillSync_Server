@@ -3,13 +3,17 @@ import { HealthController } from './health.controller';
 
 describe('HealthController', () => {
   it('returns ok while the server is running', () => {
-    const controller = new HealthController({ isShuttingDown: () => false } as never);
+    const controller = new HealthController({
+      isShuttingDown: () => false,
+    } as never);
 
     expect(controller.check()).toEqual({ status: 'ok' });
   });
 
   it('returns 503 while a shutdown is in progress', () => {
-    const controller = new HealthController({ isShuttingDown: () => true } as never);
+    const controller = new HealthController({
+      isShuttingDown: () => true,
+    } as never);
 
     let caught: unknown;
     try {

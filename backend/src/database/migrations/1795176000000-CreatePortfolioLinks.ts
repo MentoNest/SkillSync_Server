@@ -25,12 +25,18 @@ export class CreatePortfolioLinks1795176000000 implements MigrationInterface {
       )
     `);
 
-    await queryRunner.query(`CREATE INDEX idx_portfolio_links_wallet ON portfolio_links (wallet_address)`);
-    await queryRunner.query(`CREATE UNIQUE INDEX uq_portfolio_links_wallet_url ON portfolio_links (wallet_address, url)`);
+    await queryRunner.query(
+      `CREATE INDEX idx_portfolio_links_wallet ON portfolio_links (wallet_address)`,
+    );
+    await queryRunner.query(
+      `CREATE UNIQUE INDEX uq_portfolio_links_wallet_url ON portfolio_links (wallet_address, url)`,
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX IF EXISTS uq_portfolio_links_wallet_url`);
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS uq_portfolio_links_wallet_url`,
+    );
     await queryRunner.query(`DROP INDEX IF EXISTS idx_portfolio_links_wallet`);
     await queryRunner.query(`DROP TABLE IF EXISTS portfolio_links`);
     await queryRunner.query(`DROP TYPE IF EXISTS portfolio_platform_enum`);

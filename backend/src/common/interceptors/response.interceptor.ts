@@ -16,10 +16,16 @@ const STATUS_MESSAGES: Record<number, string> = {
 };
 
 /** Guard for the `{ data, meta }` shape produced by PaginationService. */
-function isPaginated(value: unknown): value is { data: unknown[]; meta: Record<string, unknown> } {
+function isPaginated(
+  value: unknown,
+): value is { data: unknown[]; meta: Record<string, unknown> } {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as { data?: unknown; meta?: unknown };
-  return Array.isArray(candidate.data) && !!candidate.meta && typeof candidate.meta === 'object';
+  return (
+    Array.isArray(candidate.data) &&
+    !!candidate.meta &&
+    typeof candidate.meta === 'object'
+  );
 }
 
 /**
@@ -39,15 +45,20 @@ export class ResponseInterceptor implements NestInterceptor {
     return next.handle().pipe(
       map((payload: unknown) => {
         // 204 responses must stay empty.
-        if (statusCode === HttpStatus.NO_CONTENT || payload === undefined) return payload;
+        if (statusCode === HttpStatus.NO_CONTENT || payload === undefined)
+          return payload;
         return {
           success: true,
           statusCode,
           message: STATUS_MESSAGES[statusCode] ?? 'OK',
-          data: isPaginated(payload) ? { items: payload.data, meta: payload.meta } : payload,
+          data: isPaginated(payload)
+            ? { items: payload.data, meta: payload.meta }
+            : payload,
           timestamp: new Date().toISOString(),
           path: request.originalUrl ?? request.url,
-          requestId: request.id ?? String(request.headers?.['x-request-id'] ?? 'unknown'),
+          requestId:
+            request.id ??
+            String(request.headers?.['x-request-id'] ?? 'unknown'),
         };
       }),
     );

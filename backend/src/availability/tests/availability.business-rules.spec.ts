@@ -23,7 +23,9 @@ function slot(overrides: Partial<AvailabilitySlot> = {}): AvailabilitySlot {
   });
 }
 
-function exception(overrides: Partial<AvailabilityException> = {}): AvailabilityException {
+function exception(
+  overrides: Partial<AvailabilityException> = {},
+): AvailabilityException {
   return Object.assign(new AvailabilityException(), {
     id: 'exc-1',
     mentorId: MENTOR,
@@ -47,22 +49,33 @@ function excludedId(value: unknown): string | undefined {
   return undefined;
 }
 
-function makeService(opts: {
-  slots?: AvailabilitySlot[];
-  exceptions?: AvailabilityException[];
-  userTimezone?: string;
-} = {}) {
+function makeService(
+  opts: {
+    slots?: AvailabilitySlot[];
+    exceptions?: AvailabilityException[];
+    userTimezone?: string;
+  } = {},
+) {
   const slots = opts.slots ?? [];
   const exceptions = opts.exceptions ?? [];
 
   const slotRepo = {
     find: jest.fn(async ({ where }: any) => {
       return slots.filter((candidate) => {
-        if (where?.mentorId && candidate.mentorId !== where.mentorId) return false;
-        if (where?.dayOfWeek !== undefined && candidate.dayOfWeek !== where.dayOfWeek) return false;
+        if (where?.mentorId && candidate.mentorId !== where.mentorId)
+          return false;
+        if (
+          where?.dayOfWeek !== undefined &&
+          candidate.dayOfWeek !== where.dayOfWeek
+        )
+          return false;
         if (where?.id !== undefined) {
           const excluded = excludedId(where.id);
-          if (excluded !== undefined ? candidate.id === excluded : candidate.id !== where.id) {
+          if (
+            excluded !== undefined
+              ? candidate.id === excluded
+              : candidate.id !== where.id
+          ) {
             return false;
           }
         }
@@ -70,9 +83,16 @@ function makeService(opts: {
       });
     }),
     findOne: jest.fn(async ({ where }: any) => {
-      return slots.find((candidate) => candidate.id === where.id && candidate.mentorId === where.mentorId) ?? null;
+      return (
+        slots.find(
+          (candidate) =>
+            candidate.id === where.id && candidate.mentorId === where.mentorId,
+        ) ?? null
+      );
     }),
-    create: jest.fn((data: any) => Object.assign(new AvailabilitySlot(), { id: 'new-slot', ...data })),
+    create: jest.fn((data: any) =>
+      Object.assign(new AvailabilitySlot(), { id: 'new-slot', ...data }),
+    ),
     save: jest.fn(async (entity: AvailabilitySlot) => entity),
     remove: jest.fn(async (entity: AvailabilitySlot) => {
       const index = slots.indexOf(entity);
@@ -84,11 +104,16 @@ function makeService(opts: {
   const exceptionRepo = {
     find: jest.fn(async ({ where }: any) => {
       return exceptions.filter((candidate) => {
-        if (where?.mentorId && candidate.mentorId !== where.mentorId) return false;
+        if (where?.mentorId && candidate.mentorId !== where.mentorId)
+          return false;
         if (where?.date && candidate.date !== where.date) return false;
         if (where?.id !== undefined) {
           const excluded = excludedId(where.id);
-          if (excluded !== undefined ? candidate.id === excluded : candidate.id !== where.id) {
+          if (
+            excluded !== undefined
+              ? candidate.id === excluded
+              : candidate.id !== where.id
+          ) {
             return false;
           }
         }
@@ -96,9 +121,16 @@ function makeService(opts: {
       });
     }),
     findOne: jest.fn(async ({ where }: any) => {
-      return exceptions.find((candidate) => candidate.id === where.id && candidate.mentorId === where.mentorId) ?? null;
+      return (
+        exceptions.find(
+          (candidate) =>
+            candidate.id === where.id && candidate.mentorId === where.mentorId,
+        ) ?? null
+      );
     }),
-    create: jest.fn((data: any) => Object.assign(new AvailabilityException(), { id: 'new-exc', ...data })),
+    create: jest.fn((data: any) =>
+      Object.assign(new AvailabilityException(), { id: 'new-exc', ...data }),
+    ),
     save: jest.fn(async (entity: AvailabilityException) => entity),
     remove: jest.fn(async (entity: AvailabilityException) => {
       const index = exceptions.indexOf(entity);
@@ -108,7 +140,9 @@ function makeService(opts: {
   };
 
   const mentorRepo = { existsBy: jest.fn(async () => true) };
-  const user = opts.userTimezone ? Object.assign(new User(), { timezone: opts.userTimezone }) : null;
+  const user = opts.userTimezone
+    ? Object.assign(new User(), { timezone: opts.userTimezone })
+    : null;
   const userRepo = { findOneBy: jest.fn(async () => user) };
   const service = new AvailabilityService(
     slotRepo as never,
@@ -129,21 +163,29 @@ describe('AvailabilityService business rules', () => {
       endTimeUtc: '11:00',
     });
 
-    expect(updated).toMatchObject({ startTimeUtc: '09:00', endTimeUtc: '11:00', dayOfWeek: 1 });
+    expect(updated).toMatchObject({
+      startTimeUtc: '09:00',
+      endTimeUtc: '11:00',
+      dayOfWeek: 1,
+    });
     expect(slotRepo.save).toHaveBeenCalledWith(existing);
   });
 
   it('rejects an update that overlaps another slot and missing slots', async () => {
     const first = slot();
-    const second = slot({ id: 'slot-2', startTimeUtc: '12:00', endTimeUtc: '14:00' });
+    const second = slot({
+      id: 'slot-2',
+      startTimeUtc: '12:00',
+      endTimeUtc: '14:00',
+    });
     const { service } = makeService({ slots: [first, second] });
 
     await expect(
       service.updateSlot(MENTOR, first.id, { endTimeUtc: '13:00' }),
     ).rejects.toBeInstanceOf(BusinessRuleException);
-    await expect(service.updateSlot(MENTOR, 'missing', { endTimeUtc: '13:00' })).rejects.toBeInstanceOf(
-      ResourceNotFoundException,
-    );
+    await expect(
+      service.updateSlot(MENTOR, 'missing', { endTimeUtc: '13:00' }),
+    ).rejects.toBeInstanceOf(ResourceNotFoundException);
   });
 
   it('deletes only slots owned by the mentor', async () => {
@@ -158,7 +200,9 @@ describe('AvailabilityService business rules', () => {
   });
 
   it('defaults exceptions to unavailable and rejects invalid or overlapping windows', async () => {
-    const { service, exceptionRepo } = makeService({ exceptions: [exception()] });
+    const { service, exceptionRepo } = makeService({
+      exceptions: [exception()],
+    });
 
     const created = await service.createException(MENTOR, {
       date: '2026-11-24',
@@ -193,24 +237,35 @@ describe('AvailabilityService business rules', () => {
       isUnavailable: false,
     });
 
-    expect(updated).toMatchObject({ startTimeUtc: '10:30', isUnavailable: false });
-    await expect(service.deleteException(MENTOR, 'missing')).rejects.toBeInstanceOf(
-      ResourceNotFoundException,
-    );
+    expect(updated).toMatchObject({
+      startTimeUtc: '10:30',
+      isUnavailable: false,
+    });
+    await expect(
+      service.deleteException(MENTOR, 'missing'),
+    ).rejects.toBeInstanceOf(ResourceNotFoundException);
   });
 
   it('treats the slot end as exclusive and ignores available exceptions', async () => {
     const { service } = makeService({
       slots: [slot()],
       exceptions: [
-        exception({ isUnavailable: false, startTimeUtc: '10:00', endTimeUtc: '12:00' }),
+        exception({
+          isUnavailable: false,
+          startTimeUtc: '10:00',
+          endTimeUtc: '12:00',
+        }),
       ],
     });
 
-    await expect(service.isAvailable(MENTOR, '2026-11-23T10:00:00.000Z')).resolves.toMatchObject({
+    await expect(
+      service.isAvailable(MENTOR, '2026-11-23T10:00:00.000Z'),
+    ).resolves.toMatchObject({
       available: true,
     });
-    await expect(service.isAvailable(MENTOR, '2026-11-23T12:00:00.000Z')).resolves.toMatchObject({
+    await expect(
+      service.isAvailable(MENTOR, '2026-11-23T12:00:00.000Z'),
+    ).resolves.toMatchObject({
       available: false,
     });
   });
@@ -225,7 +280,9 @@ describe('AvailabilityService business rules', () => {
       MENTOR,
       new Date('2026-11-23T00:00:00.000Z'),
     );
-    const windows = result.windows.filter((window) => window.startUtc.startsWith('2026-11-23'));
+    const windows = result.windows.filter((window) =>
+      window.startUtc.startsWith('2026-11-23'),
+    );
 
     expect(windows).toHaveLength(2);
     expect(windows.map((window) => [window.startUtc, window.endUtc])).toEqual([
@@ -246,7 +303,9 @@ describe('AvailabilityService business rules', () => {
       new Date('2026-03-02T00:00:00.000Z'),
       'America/New_York',
     );
-    const mondayWindows = result.windows.filter((window) => window.startUtc.startsWith('2026-03-02'));
+    const mondayWindows = result.windows.filter((window) =>
+      window.startUtc.startsWith('2026-03-02'),
+    );
 
     expect(result.timezone).toBe('America/New_York');
     expect(mondayWindows[0]).toMatchObject({
@@ -267,7 +326,9 @@ describe('AvailabilityService business rules', () => {
       MENTOR,
       new Date('2026-03-02T00:00:00.000Z'),
     );
-    const mondayWindows = result.windows.filter((window) => window.startUtc.startsWith('2026-03-02'));
+    const mondayWindows = result.windows.filter((window) =>
+      window.startUtc.startsWith('2026-03-02'),
+    );
 
     expect(result.timezone).toBe('America/Los_Angeles');
     expect(mondayWindows[0].displayStart).toContain('2026-03-02, 02:00');
@@ -277,8 +338,8 @@ describe('AvailabilityService business rules', () => {
     const { service, slotRepo } = makeService({ slots: [slot()] });
     slotRepo.find.mockRejectedValueOnce(new Error('postgres down'));
 
-    await expect(service.isAvailable(MENTOR, '2026-11-23T10:30:00.000Z')).rejects.toThrow(
-      'postgres down',
-    );
+    await expect(
+      service.isAvailable(MENTOR, '2026-11-23T10:30:00.000Z'),
+    ).rejects.toThrow('postgres down');
   });
 });

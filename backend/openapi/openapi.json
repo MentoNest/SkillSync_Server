@@ -437,7 +437,7 @@
         },
         "security": [
           {
-            "Bearer Auth": []
+            "BearerAuth": []
           }
         ],
         "summary": "Revoke all of the caller’s sessions",
@@ -518,7 +518,7 @@
         },
         "security": [
           {
-            "Bearer Auth": []
+            "BearerAuth": []
           }
         ],
         "summary": "Revoke all sessions for a user (admin)",
@@ -654,6 +654,73 @@
         ]
       }
     },
+    "/user/avatar": {
+      "post": {
+        "description": "Uploads and optimizes a profile image (JPEG, PNG, or WebP; max 5MB; 200x200 to 2000x2000 px) and generates original, thumbnail (64x64), small (200x200), and medium (400x400) variants.",
+        "operationId": "uploadAvatar",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvatarUploadResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Upload profile avatar image",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
     "/admin/users/{walletAddress}/status": {
       "patch": {
         "operationId": "setUserStatus",
@@ -691,9 +758,6 @@
           }
         },
         "security": [
-          {
-            "Bearer Auth": []
-          },
           {
             "BearerAuth": []
           }
@@ -763,7 +827,7 @@
               "type": "string",
               "enum": [
                 "active",
-                "pending",
+                "pending_verification",
                 "suspended",
                 "deleted"
               ]
@@ -793,7 +857,7 @@
         },
         "security": [
           {
-            "Bearer Auth": []
+            "BearerAuth": []
           }
         ],
         "summary": "List users (query)",
@@ -1375,6 +1439,172 @@
           }
         ],
         "summary": "Update a mentor or mentee profile",
+        "tags": [
+          "Profiles"
+        ]
+      }
+    },
+    "/user/mentee-profile": {
+      "get": {
+        "description": "Returns the mentee profile and completion metrics for a user with the mentee role.",
+        "operationId": "getMenteeProfile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MenteeProfileWithCompletionDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get my mentee profile",
+        "tags": [
+          "Profiles"
+        ]
+      },
+      "post": {
+        "operationId": "createMenteeProfile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMenteeProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MenteeProfileWithCompletionDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create my mentee profile (mentee role required)",
+        "tags": [
+          "Profiles"
+        ]
+      },
+      "patch": {
+        "operationId": "updateMenteeProfile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMenteeProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MenteeProfileWithCompletionDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Update my mentee profile (mentee role required)",
+        "tags": [
+          "Profiles"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteMenteeProfile",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Delete my mentee profile (mentee role required)",
         "tags": [
           "Profiles"
         ]
@@ -2136,6 +2366,1227 @@
         ]
       }
     },
+    "/admin/users": {
+      "get": {
+        "operationId": "adminListUsers",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "1-based page number.",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Items per page (max 100).",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "order",
+            "required": false,
+            "in": "query",
+            "description": "Sort direction.",
+            "schema": {
+              "default": "DESC",
+              "type": "string",
+              "enum": [
+                "ASC",
+                "DESC"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Opaque cursor for cursor-based pagination.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "pending_verification",
+                "suspended",
+                "deleted"
+              ]
+            }
+          },
+          {
+            "name": "role",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "mentor",
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "Matches username, display name or wallet address.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "createdAt",
+              "type": "string",
+              "enum": [
+                "createdAt",
+                "updatedAt",
+                "walletAddress",
+                "status",
+                "role"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List users with pagination, filtering and sorting",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/users/suspended": {
+      "get": {
+        "operationId": "adminListSuspendedUsers",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "1-based page number.",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Items per page (max 100).",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "order",
+            "required": false,
+            "in": "query",
+            "description": "Sort direction.",
+            "schema": {
+              "default": "DESC",
+              "type": "string",
+              "enum": [
+                "ASC",
+                "DESC"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Opaque cursor for cursor-based pagination.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedSuspendedUsersResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List currently suspended users with active suspension details",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/users/{walletAddress}": {
+      "get": {
+        "operationId": "adminGetUser",
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "View a user by wallet address",
+        "tags": [
+          "Admin"
+        ]
+      },
+      "delete": {
+        "operationId": "adminDeleteUser",
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Soft delete a user",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/users/{userId}/suspend": {
+      "post": {
+        "operationId": "adminSuspendUserWithReason",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuspendUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuspendUserResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Suspend a user temporarily or permanently",
+        "tags": [
+          "Admin"
+        ]
+      },
+      "patch": {
+        "operationId": "adminSuspendUser",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuspendUserResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Suspend a user",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/users/{userId}/unsuspend": {
+      "post": {
+        "operationId": "adminUnsuspendUser",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnsuspendUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnsuspendUserResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Lift an active suspension for a user",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/users/{walletAddress}/restore": {
+      "post": {
+        "operationId": "adminRestoreUser",
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Restore a soft-deleted user",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/users/{walletAddress}/role": {
+      "put": {
+        "operationId": "adminAssignRole",
+        "parameters": [
+          {
+            "name": "walletAddress",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Assign a role to a user",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/sessions": {
+      "get": {
+        "operationId": "adminListSessions",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "1-based page number.",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Items per page (max 100).",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "order",
+            "required": false,
+            "in": "query",
+            "description": "Sort direction.",
+            "schema": {
+              "default": "DESC",
+              "type": "string",
+              "enum": [
+                "ASC",
+                "DESC"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Opaque cursor for cursor-based pagination.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "confirmed",
+                "completed",
+                "cancelled",
+                "no_show"
+              ]
+            }
+          },
+          {
+            "name": "walletAddress",
+            "required": false,
+            "in": "query",
+            "description": "Matches the mentor or mentee wallet.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "Matches session id or notes.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "createdAt",
+              "type": "string",
+              "enum": [
+                "createdAt",
+                "startTime",
+                "endTime",
+                "status"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List all sessions",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/sessions/{id}": {
+      "get": {
+        "operationId": "adminGetSession",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "View a session",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/sessions/{id}/cancel": {
+      "patch": {
+        "operationId": "adminCancelSession",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelSessionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Cancel a session as an administrator",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/sessions/{id}/dispute": {
+      "patch": {
+        "operationId": "adminResolveDispute",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveDisputeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Resolve a session dispute",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/reports": {
+      "get": {
+        "operationId": "adminListReports",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "1-based page number.",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Items per page (max 100).",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "order",
+            "required": false,
+            "in": "query",
+            "description": "Sort direction.",
+            "schema": {
+              "default": "DESC",
+              "type": "string",
+              "enum": [
+                "ASC",
+                "DESC"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Opaque cursor for cursor-based pagination.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "resolved",
+                "dismissed"
+              ]
+            }
+          },
+          {
+            "name": "targetType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "session",
+                "profile",
+                "message"
+              ]
+            }
+          },
+          {
+            "name": "reporterId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "createdAt",
+              "type": "string",
+              "enum": [
+                "createdAt",
+                "updatedAt",
+                "resolvedAt",
+                "status"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List content reports",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/reports/{id}": {
+      "get": {
+        "operationId": "adminGetReport",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "View a content report",
+        "tags": [
+          "Admin"
+        ]
+      },
+      "delete": {
+        "operationId": "adminDeleteReport",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Soft delete a content report",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/reports/{id}/resolve": {
+      "patch": {
+        "operationId": "adminResolveReport",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveReportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Resolve or dismiss a content report",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/reports/{id}/action": {
+      "patch": {
+        "operationId": "adminReportAction",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportActionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Take moderation action on a content report",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/reports/{id}/restore": {
+      "post": {
+        "operationId": "adminRestoreReport",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Restore a soft-deleted content report",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/analytics": {
+      "get": {
+        "operationId": "adminAnalytics",
+        "parameters": [
+          {
+            "name": "days",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 365,
+              "default": 30,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Combined platform analytics",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/analytics/users": {
+      "get": {
+        "operationId": "adminUserGrowth",
+        "parameters": [
+          {
+            "name": "days",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 365,
+              "default": 30,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "User growth analytics",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/analytics/sessions": {
+      "get": {
+        "operationId": "adminSessionStats",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Session statistics",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/analytics/revenue": {
+      "get": {
+        "operationId": "adminRevenue",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Revenue placeholder",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/system-health": {
+      "get": {
+        "operationId": "adminSystemHealth",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "System health status",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/audit-logs": {
+      "get": {
+        "operationId": "adminAuditLogs",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "1-based page number.",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Items per page (max 100).",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "order",
+            "required": false,
+            "in": "query",
+            "description": "Sort direction.",
+            "schema": {
+              "default": "DESC",
+              "type": "string",
+              "enum": [
+                "ASC",
+                "DESC"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Opaque cursor for cursor-based pagination.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "event",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user_suspended",
+                "user_unsuspended",
+                "user_suspension_expired",
+                "user_status_changed",
+                "user_deleted",
+                "user_restored",
+                "role_assigned",
+                "session_cancelled",
+                "dispute_resolved",
+                "report_created",
+                "report_resolved",
+                "report_action_taken",
+                "report_deleted",
+                "report_restored"
+              ]
+            }
+          },
+          {
+            "name": "walletAddress",
+            "required": false,
+            "in": "query",
+            "description": "Wallet address of the actor.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "targetId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "createdAt",
+              "type": "string",
+              "enum": [
+                "createdAt",
+                "event"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "View audit logs with filters",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
     "/health/redis": {
       "get": {
         "description": "Returns the round-trip latency of a PING against Redis, or 503 when Redis is unreachable.",
@@ -2635,7 +4086,7 @@
             "type": "string",
             "enum": [
               "active",
-              "pending",
+              "pending_verification",
               "suspended",
               "deleted"
             ]
@@ -2643,6 +4094,11 @@
           "avatarUrl": {
             "type": "string",
             "description": "Avatar URL.",
+            "nullable": true
+          },
+          "avatarThumbnailUrl": {
+            "type": "string",
+            "description": "Avatar thumbnail URL (64x64).",
             "nullable": true
           },
           "timezone": {
@@ -2757,6 +4213,37 @@
           }
         }
       },
+      "AvatarUploadResponseDto": {
+        "type": "object",
+        "properties": {
+          "avatarUrl": {
+            "type": "string",
+            "description": "Optimized original avatar URL.",
+            "example": "/uploads/avatars/gdqp.../original-abc.jpg"
+          },
+          "avatarThumbnailUrl": {
+            "type": "string",
+            "description": "Thumbnail avatar URL (64x64).",
+            "example": "/uploads/avatars/gdqp.../thumbnail-abc.jpg"
+          },
+          "avatarSmallUrl": {
+            "type": "string",
+            "description": "Small avatar URL (200x200).",
+            "example": "/uploads/avatars/gdqp.../small-abc.jpg"
+          },
+          "avatarMediumUrl": {
+            "type": "string",
+            "description": "Medium avatar URL (400x400).",
+            "example": "/uploads/avatars/gdqp.../medium-abc.jpg"
+          }
+        },
+        "required": [
+          "avatarUrl",
+          "avatarThumbnailUrl",
+          "avatarSmallUrl",
+          "avatarMediumUrl"
+        ]
+      },
       "UpdateUserStatusDto": {
         "type": "object",
         "properties": {
@@ -2765,7 +4252,7 @@
             "description": "New account status. Restores soft-deleted accounts to active when set to \"active\".",
             "enum": [
               "active",
-              "pending",
+              "pending_verification",
               "suspended",
               "deleted"
             ],
@@ -2876,7 +4363,7 @@
             "description": "Account status.",
             "enum": [
               "active",
-              "pending",
+              "pending_verification",
               "suspended",
               "deleted"
             ],
@@ -2891,6 +4378,21 @@
           "avatarUrl": {
             "type": "string",
             "description": "Avatar URL.",
+            "nullable": true
+          },
+          "avatarThumbnailUrl": {
+            "type": "string",
+            "description": "Avatar thumbnail URL (64x64).",
+            "nullable": true
+          },
+          "avatarSmallUrl": {
+            "type": "string",
+            "description": "Avatar small URL (200x200).",
+            "nullable": true
+          },
+          "avatarMediumUrl": {
+            "type": "string",
+            "description": "Avatar medium URL (400x400).",
             "nullable": true
           },
           "timezone": {
@@ -3031,6 +4533,16 @@
             "description": "UTC timestamp of account creation.",
             "example": "2024-01-15T10:00:00.000Z"
           },
+          "avatarUrl": {
+            "type": "string",
+            "description": "Avatar URL.",
+            "nullable": true
+          },
+          "avatarThumbnailUrl": {
+            "type": "string",
+            "description": "Avatar thumbnail URL (64x64).",
+            "nullable": true
+          },
           "portfolioLinks": {
             "description": "Public portfolio links",
             "type": "array",
@@ -3144,10 +4656,14 @@
             "maximum": 20
           },
           "learningGoals": {
-            "type": "string",
-            "description": "[mentee] What the mentee wants to learn or achieve. Required when profileType is \"mentee\".",
-            "example": "I want to transition from backend to full-stack development.",
-            "maxLength": 500
+            "description": "[mentee] Learning goals the mentee wants to achieve (1–20 items, max 500 chars each). Required when profileType is \"mentee\".",
+            "example": [
+              "Transition from backend to full-stack development"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "interests": {
             "description": "[mentee] Topics the mentee wants to focus on. 1–20 strings, each up to 64 characters. Required when profileType is \"mentee\".",
@@ -3168,13 +4684,63 @@
           },
           "experienceLevel": {
             "type": "string",
-            "description": "[mentee] Self-assessed experience level. Required when profileType is \"mentee\".",
+            "description": "[mentee] Self-assessed current skill level. Required when profileType is \"mentee\".",
             "enum": [
               "beginner",
               "intermediate",
               "advanced"
             ],
             "example": "intermediate"
+          },
+          "preferredMentoringStyle": {
+            "description": "[mentee] Preferred mentoring styles (e.g. career advice, technical skills, interview prep).",
+            "example": [
+              "technical skills",
+              "interview prep"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timeCommitmentHoursPerWeek": {
+            "type": "object",
+            "description": "[mentee] Time commitment in hours per week.",
+            "example": 5,
+            "minimum": 1,
+            "maximum": 168,
+            "nullable": true
+          },
+          "professionalBackground": {
+            "type": "object",
+            "description": "[mentee] Professional background summary.",
+            "example": "3 years working on backend APIs.",
+            "maxLength": 2000,
+            "nullable": true
+          },
+          "jobTitle": {
+            "type": "object",
+            "description": "[mentee] Optional current job title.",
+            "example": "Software Engineer",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "industry": {
+            "type": "object",
+            "description": "[mentee] Optional industry sector.",
+            "example": "FinTech",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "portfolioLinks": {
+            "description": "[mentee] Optional portfolio links.",
+            "example": [
+              "https://github.com/alice"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "languages": {
             "description": "Languages for mentorship sessions. Defaults to [\"English\"] if omitted.",
@@ -3261,9 +4827,11 @@
             "maximum": 20
           },
           "learningGoals": {
-            "type": "string",
-            "description": "Mentee learning goals.",
-            "maxLength": 500
+            "description": "Mentee learning goals (max 500 characters each).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "interests": {
             "description": "Topics the mentee wants to focus on.",
@@ -3281,12 +4849,51 @@
           },
           "experienceLevel": {
             "type": "string",
-            "description": "Mentee self-assessed experience level.",
+            "description": "Mentee self-assessed skill level.",
             "enum": [
               "beginner",
               "intermediate",
               "advanced"
             ]
+          },
+          "preferredMentoringStyle": {
+            "description": "Preferred mentoring styles (e.g. career advice, technical skills, interview prep).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timeCommitmentHoursPerWeek": {
+            "type": "object",
+            "description": "Weekly time commitment in hours.",
+            "nullable": true,
+            "minimum": 1,
+            "maximum": 168
+          },
+          "professionalBackground": {
+            "type": "object",
+            "description": "Mentee professional background summary.",
+            "nullable": true,
+            "maxLength": 2000
+          },
+          "jobTitle": {
+            "type": "object",
+            "description": "Optional current job title.",
+            "nullable": true,
+            "maxLength": 120
+          },
+          "industry": {
+            "type": "object",
+            "description": "Optional industry sector.",
+            "nullable": true,
+            "maxLength": 120
+          },
+          "portfolioLinks": {
+            "description": "Optional portfolio links.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "languages": {
             "description": "Languages for mentorship sessions.",
@@ -3328,6 +4935,342 @@
           "profileType",
           "profile"
         ]
+      },
+      "MenteeProfile": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Auto-generated UUID.",
+            "example": "b2c3d4e5-..."
+          },
+          "walletAddress": {
+            "type": "string",
+            "description": "Stellar wallet address of the owning user.",
+            "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37"
+          },
+          "learningGoals": {
+            "description": "Learning goals the mentee wants to achieve (max 500 chars each).",
+            "example": [
+              "Transition from backend to full-stack development",
+              "Master system design"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "interests": {
+            "description": "Topics or skills the mentee wants to focus on.",
+            "example": [
+              "React",
+              "System Design"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "budgetUsdCentsPerMonth": {
+            "type": "number",
+            "description": "Maximum monthly budget in USD cents the mentee can spend (e.g. 10000 = $100.00). Null means no budget preference.",
+            "example": 10000,
+            "nullable": true
+          },
+          "experienceLevel": {
+            "type": "string",
+            "description": "Self-assessed current skill level.",
+            "example": "intermediate",
+            "enum": [
+              "beginner",
+              "intermediate",
+              "advanced"
+            ]
+          },
+          "preferredMentoringStyle": {
+            "description": "Preferred mentoring styles (e.g. career advice, technical skills, interview prep).",
+            "example": [
+              "technical skills",
+              "career advice"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timeCommitmentHoursPerWeek": {
+            "type": "number",
+            "description": "Weekly time commitment in hours.",
+            "example": 5,
+            "nullable": true
+          },
+          "professionalBackground": {
+            "type": "string",
+            "description": "Summary of the mentee professional background.",
+            "example": "3 years working on backend Node.js microservices.",
+            "nullable": true
+          },
+          "jobTitle": {
+            "type": "string",
+            "description": "Current job title (optional).",
+            "example": "Junior Backend Engineer",
+            "nullable": true
+          },
+          "industry": {
+            "type": "string",
+            "description": "Industry sector (optional).",
+            "example": "FinTech",
+            "nullable": true
+          },
+          "portfolioLinks": {
+            "description": "Optional portfolio or personal project URLs.",
+            "example": [
+              "https://github.com/alice"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "languages": {
+            "description": "Languages the mentee is comfortable working in.",
+            "example": [
+              "English"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isActive": {
+            "type": "boolean",
+            "description": "Profile is visible to mentors.",
+            "example": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "UTC creation timestamp."
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "UTC last-updated timestamp."
+          },
+          "version": {
+            "type": "number",
+            "description": "Incremented whenever this profile is updated.",
+            "example": 1
+          }
+        },
+        "required": [
+          "id",
+          "walletAddress",
+          "learningGoals",
+          "interests",
+          "experienceLevel",
+          "preferredMentoringStyle",
+          "languages",
+          "isActive",
+          "createdAt",
+          "updatedAt",
+          "version"
+        ]
+      },
+      "MenteeProfileWithCompletionDto": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/MenteeProfile"
+          },
+          "completionPercentage": {
+            "type": "number",
+            "description": "Profile completion percentage based on filled fields (0–100 base score).",
+            "example": 83
+          },
+          "missingFields": {
+            "description": "List of missing required field names.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "profile",
+          "completionPercentage",
+          "missingFields"
+        ]
+      },
+      "CreateMenteeProfileDto": {
+        "type": "object",
+        "properties": {
+          "learningGoals": {
+            "description": "Learning goals (max 500 characters each).",
+            "example": [
+              "Master distributed systems",
+              "Prepare for senior backend interviews"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "interests": {
+            "description": "Areas of interest / topics.",
+            "example": [
+              "System Design",
+              "NestJS"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "experienceLevel": {
+            "type": "string",
+            "description": "Current skill level.",
+            "enum": [
+              "beginner",
+              "intermediate",
+              "advanced"
+            ],
+            "example": "intermediate"
+          },
+          "preferredMentoringStyle": {
+            "description": "Preferred mentoring style tags.",
+            "example": [
+              "career advice",
+              "technical skills",
+              "interview prep"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timeCommitmentHoursPerWeek": {
+            "type": "object",
+            "description": "Weekly time commitment in hours.",
+            "example": 5,
+            "minimum": 1,
+            "maximum": 168,
+            "nullable": true
+          },
+          "professionalBackground": {
+            "type": "object",
+            "description": "Professional background summary.",
+            "maxLength": 2000,
+            "nullable": true
+          },
+          "jobTitle": {
+            "type": "object",
+            "description": "Optional current job title.",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "industry": {
+            "type": "object",
+            "description": "Optional industry.",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "portfolioLinks": {
+            "description": "Optional portfolio links.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "budgetUsdCentsPerMonth": {
+            "type": "object",
+            "description": "Maximum monthly budget in USD cents.",
+            "nullable": true
+          },
+          "languages": {
+            "description": "Languages.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "learningGoals",
+          "interests",
+          "experienceLevel"
+        ]
+      },
+      "UpdateMenteeProfileDto": {
+        "type": "object",
+        "properties": {
+          "learningGoals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "interests": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "experienceLevel": {
+            "type": "string",
+            "enum": [
+              "beginner",
+              "intermediate",
+              "advanced"
+            ]
+          },
+          "preferredMentoringStyle": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timeCommitmentHoursPerWeek": {
+            "type": "object",
+            "nullable": true,
+            "minimum": 1,
+            "maximum": 168
+          },
+          "professionalBackground": {
+            "type": "object",
+            "nullable": true,
+            "maxLength": 2000
+          },
+          "jobTitle": {
+            "type": "object",
+            "nullable": true,
+            "maxLength": 120
+          },
+          "industry": {
+            "type": "object",
+            "nullable": true,
+            "maxLength": 120
+          },
+          "portfolioLinks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "budgetUsdCentsPerMonth": {
+            "type": "object",
+            "nullable": true
+          },
+          "languages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        }
       },
       "AvailabilitySlot": {
         "type": "object",
@@ -3798,6 +5741,443 @@
           "limit"
         ]
       },
+      "UserSuspension": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Suspension record UUID."
+          },
+          "walletAddress": {
+            "type": "string",
+            "description": "Suspended user wallet address."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for suspension."
+          },
+          "suspendedBy": {
+            "type": "string",
+            "description": "Admin wallet address who issued the suspension."
+          },
+          "suspendedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "Timestamp when the suspension was created."
+          },
+          "suspendedUntil": {
+            "type": "string",
+            "description": "Timestamp when the suspension expires, or null for permanent.",
+            "format": "date-time",
+            "nullable": true
+          },
+          "isActive": {
+            "type": "boolean",
+            "description": "Whether this suspension is currently active."
+          },
+          "liftedAt": {
+            "type": "string",
+            "description": "Timestamp when the suspension was lifted or expired.",
+            "format": "date-time",
+            "nullable": true
+          },
+          "liftedBy": {
+            "type": "string",
+            "description": "Actor who lifted the suspension (admin wallet or system:expired).",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "walletAddress",
+          "reason",
+          "suspendedBy",
+          "suspendedAt",
+          "isActive"
+        ]
+      },
+      "SuspensionPaginationMetaDto": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "totalPages": {
+            "type": "number"
+          },
+          "hasNext": {
+            "type": "boolean"
+          },
+          "hasPrev": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "page",
+          "limit",
+          "total",
+          "totalPages"
+        ]
+      },
+      "PaginatedSuspendedUsersResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserSuspension"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/SuspensionPaginationMetaDto"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ]
+      },
+      "SuspendUserDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Reason for suspending the account.",
+            "example": "Repeated violation of community guidelines.",
+            "minLength": 3,
+            "maxLength": 1000
+          },
+          "duration": {
+            "type": "number",
+            "description": "Suspension duration in days. Omit or pass null for a permanent suspension.",
+            "example": 7,
+            "nullable": true,
+            "minimum": 1,
+            "maximum": 3650
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "SuspendUserResponseDto": {
+        "type": "object",
+        "properties": {
+          "walletAddress": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "nullable": true
+          },
+          "username": {
+            "type": "string",
+            "nullable": true
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "pending_verification",
+              "suspended",
+              "deleted"
+            ]
+          },
+          "avatarUrl": {
+            "type": "string",
+            "description": "Avatar URL.",
+            "nullable": true
+          },
+          "avatarThumbnailUrl": {
+            "type": "string",
+            "description": "Avatar thumbnail URL (64x64).",
+            "nullable": true
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone preference used for display.",
+            "example": "UTC"
+          },
+          "locale": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastLoginAt": {
+            "type": "string",
+            "description": "UTC timestamp of the last login.",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "UTC timestamp of account creation."
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "UTC timestamp of the latest account update."
+          },
+          "isFeatured": {
+            "type": "boolean",
+            "description": "True when this user has an active featured mentor profile."
+          },
+          "featuredBadge": {
+            "type": "object",
+            "nullable": true,
+            "description": "Badge shown on featured mentor cards."
+          },
+          "isVerified": {
+            "type": "boolean",
+            "description": "Whether this user has a verified mentor profile."
+          },
+          "verifiedAt": {
+            "type": "object",
+            "nullable": true,
+            "description": "UTC date of mentor verification."
+          },
+          "verifiedBadge": {
+            "type": "object",
+            "nullable": true,
+            "description": "Badge shown on verified mentor cards."
+          },
+          "completenessScore": {
+            "type": "number",
+            "description": "Profile completeness score (0–110).",
+            "example": 85
+          },
+          "suspension": {
+            "description": "Active suspension record created for the user.",
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/UserSuspension"
+              }
+            ]
+          }
+        },
+        "required": [
+          "walletAddress",
+          "displayName",
+          "status",
+          "timezone",
+          "createdAt",
+          "updatedAt",
+          "isVerified"
+        ]
+      },
+      "UnsuspendUserDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Optional note explaining why the suspension was lifted.",
+            "maxLength": 500
+          }
+        }
+      },
+      "UnsuspendUserResponseDto": {
+        "type": "object",
+        "properties": {
+          "walletAddress": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "nullable": true
+          },
+          "username": {
+            "type": "string",
+            "nullable": true
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "pending_verification",
+              "suspended",
+              "deleted"
+            ]
+          },
+          "avatarUrl": {
+            "type": "string",
+            "description": "Avatar URL.",
+            "nullable": true
+          },
+          "avatarThumbnailUrl": {
+            "type": "string",
+            "description": "Avatar thumbnail URL (64x64).",
+            "nullable": true
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone preference used for display.",
+            "example": "UTC"
+          },
+          "locale": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastLoginAt": {
+            "type": "string",
+            "description": "UTC timestamp of the last login.",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "UTC timestamp of account creation."
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "UTC timestamp of the latest account update."
+          },
+          "isFeatured": {
+            "type": "boolean",
+            "description": "True when this user has an active featured mentor profile."
+          },
+          "featuredBadge": {
+            "type": "object",
+            "nullable": true,
+            "description": "Badge shown on featured mentor cards."
+          },
+          "isVerified": {
+            "type": "boolean",
+            "description": "Whether this user has a verified mentor profile."
+          },
+          "verifiedAt": {
+            "type": "object",
+            "nullable": true,
+            "description": "UTC date of mentor verification."
+          },
+          "verifiedBadge": {
+            "type": "object",
+            "nullable": true,
+            "description": "Badge shown on verified mentor cards."
+          },
+          "completenessScore": {
+            "type": "number",
+            "description": "Profile completeness score (0–110).",
+            "example": 85
+          },
+          "liftedAt": {
+            "type": "string",
+            "description": "Timestamp when the suspension was lifted.",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "walletAddress",
+          "displayName",
+          "status",
+          "timezone",
+          "createdAt",
+          "updatedAt",
+          "isVerified",
+          "liftedAt"
+        ]
+      },
+      "AssignRoleDto": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "mentor",
+              "mentee",
+              "admin"
+            ]
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "CancelSessionDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "ResolveDisputeDto": {
+        "type": "object",
+        "properties": {
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "complete",
+              "cancel",
+              "no_action"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "resolution"
+        ]
+      },
+      "ResolveReportDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "resolved",
+              "dismissed"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "ReportActionDto": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "remove_content",
+              "warn_user",
+              "suspend_user",
+              "dismiss"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
       "MentorProfile": {
         "type": "object",
         "properties": {
@@ -3923,96 +6303,6 @@
           "isActive",
           "isVerified",
           "averageRating",
-          "createdAt",
-          "updatedAt",
-          "version"
-        ]
-      },
-      "MenteeProfile": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "Auto-generated UUID.",
-            "example": "b2c3d4e5-..."
-          },
-          "walletAddress": {
-            "type": "string",
-            "description": "Stellar wallet address of the owning user.",
-            "example": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37"
-          },
-          "learningGoals": {
-            "type": "string",
-            "description": "What the mentee wants to learn or achieve.",
-            "example": "I want to transition from backend to full-stack development.",
-            "maxLength": 500
-          },
-          "interests": {
-            "description": "Topics or skills the mentee wants to focus on.",
-            "example": [
-              "React",
-              "System Design"
-            ],
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "budgetUsdCentsPerMonth": {
-            "type": "number",
-            "description": "Maximum monthly budget in USD cents the mentee can spend (e.g. 10000 = $100.00). Null means no budget preference.",
-            "example": 10000,
-            "nullable": true
-          },
-          "experienceLevel": {
-            "type": "string",
-            "description": "Self-assessed experience level.",
-            "example": "intermediate",
-            "enum": [
-              "beginner",
-              "intermediate",
-              "advanced"
-            ]
-          },
-          "languages": {
-            "description": "Languages the mentee is comfortable working in.",
-            "example": [
-              "English"
-            ],
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "isActive": {
-            "type": "boolean",
-            "description": "Profile is visible to mentors.",
-            "example": true
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string",
-            "description": "UTC creation timestamp."
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "type": "string",
-            "description": "UTC last-updated timestamp."
-          },
-          "version": {
-            "type": "number",
-            "description": "Incremented whenever this profile is updated.",
-            "example": 1
-          }
-        },
-        "required": [
-          "id",
-          "walletAddress",
-          "learningGoals",
-          "interests",
-          "experienceLevel",
-          "languages",
-          "isActive",
           "createdAt",
           "updatedAt",
           "version"

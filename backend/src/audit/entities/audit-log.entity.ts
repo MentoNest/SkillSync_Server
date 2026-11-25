@@ -8,6 +8,9 @@ import {
 
 export enum AuditEvent {
   USER_SUSPENDED = 'user_suspended',
+  USER_UNSUSPENDED = 'user_unsuspended',
+  USER_SUSPENSION_EXPIRED = 'user_suspension_expired',
+  USER_STATUS_CHANGED = 'user_status_changed',
   USER_DELETED = 'user_deleted',
   USER_RESTORED = 'user_restored',
   ROLE_ASSIGNED = 'role_assigned',

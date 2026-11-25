@@ -25,7 +25,9 @@ export enum PortfolioPlatform {
 
 @Entity('portfolio_links')
 @Index('idx_portfolio_links_wallet', ['walletAddress'])
-@Index('uq_portfolio_links_wallet_url', ['walletAddress', 'url'], { unique: true })
+@Index('uq_portfolio_links_wallet_url', ['walletAddress', 'url'], {
+  unique: true,
+})
 @Index('idx_portfolio_links_wallet_created', ['walletAddress', 'createdAt'])
 @Index('idx_portfolio_links_platform', ['platform'])
 export class PortfolioLink {
@@ -42,7 +44,11 @@ export class PortfolioLink {
   user?: User;
 
   @ApiProperty({ enum: PortfolioPlatform })
-  @Column({ type: 'enum', enum: PortfolioPlatform, enumName: 'portfolio_platform_enum' })
+  @Column({
+    type: 'enum',
+    enum: PortfolioPlatform,
+    enumName: 'portfolio_platform_enum',
+  })
   platform!: PortfolioPlatform;
 
   @ApiProperty()
@@ -50,7 +56,12 @@ export class PortfolioLink {
   url!: string;
 
   @ApiPropertyOptional({ nullable: true })
-  @Column({ name: 'display_title', type: 'varchar', length: 120, nullable: true })
+  @Column({
+    name: 'display_title',
+    type: 'varchar',
+    length: 120,
+    nullable: true,
+  })
   displayTitle!: string | null;
 
   @ApiProperty()

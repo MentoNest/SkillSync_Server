@@ -1,7 +1,8 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { InvalidCredentialsException } from '../../common/errors/app-exceptions';
+import { UserStatus } from '../../user/user-status.enum';
 import { AuthService } from '../auth.service';
 import { AUTH_CONFIG } from '../auth.types';
 import type { AuthConfig, AuthUser, JwtPayload } from '../auth.types';
@@ -20,11 +21,24 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 
   async validate(payload: JwtPayload): Promise<AuthUser> {
-    if (payload.type !== 'access') throw new InvalidCredentialsException('Access token required');
-    if (await this.auth.isRevoked(payload.jti)) throw new InvalidCredentialsException('Token has been revoked');
+    if (payload.type !== 'access')
+      throw new InvalidCredentialsException('Access token required');
+    if (await this.auth.isRevoked(payload.jti))
+      throw new InvalidCredentialsException('Token has been revoked');
     if (!(await this.auth.isTokenVersionCurrent(payload.sub, payload.ver))) {
       throw new InvalidCredentialsException('Token has been revoked');
     }
-    return { address: payload.sub, roles: payload.roles ?? [], jti: payload.jti };
+    if (payload.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException('Account is not active');
+    }
+    if (!(await this.auth.isUserActive(payload.sub))) {
+      throw new ForbiddenException('Account is not active');
+    }
+    return {
+      address: payload.sub,
+      roles: payload.roles ?? [],
+      status: payload.status,
+      jti: payload.jti,
+    };
   }
 }

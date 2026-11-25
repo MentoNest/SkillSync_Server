@@ -29,5 +29,10 @@ const BY_STATUS: Record<number, ErrorCode> = {
 
 /** The default code for an HTTP status (anything unlisted maps by class: 4xx bad request, else internal). */
 export function codeForStatus(status: number): ErrorCode {
-  return BY_STATUS[status] ?? (status >= 400 && status < 500 ? ErrorCode.BAD_REQUEST : ErrorCode.INTERNAL_ERROR);
+  return (
+    BY_STATUS[status] ??
+    (status >= 400 && status < 500
+      ? ErrorCode.BAD_REQUEST
+      : ErrorCode.INTERNAL_ERROR)
+  );
 }

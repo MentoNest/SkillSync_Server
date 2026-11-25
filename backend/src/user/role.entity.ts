@@ -1,5 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Column, CreateDateColumn, Entity, ManyToMany, PrimaryColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  ManyToMany,
+  PrimaryColumn,
+} from 'typeorm';
 import { User } from './user.entity';
 
 @Entity('roles')
@@ -8,7 +14,10 @@ export class RoleEntity {
   @PrimaryColumn({ type: 'varchar', length: 64 })
   name!: string;
 
-  @ApiProperty({ description: 'Permissions granted by this role', type: [String] })
+  @ApiProperty({
+    description: 'Permissions granted by this role',
+    type: [String],
+  })
   @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
   permissions!: string[];
 

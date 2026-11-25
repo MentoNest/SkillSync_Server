@@ -1,9 +1,15 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Inject,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import type { AuthService } from '../auth/auth.service';
 import { AUTH_CONFIG } from '../auth/auth.types';
 import type { AuthConfig, AuthUser, JwtPayload } from '../auth/auth.types';
 import { InvalidCredentialsException } from '../common/errors/app-exceptions';
+import { UserStatus } from '../user/user-status.enum';
 
 export interface HandshakeLike {
   auth?: Record<string, unknown>;
@@ -63,10 +69,14 @@ export class WsAuthService {
       throw new InvalidCredentialsException('Access token required');
     if (await this.auth.isRevoked(payload.jti))
       throw new InvalidCredentialsException('Token has been revoked');
+    if (payload.status && payload.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException('Account is not active');
+    }
 
     return {
       address: payload.sub,
       roles: payload.roles ?? [],
+      status: payload.status ?? UserStatus.ACTIVE,
       jti: payload.jti,
     };
   }

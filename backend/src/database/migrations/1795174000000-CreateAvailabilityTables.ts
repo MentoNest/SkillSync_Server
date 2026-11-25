@@ -55,11 +55,19 @@ export class CreateAvailabilityTables1795174000000 implements MigrationInterface
   }
 
   async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX IF EXISTS idx_availability_exceptions_mentor_date`);
-    await queryRunner.query(`DROP INDEX IF EXISTS idx_availability_exceptions_mentor`);
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS idx_availability_exceptions_mentor_date`,
+    );
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS idx_availability_exceptions_mentor`,
+    );
     await queryRunner.query(`DROP TABLE IF EXISTS availability_exceptions`);
-    await queryRunner.query(`DROP INDEX IF EXISTS idx_availability_slots_mentor_day`);
-    await queryRunner.query(`DROP INDEX IF EXISTS idx_availability_slots_mentor`);
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS idx_availability_slots_mentor_day`,
+    );
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS idx_availability_slots_mentor`,
+    );
     await queryRunner.query(`DROP TABLE IF EXISTS availability_slots`);
   }
 }

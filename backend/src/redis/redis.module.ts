@@ -29,7 +29,9 @@ import { REDIS_CLIENT, REDIS_KEY_PREFIX, RedisService } from './redis.service';
           retryStrategy: reconnectDelay,
           maxRetriesPerRequest: 3,
         });
-        client.on('error', (error) => logger.error(`Redis error: ${error.message}`));
+        client.on('error', (error) =>
+          logger.error(`Redis error: ${error.message}`),
+        );
         client.on('reconnecting', () => logger.warn('Reconnecting to Redis'));
         client.on('ready', () => logger.log('Redis connection ready'));
         return client;

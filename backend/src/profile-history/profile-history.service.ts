@@ -3,7 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { QueryDeepPartialEntity } from 'typeorm';
 import { ResourceNotFoundException } from '../common/errors/app-exceptions';
-import { ChangeReason, ProfileHistory, ProfileType } from './profile-history.entity';
+import {
+  ChangeReason,
+  ProfileHistory,
+  ProfileType,
+} from './profile-history.entity';
 import { maybeRedact } from './sensitive-fields';
 
 export interface RecordChangeOptions {

@@ -30,10 +30,16 @@ export class AvailableWindowDto {
   @ApiProperty({ example: '2026-11-23T12:00:00.000Z' })
   endUtc!: string;
 
-  @ApiProperty({ description: 'Display start in the response timezone.', example: '11/23/2026, 10:00 GMT+0' })
+  @ApiProperty({
+    description: 'Display start in the response timezone.',
+    example: '11/23/2026, 10:00 GMT+0',
+  })
   displayStart!: string;
 
-  @ApiProperty({ description: 'Display end in the response timezone.', example: '11/23/2026, 12:00 GMT+0' })
+  @ApiProperty({
+    description: 'Display end in the response timezone.',
+    example: '11/23/2026, 12:00 GMT+0',
+  })
   displayEnd!: string;
 
   @ApiProperty({ example: 'UTC' })
@@ -45,7 +51,11 @@ export class AvailableWindowDto {
 
 export class AvailabilityCheckResponseDto {
   @ApiProperty() mentorId!: string;
-  @ApiProperty({ description: 'IANA timezone used for display.', example: 'UTC' }) timezone!: string;
+  @ApiProperty({
+    description: 'IANA timezone used for display.',
+    example: 'UTC',
+  })
+  timezone!: string;
   @ApiProperty({
     description: 'The checked instant in UTC.',
     example: '2026-11-23T10:30:00.000Z',
@@ -56,7 +66,11 @@ export class AvailabilityCheckResponseDto {
 
 export class Next30DaysAvailabilityResponseDto {
   @ApiProperty() mentorId!: string;
-  @ApiProperty({ description: 'IANA timezone used for display.', example: 'UTC' }) timezone!: string;
+  @ApiProperty({
+    description: 'IANA timezone used for display.',
+    example: 'UTC',
+  })
+  timezone!: string;
   @ApiProperty({ type: [AvailableWindowDto] })
   windows!: AvailableWindowDto[];
 }

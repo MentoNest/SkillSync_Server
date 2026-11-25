@@ -7,7 +7,10 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { FieldError, ValidationFailedException } from '../errors/app-exceptions';
+import {
+  FieldError,
+  ValidationFailedException,
+} from '../errors/app-exceptions';
 import { codeForStatus, ErrorCode } from '../errors/error-codes';
 
 export interface ErrorResponseBody {
@@ -55,7 +58,10 @@ function messageFrom(response: unknown, fallback: string): string {
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger('ExceptionFilter');
 
-  constructor(private readonly production: boolean = process.env.NODE_ENV === 'production') {}
+  constructor(
+    private readonly production: boolean = process.env.NODE_ENV ===
+      'production',
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
@@ -75,27 +81,38 @@ export class AllExceptionsFilter implements ExceptionFilter {
     response.status(body.statusCode).json(body);
   }
 
-  buildBody(exception: unknown, request: Request & { id?: string }): ErrorResponseBody {
+  buildBody(
+    exception: unknown,
+    request: Request & { id?: string },
+  ): ErrorResponseBody {
     const timestamp = new Date().toISOString();
     const path = request.originalUrl ?? request.url;
-    const requestId = request.id ?? String(request.headers?.['x-request-id'] ?? 'unknown');
+    const requestId =
+      request.id ?? String(request.headers?.['x-request-id'] ?? 'unknown');
 
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const raw = exception.getResponse();
-      const object = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+      const object =
+        raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
       const body: ErrorResponseBody = {
         success: false,
         statusCode: status,
         message: messageFrom(raw, exception.message),
-        error: typeof object.error === 'string' ? object.error : (STATUS_TEXT[status] ?? 'Error'),
-        code: typeof object.code === 'string' ? object.code : codeForStatus(status),
+        error:
+          typeof object.error === 'string'
+            ? object.error
+            : (STATUS_TEXT[status] ?? 'Error'),
+        code:
+          typeof object.code === 'string' ? object.code : codeForStatus(status),
         timestamp,
         path,
         requestId,
       };
-      if (exception instanceof ValidationFailedException) body.errors = exception.fieldErrors;
-      if (status >= 500 && !this.production && exception.stack) body.stack = exception.stack;
+      if (exception instanceof ValidationFailedException)
+        body.errors = exception.fieldErrors;
+      if (status >= 500 && !this.production && exception.stack)
+        body.stack = exception.stack;
       return body;
     }
 
@@ -110,7 +127,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       path,
       requestId,
     };
-    if (!this.production && exception instanceof Error && exception.stack) body.stack = exception.stack;
+    if (!this.production && exception instanceof Error && exception.stack)
+      body.stack = exception.stack;
     return body;
   }
 }
