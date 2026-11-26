@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { readFile } from 'node:fs/promises';
-import { BACKUP_CONFIG, BackupConfig } from './backup.config';
+import { BACKUP_CONFIG } from './backup.config';
+import type { BackupConfig } from './backup.config';
 import {
   BackupHealth,
   BackupRunStatus,
@@ -36,7 +37,9 @@ export class BackupService {
   /** Builds the status snapshot. A missing or corrupt status file yields `not_configured`. */
   async getStatus(now: Date = new Date()): Promise<BackupStatusDto> {
     const lastBackup = await this.readLastRun();
-    const lastBackupAgeHours = lastBackup ? this.ageHours(lastBackup, now) : null;
+    const lastBackupAgeHours = lastBackup
+      ? this.ageHours(lastBackup, now)
+      : null;
 
     return {
       health: this.evaluate(lastBackup, lastBackupAgeHours),
@@ -74,7 +77,9 @@ export class BackupService {
     try {
       return this.normalize(JSON.parse(raw) as RawBackupRun);
     } catch {
-      this.logger.warn(`Backup status file "${this.config.statusFile}" is not valid JSON`);
+      this.logger.warn(
+        `Backup status file "${this.config.statusFile}" is not valid JSON`,
+      );
       return null;
     }
   }
@@ -104,7 +109,10 @@ export class BackupService {
     return Math.round(((now.getTime() - time) / 3_600_000) * 100) / 100;
   }
 
-  private evaluate(run: BackupRunSummaryDto | null, ageHours: number | null): BackupHealth {
+  private evaluate(
+    run: BackupRunSummaryDto | null,
+    ageHours: number | null,
+  ): BackupHealth {
     if (!run) return 'not_configured';
     if (run.status === 'failed') return 'failing';
     if (ageHours === null) return 'not_configured';
@@ -116,7 +124,9 @@ export class BackupService {
   }
 
   private toNumber(value: unknown): number | null {
-    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0
+      ? value
+      : null;
   }
 
   private toIso(value: unknown): string | null {

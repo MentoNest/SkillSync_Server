@@ -1,5 +1,17 @@
-import { Controller, Get, HttpCode, HttpStatus, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Role } from '../auth/auth.types';
 import type { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -14,7 +26,7 @@ import {
 import { ProfileCompletenessService } from './profile-completeness.service';
 
 @ApiTags('Profiles')
-@ApiBearerAuth('Bearer Auth')
+@ApiBearerAuth('BearerAuth')
 @UseGuards(JwtAuthGuard)
 @Controller('user')
 export class ProfileCompletenessController {
@@ -36,7 +48,7 @@ export class ProfileCompletenessController {
 }
 
 @ApiTags('Admin')
-@ApiBearerAuth('Bearer Auth')
+@ApiBearerAuth('BearerAuth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN)
 @Controller('admin/users')
@@ -45,12 +57,18 @@ export class CompletenessAdminController {
 
   @ApiOperation({
     summary: 'List completeness scores for all users',
-    description: 'Admin-only paginated view of every user’s profile completeness score.',
+    description:
+      'Admin-only paginated view of every user’s profile completeness score.',
     operationId: 'listCompletenessScores',
   })
   @ApiResponse({ status: HttpStatus.OK, type: CompletenessAdminPageDto })
   @Get('completeness')
-  list(@Query() query: CompletenessAdminQueryDto): Promise<CompletenessAdminPageDto> {
-    return this.completeness.getAll({ page: query.page ?? 1, limit: query.limit ?? 20 });
+  list(
+    @Query() query: CompletenessAdminQueryDto,
+  ): Promise<CompletenessAdminPageDto> {
+    return this.completeness.getAll({
+      page: query.page ?? 1,
+      limit: query.limit ?? 20,
+    });
   }
 }

@@ -11,7 +11,9 @@ export class LoginDto {
   })
   @IsString()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
-  @IsValidWalletAddress({ message: 'address must be a valid Stellar public key' })
+  @IsValidWalletAddress({
+    message: 'address must be a valid Stellar public key',
+  })
   address!: string;
 
   @ApiProperty({

@@ -28,10 +28,18 @@ export class EnhanceUserEntity1795175000000 implements MigrationInterface {
         ON users (email)
         WHERE email IS NOT NULL
     `);
-    await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_users_wallet_address ON users (wallet_address)`);
-    await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_users_status ON users (status)`);
-    await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_users_created_at ON users (created_at)`);
-    await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_users_last_login_at ON users (last_login_at)`);
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS idx_users_wallet_address ON users (wallet_address)`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS idx_users_status ON users (status)`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS idx_users_created_at ON users (created_at)`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS idx_users_last_login_at ON users (last_login_at)`,
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

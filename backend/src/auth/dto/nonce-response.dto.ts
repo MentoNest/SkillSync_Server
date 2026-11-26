@@ -2,7 +2,8 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class NonceResponseDto {
   @ApiProperty({
-    description: 'Single-use random nonce (64 hex characters). Embedded in the login message.',
+    description:
+      'Single-use random nonce (64 hex characters). Embedded in the login message.',
     example: 'a3f8c2e1b74d9056a3f8c2e1b74d9056a3f8c2e1b74d9056a3f8c2e1b74d9056',
   })
   nonce!: string;
@@ -17,7 +18,8 @@ export class NonceResponseDto {
   message!: string;
 
   @ApiProperty({
-    description: 'Seconds until this nonce expires. The default window is 300 seconds (5 minutes).',
+    description:
+      'Seconds until this nonce expires. The default window is 300 seconds (5 minutes).',
     example: 300,
   })
   expiresIn!: number;

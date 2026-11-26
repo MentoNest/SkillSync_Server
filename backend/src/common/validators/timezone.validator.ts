@@ -9,7 +9,8 @@ export function IsIanaTimezone(validationOptions?: ValidationOptions) {
       target: (object as { constructor: Function }).constructor,
       propertyName,
       options: {
-        message: '$property must be a valid IANA timezone (e.g. "UTC", "Africa/Lagos")',
+        message:
+          '$property must be a valid IANA timezone (e.g. "UTC", "Africa/Lagos")',
         ...validationOptions,
       },
       validator: {

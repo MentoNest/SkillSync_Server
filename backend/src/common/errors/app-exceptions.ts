@@ -16,7 +16,9 @@ export interface FieldError {
 export class ResourceNotFoundException extends NotFoundException {
   constructor(resource: string, id?: string) {
     super({
-      message: id ? `${resource} "${id}" was not found` : `${resource} was not found`,
+      message: id
+        ? `${resource} "${id}" was not found`
+        : `${resource} was not found`,
       error: 'Not Found',
       code: ErrorCode.NOT_FOUND,
     });
@@ -31,7 +33,11 @@ export class DuplicateResourceException extends ConflictException {
 
 export class InvalidCredentialsException extends UnauthorizedException {
   constructor(message = 'Invalid credentials') {
-    super({ message, error: 'Unauthorized', code: ErrorCode.INVALID_CREDENTIALS });
+    super({
+      message,
+      error: 'Unauthorized',
+      code: ErrorCode.INVALID_CREDENTIALS,
+    });
   }
 }
 

@@ -1,4 +1,8 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  Optional,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   DataSource,
@@ -9,14 +13,21 @@ import {
 import { AuditEvent } from '../audit/entities/audit-log.entity';
 import { AuditLog } from '../audit/entities/audit-log.entity';
 import { AuditService } from '../audit/audit.service';
+import { AuthService } from '../auth/auth.service';
 import { Role } from '../auth/auth.types';
 import {
   BusinessRuleException,
   ResourceNotFoundException,
 } from '../common/errors/app-exceptions';
 import { PaginatedResponse } from '../common/pagination/pagination.interface';
+import { PaginationQueryDto } from '../common/pagination/pagination.dto';
 import { PaginationService } from '../common/pagination/pagination.service';
 import { normalizeWalletAddress } from '../common/utils/wallet.utils';
+import {
+  NotificationChannel,
+  NotificationType,
+} from '../notifications/notification.types';
+import { NotificationsService } from '../notifications/notifications.service';
 import { RoleEntity } from '../user/role.entity';
 import { User } from '../user/user.entity';
 import { UserStatus } from '../user/user-status.enum';
@@ -26,6 +37,7 @@ import {
   AdminSession,
 } from './entities/admin-session.entity';
 import { ContentReport, ReportStatus } from './entities/content-report.entity';
+import { UserSuspension } from './entities/user-suspension.entity';
 import {
   AnalyticsRangeQueryDto,
   AssignRoleDto,
@@ -40,6 +52,8 @@ import {
   ReportActionDto,
   ResolveDisputeDto,
   ResolveReportDto,
+  SuspendUserDto,
+  UnsuspendUserDto,
 } from './dto/admin.dto';
 
 type SortOptions = { sort?: string; order?: 'ASC' | 'DESC' };
@@ -62,6 +76,11 @@ export class AdminService {
     private readonly audit: AuditService,
     private readonly pagination: PaginationService,
     private readonly dataSource: DataSource,
+    @Optional()
+    @InjectRepository(UserSuspension)
+    private readonly suspensions?: Repository<UserSuspension>,
+    @Optional() private readonly authService?: AuthService,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
   async listUsers(query: ListUsersQueryDto): Promise<PaginatedResponse<User>> {
@@ -105,15 +124,163 @@ export class AdminService {
     return user;
   }
 
-  async suspendUser(walletAddress: string, adminAddress: string) {
+  async suspendUser(
+    walletAddress: string,
+    adminAddress: string,
+    dto?: Partial<SuspendUserDto>,
+  ) {
     const address = normalizeWalletAddress(walletAddress);
-    await this.getUser(address);
+    const admin = normalizeWalletAddress(adminAddress);
+    if (address === admin) {
+      throw new BusinessRuleException(
+        'Admins cannot suspend their own account',
+      );
+    }
+    const targetUser = await this.getUser(address);
+    if (targetUser.deletedAt || targetUser.status === UserStatus.DELETED) {
+      throw new BusinessRuleException('Cannot suspend a deleted user');
+    }
+
+    const reason = dto?.reason?.trim() || 'Suspended by an administrator';
+    const durationDays = dto?.duration ?? null;
+    const suspendedAt = new Date();
+    const suspendedUntil =
+      durationDays !== null && durationDays !== undefined
+        ? new Date(suspendedAt.getTime() + durationDays * 86_400_000)
+        : null;
+
+    let suspensionRecord: UserSuspension | null = null;
+    if (this.suspensions) {
+      await this.suspensions.update(
+        { walletAddress: address, isActive: true },
+        {
+          isActive: false,
+          liftedAt: suspendedAt,
+          liftedBy: admin,
+        },
+      );
+      suspensionRecord = await this.suspensions.save(
+        this.suspensions.create({
+          walletAddress: address,
+          reason,
+          suspendedBy: admin,
+          suspendedAt,
+          suspendedUntil,
+          isActive: true,
+          liftedAt: null,
+          liftedBy: null,
+        }),
+      );
+    }
+
     const result = await this.userService.setStatus(
       address,
       UserStatus.SUSPENDED,
     );
-    await this.log(AuditEvent.USER_SUSPENDED, adminAddress, address);
-    return result;
+    await this.authService?.invalidateUserSessions(address);
+    await this.log(AuditEvent.USER_SUSPENDED, adminAddress, address, {
+      reason,
+      durationDays,
+      suspendedUntil: suspendedUntil?.toISOString() ?? null,
+      suspensionId: suspensionRecord?.id ?? null,
+    });
+    await this.notifications?.notify({
+      userId: address,
+      recipientEmail: targetUser.email,
+      type: NotificationType.ACCOUNT_SUSPENDED,
+      title: 'Your SkillSync account has been suspended',
+      body: suspendedUntil
+        ? `Your account has been suspended until ${suspendedUntil.toISOString()}. Reason: ${reason}`
+        : `Your account has been permanently suspended. Reason: ${reason}`,
+      data: {
+        reason,
+        suspendedUntil: suspendedUntil?.toISOString() ?? null,
+      },
+      channels: [NotificationChannel.EMAIL, NotificationChannel.IN_APP],
+    });
+    return {
+      ...result,
+      suspension: suspensionRecord,
+    };
+  }
+
+  async unsuspendUser(
+    walletAddress: string,
+    adminAddress: string,
+    dto?: UnsuspendUserDto,
+  ) {
+    const address = normalizeWalletAddress(walletAddress);
+    const admin = normalizeWalletAddress(adminAddress);
+    const targetUser = await this.getUser(address);
+
+    const activeSuspension = this.suspensions
+      ? await this.suspensions.findOne({
+          where: { walletAddress: address, isActive: true },
+          order: { suspendedAt: 'DESC' },
+        })
+      : null;
+
+    if (targetUser.status !== UserStatus.SUSPENDED && !activeSuspension) {
+      throw new BusinessRuleException('User is not currently suspended');
+    }
+
+    const liftedAt = new Date();
+    if (this.suspensions) {
+      await this.suspensions.update(
+        { walletAddress: address, isActive: true },
+        {
+          isActive: false,
+          liftedAt,
+          liftedBy: admin,
+        },
+      );
+    }
+
+    const result = await this.userService.setStatus(address, UserStatus.ACTIVE);
+    await this.log(AuditEvent.USER_UNSUSPENDED, adminAddress, address, {
+      reason: dto?.reason ?? null,
+      suspensionId: activeSuspension?.id ?? null,
+    });
+    await this.notifications?.notify({
+      userId: address,
+      recipientEmail: targetUser.email,
+      type: NotificationType.ACCOUNT_UNSUSPENDED,
+      title: 'Your SkillSync account suspension has been lifted',
+      body: 'Your account is active again and you may sign in.',
+      channels: [NotificationChannel.EMAIL, NotificationChannel.IN_APP],
+    });
+    return {
+      ...result,
+      liftedAt,
+    };
+  }
+
+  async listSuspendedUsers(
+    query: PaginationQueryDto,
+  ): Promise<PaginatedResponse<UserSuspension>> {
+    if (!this.suspensions) {
+      return {
+        data: [],
+        meta: {
+          page: query.page ?? 1,
+          limit: query.limit ?? 20,
+          total: 0,
+          totalPages: 0,
+          hasNext: false,
+          hasPrev: false,
+        },
+      };
+    }
+    const now = new Date();
+    const qb = this.suspensions
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.user', 'user')
+      .where('s.isActive = :isActive', { isActive: true })
+      .andWhere('(s.suspendedUntil IS NULL OR s.suspendedUntil > :now)', {
+        now,
+      })
+      .orderBy('s.suspendedAt', 'DESC');
+    return this.paginate(qb, query);
   }
 
   async deleteUser(
@@ -126,6 +293,7 @@ export class AdminService {
       throw new BusinessRuleException('Admins cannot delete their own account');
     await this.getUser(address);
     await this.userService.softDelete(address);
+    await this.authService?.invalidateUserSessions(address);
     await this.log(AuditEvent.USER_DELETED, adminAddress, address);
     return { deleted: true };
   }

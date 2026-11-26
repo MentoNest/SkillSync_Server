@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { UserSuspension } from '../admin/entities/user-suspension.entity';
+import { AuditModule } from '../audit/audit.module';
 import { RedisModule } from '../redis/redis.module';
 import { User } from '../user/user.entity';
 import { AuthController } from './auth.controller';
@@ -14,10 +16,19 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { WalletStrategy } from './strategies/wallet.strategy';
 
 @Module({
-  imports: [PassportModule, JwtModule.register({}), RedisModule, TypeOrmModule.forFeature([User])],
+  imports: [
+    PassportModule,
+    JwtModule.register({}),
+    RedisModule,
+    AuditModule,
+    TypeOrmModule.forFeature([User, UserSuspension]),
+  ],
   controllers: [AuthController],
   providers: [
-    { provide: AUTH_CONFIG, useFactory: () => buildAuthConfig((key) => process.env[key]) },
+    {
+      provide: AUTH_CONFIG,
+      useFactory: () => buildAuthConfig((key) => process.env[key]),
+    },
     AuthService,
     JwtStrategy,
     WalletStrategy,
@@ -25,6 +36,13 @@ import { WalletStrategy } from './strategies/wallet.strategy';
     RolesGuard,
     WalletAuthGuard,
   ],
-  exports: [AuthService, JwtAuthGuard, RolesGuard, WalletAuthGuard, JwtStrategy, WalletStrategy],
+  exports: [
+    AuthService,
+    JwtAuthGuard,
+    RolesGuard,
+    WalletAuthGuard,
+    JwtStrategy,
+    WalletStrategy,
+  ],
 })
 export class AuthModule {}

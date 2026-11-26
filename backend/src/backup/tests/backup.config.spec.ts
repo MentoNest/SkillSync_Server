@@ -53,7 +53,9 @@ describe('buildBackupConfig', () => {
   });
 
   it('honours an explicit status file path', () => {
-    const config = buildBackupConfig(from({ BACKUP_STATUS_FILE: '/tmp/status.json' }));
+    const config = buildBackupConfig(
+      from({ BACKUP_STATUS_FILE: '/tmp/status.json' }),
+    );
     expect(config.statusFile).toBe('/tmp/status.json');
   });
 
@@ -63,8 +65,8 @@ describe('buildBackupConfig', () => {
   });
 
   it('rejects a non-positive retention window', () => {
-    expect(() => buildBackupConfig(from({ BACKUP_RETENTION_DAYS: '0' }))).toThrow(
-      'BACKUP_RETENTION_DAYS must be a positive integer',
-    );
+    expect(() =>
+      buildBackupConfig(from({ BACKUP_RETENTION_DAYS: '0' })),
+    ).toThrow('BACKUP_RETENTION_DAYS must be a positive integer');
   });
 });

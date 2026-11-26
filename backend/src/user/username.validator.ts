@@ -9,7 +9,8 @@
  *  - Cannot start or end with a special character
  */
 
-export const USERNAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{1,28}[a-zA-Z0-9]$|^[a-zA-Z0-9]{3}$/;
+export const USERNAME_PATTERN =
+  /^[a-zA-Z0-9][a-zA-Z0-9_-]{1,28}[a-zA-Z0-9]$|^[a-zA-Z0-9]{3}$/;
 export const CONSECUTIVE_SPECIAL = /[_-]{2,}/;
 
 export type UsernameValidationError =
@@ -28,16 +29,25 @@ export interface UsernameValidationResult {
 
 export function validateUsername(username: string): UsernameValidationResult {
   if (username.length < 3) {
-    return { valid: false, error: 'TOO_SHORT', message: 'Username must be at least 3 characters.' };
+    return {
+      valid: false,
+      error: 'TOO_SHORT',
+      message: 'Username must be at least 3 characters.',
+    };
   }
   if (username.length > 30) {
-    return { valid: false, error: 'TOO_LONG', message: 'Username must not exceed 30 characters.' };
+    return {
+      valid: false,
+      error: 'TOO_LONG',
+      message: 'Username must not exceed 30 characters.',
+    };
   }
   if (/[^a-zA-Z0-9_-]/.test(username)) {
     return {
       valid: false,
       error: 'INVALID_CHARS',
-      message: 'Username may only contain letters, digits, underscores, and dashes.',
+      message:
+        'Username may only contain letters, digits, underscores, and dashes.',
     };
   }
   if (/^[_-]/.test(username)) {

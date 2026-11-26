@@ -20,7 +20,8 @@ export function IsIsoDateTime(validationOptions?: ValidationOptions) {
       },
       validator: {
         validate(value: unknown): boolean {
-          if (typeof value !== 'string' || !ISO_DATE_TIME.test(value)) return false;
+          if (typeof value !== 'string' || !ISO_DATE_TIME.test(value))
+            return false;
           return !Number.isNaN(new Date(value).getTime());
         },
       },
@@ -29,7 +30,10 @@ export function IsIsoDateTime(validationOptions?: ValidationOptions) {
 }
 
 /** Ensures the decorated date is not earlier than another DTO property. */
-export function IsAfterDate(property: string, validationOptions?: ValidationOptions) {
+export function IsAfterDate(
+  property: string,
+  validationOptions?: ValidationOptions,
+) {
   return function (object: object, propertyName: string): void {
     registerDecorator({
       name: 'isAfterDate',

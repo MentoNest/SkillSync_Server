@@ -10,6 +10,13 @@ import { join } from 'path';
  *
  * `jest-openapi` requires an absolute path (or an already-loaded spec object).
  */
-export const OPENAPI_SPEC_PATH = join(__dirname, '..', '..', '..', 'openapi', 'openapi.json');
+export const OPENAPI_SPEC_PATH = join(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  'openapi',
+  'openapi.json',
+);
 
 jestOpenAPI(OPENAPI_SPEC_PATH);

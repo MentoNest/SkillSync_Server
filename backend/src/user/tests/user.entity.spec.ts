@@ -11,7 +11,9 @@ describe('User entity metadata', () => {
     expect(status?.options.type).toBe('enum');
     expect(status?.options.default).toBe(UserStatus.ACTIVE);
 
-    const deletedAt = metadata.columns.find((c) => c.target === User && c.propertyName === 'deletedAt');
+    const deletedAt = metadata.columns.find(
+      (c) => c.target === User && c.propertyName === 'deletedAt',
+    );
     expect(deletedAt?.options.name).toBe('deleted_at');
   });
 
@@ -32,8 +34,12 @@ describe('User entity metadata', () => {
   });
 
   it('prepares mentor/mentee profile relations', () => {
-    const relations = getMetadataArgsStorage().relations.filter((r) => r.target === User);
+    const relations = getMetadataArgsStorage().relations.filter(
+      (r) => r.target === User,
+    );
     const names = relations.map((r) => r.propertyName);
-    expect(names).toEqual(expect.arrayContaining(['mentorProfile', 'menteeProfile', 'roles']));
+    expect(names).toEqual(
+      expect.arrayContaining(['mentorProfile', 'menteeProfile', 'roles']),
+    );
   });
 });

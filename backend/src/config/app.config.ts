@@ -28,6 +28,7 @@ export interface AppConfig {
   nodeEnv: NodeEnvironment;
   port: number;
   isProduction: boolean;
+  requireEmailVerification: boolean;
   /** Exact origins allowed by CORS. Never a wildcard in production. */
   corsAllowedOrigins: string[];
   /** Express `trust proxy` value when running behind Nginx/Cloudflare/a load balancer. */
@@ -50,9 +51,18 @@ export interface AppConfig {
 
 export const APP_CONFIG = 'APP_CONFIG';
 
-const NODE_ENVIRONMENTS: NodeEnvironment[] = ['development', 'test', 'production'];
+const NODE_ENVIRONMENTS: NodeEnvironment[] = [
+  'development',
+  'test',
+  'production',
+];
 
-function readInteger(read: EnvReader, key: string, fallback: number, min = 1): number {
+function readInteger(
+  read: EnvReader,
+  key: string,
+  fallback: number,
+  min = 1,
+): number {
   const raw = read(key);
   if (raw === undefined || raw.trim() === '') return fallback;
   const parsed = Number(raw);
@@ -77,7 +87,10 @@ function readList(read: EnvReader, key: string): string[] {
     .filter(Boolean);
 }
 
-function readTrustProxy(read: EnvReader, isProduction: boolean): boolean | number | string {
+function readTrustProxy(
+  read: EnvReader,
+  isProduction: boolean,
+): boolean | number | string {
   const raw = read('TRUST_PROXY')?.trim();
   if (!raw) return isProduction ? 1 : false;
   if (/^\d+$/.test(raw)) return Number(raw);
@@ -90,10 +103,14 @@ function readTrustProxy(read: EnvReader, isProduction: boolean): boolean | numbe
  * Validates every environment variable used by the HTTP layer.
  * Throws with all problems collected in one message to make deploy failures obvious.
  */
-export function validateEnvironment(read: EnvReader = (key) => process.env[key]): AppConfig {
+export function validateEnvironment(
+  read: EnvReader = (key) => process.env[key],
+): AppConfig {
   const rawEnv = read('NODE_ENV')?.trim().toLowerCase() || 'development';
   if (!NODE_ENVIRONMENTS.includes(rawEnv as NodeEnvironment)) {
-    throw new Error(`NODE_ENV must be one of ${NODE_ENVIRONMENTS.join(', ')}, got "${rawEnv}"`);
+    throw new Error(
+      `NODE_ENV must be one of ${NODE_ENVIRONMENTS.join(', ')}, got "${rawEnv}"`,
+    );
   }
   const nodeEnv = rawEnv as NodeEnvironment;
   const isProduction = nodeEnv === 'production';
@@ -110,47 +127,81 @@ export function validateEnvironment(read: EnvReader = (key) => process.env[key])
   }
   const dbName = read('DB_NAME');
   const dbPassword = read('DB_PASSWORD');
-  if (isProduction && !dbName) problems.push('DB_NAME must be set in production');
-  if (isProduction && !dbPassword) problems.push('DB_PASSWORD must be set in production');
+  if (isProduction && !dbName)
+    problems.push('DB_NAME must be set in production');
+  if (isProduction && !dbPassword)
+    problems.push('DB_PASSWORD must be set in production');
 
   const seedDisabled = readBoolean(read, 'DISABLE_SEED', false);
   if (isProduction && !seedDisabled && !read('DEFAULT_ADMIN_WALLET')) {
-    problems.push('DEFAULT_ADMIN_WALLET must be set in production (or set DISABLE_SEED=true)');
+    problems.push(
+      'DEFAULT_ADMIN_WALLET must be set in production (or set DISABLE_SEED=true)',
+    );
   }
 
   const corsAllowedOrigins = readList(read, 'CORS_ALLOWED_ORIGINS');
   if (corsAllowedOrigins.some((origin) => origin === '*')) {
-    problems.push('CORS_ALLOWED_ORIGINS must list exact origins, "*" is not allowed');
+    problems.push(
+      'CORS_ALLOWED_ORIGINS must list exact origins, "*" is not allowed',
+    );
   }
   if (isProduction && corsAllowedOrigins.length === 0) {
-    problems.push('CORS_ALLOWED_ORIGINS must list at least one trusted frontend origin in production');
+    problems.push(
+      'CORS_ALLOWED_ORIGINS must list at least one trusted frontend origin in production',
+    );
   }
   for (const origin of corsAllowedOrigins) {
     try {
       const parsed = new URL(origin);
       if (!['http:', 'https:'].includes(parsed.protocol)) {
-        problems.push(`CORS_ALLOWED_ORIGINS entry "${origin}" must use http or https`);
+        problems.push(
+          `CORS_ALLOWED_ORIGINS entry "${origin}" must use http or https`,
+        );
       }
       if (isProduction && parsed.protocol !== 'https:') {
-        problems.push(`CORS_ALLOWED_ORIGINS entry "${origin}" must use https in production`);
+        problems.push(
+          `CORS_ALLOWED_ORIGINS entry "${origin}" must use https in production`,
+        );
       }
     } catch {
-      problems.push(`CORS_ALLOWED_ORIGINS entry "${origin}" is not a valid URL`);
+      problems.push(
+        `CORS_ALLOWED_ORIGINS entry "${origin}" is not a valid URL`,
+      );
     }
   }
 
-  const authenticatedMax = readInteger(read, 'RATE_LIMIT_AUTHENTICATED_MAX', isProduction ? 50 : 500);
-  const unauthenticatedMax = readInteger(read, 'RATE_LIMIT_UNAUTHENTICATED_MAX', isProduction ? 10 : 200);
+  const authenticatedMax = readInteger(
+    read,
+    'RATE_LIMIT_AUTHENTICATED_MAX',
+    isProduction ? 50 : 500,
+  );
+  const unauthenticatedMax = readInteger(
+    read,
+    'RATE_LIMIT_UNAUTHENTICATED_MAX',
+    isProduction ? 10 : 200,
+  );
   if (authenticatedMax < unauthenticatedMax) {
-    problems.push('RATE_LIMIT_AUTHENTICATED_MAX must be >= RATE_LIMIT_UNAUTHENTICATED_MAX');
+    problems.push(
+      'RATE_LIMIT_AUTHENTICATED_MAX must be >= RATE_LIMIT_UNAUTHENTICATED_MAX',
+    );
   }
 
   const featuredMax = readInteger(read, 'FEATURED_MENTOR_LIMIT', 10);
-  const featuredDurationDays = readInteger(read, 'FEATURED_MENTOR_DURATION_DAYS', 30);
-  const cacheTtlSeconds = readInteger(read, 'PROFILE_COMPLETENESS_CACHE_TTL_SECONDS', 300);
+  const featuredDurationDays = readInteger(
+    read,
+    'FEATURED_MENTOR_DURATION_DAYS',
+    30,
+  );
+  const cacheTtlSeconds = readInteger(
+    read,
+    'PROFILE_COMPLETENESS_CACHE_TTL_SECONDS',
+    300,
+  );
 
   if (problems.length > 0) {
-    throw new Error(`Invalid application configuration:\n- ${problems.join('\n- ')}`);
+    throw new Error(
+      `Invalid application configuration:\n- ${problems.join('\n- ')}`,
+    );
   }
 
   // Explicitly pin NODE_ENV so downstream libraries pick up production optimisations.
@@ -160,6 +211,11 @@ export function validateEnvironment(read: EnvReader = (key) => process.env[key])
     nodeEnv,
     port: readInteger(read, 'PORT', 3000),
     isProduction,
+    requireEmailVerification: readBoolean(
+      read,
+      'REQUIRE_EMAIL_VERIFICATION',
+      false,
+    ),
     corsAllowedOrigins,
     trustProxy: readTrustProxy(read, isProduction),
     rateLimit: {
@@ -174,12 +230,20 @@ export function validateEnvironment(read: EnvReader = (key) => process.env[key])
       httpOnly: true,
       sameSite: isProduction ? 'strict' : readSameSite(read),
     },
-    swaggerEnabled: isProduction ? false : readBoolean(read, 'SWAGGER_ENABLED', true),
-    graphqlPlaygroundEnabled: isProduction ? false : readBoolean(read, 'GRAPHQL_PLAYGROUND_ENABLED', false),
+    swaggerEnabled: isProduction
+      ? false
+      : readBoolean(read, 'SWAGGER_ENABLED', true),
+    graphqlPlaygroundEnabled: isProduction
+      ? false
+      : readBoolean(read, 'GRAPHQL_PLAYGROUND_ENABLED', false),
     featuredMentors: { max: featuredMax, durationDays: featuredDurationDays },
     profileCompleteness: {
       cacheTtlSeconds,
-      minimumSuggestionScore: readInteger(read, 'PROFILE_COMPLETENESS_SUGGESTION_THRESHOLD', 80),
+      minimumSuggestionScore: readInteger(
+        read,
+        'PROFILE_COMPLETENESS_SUGGESTION_THRESHOLD',
+        80,
+      ),
     },
   };
 }

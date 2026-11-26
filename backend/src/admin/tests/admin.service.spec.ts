@@ -74,6 +74,11 @@ function build() {
     isInitialized: true,
     query: jest.fn().mockResolvedValue([{ ok: 1 }]),
   };
+  const suspensions = repository(qb);
+  const authService = {
+    invalidateUserSessions: jest.fn().mockResolvedValue(1),
+  };
+  const notifications = { notify: jest.fn().mockResolvedValue(undefined) };
   const service = new AdminService(
     users as any,
     roles as any,
@@ -84,6 +89,9 @@ function build() {
     audit as any,
     pagination,
     dataSource as any,
+    suspensions as any,
+    authService as any,
+    notifications as any,
   );
   return {
     service,
@@ -93,8 +101,11 @@ function build() {
     reports,
     sessions,
     auditLogs,
+    suspensions,
     userService,
     audit,
+    authService,
+    notifications,
     dataSource,
   };
 }
@@ -146,13 +157,49 @@ describe('AdminService', () => {
     });
   });
 
-  it('suspends users through UserService and records an audit event', async () => {
-    const { service, users, userService, audit } = build();
-    users.findOne.mockResolvedValue({ walletAddress: USER });
-    await service.suspendUser(USER, ADMIN);
+  it('suspends users with reason/duration, invalidates sessions, notifies, and records audit', async () => {
+    const {
+      service,
+      users,
+      suspensions,
+      userService,
+      audit,
+      authService,
+      notifications,
+    } = build();
+    users.findOne.mockResolvedValue({
+      walletAddress: USER,
+      email: 'user@example.com',
+      status: UserStatus.ACTIVE,
+    });
+
+    const res = await service.suspendUser(USER, ADMIN, {
+      reason: 'Harassment',
+      duration: 7,
+    });
+
+    expect(res.status).toBe(UserStatus.SUSPENDED);
+    expect(suspensions.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        walletAddress: USER.toLowerCase(),
+        reason: 'Harassment',
+        suspendedBy: ADMIN.toLowerCase(),
+        isActive: true,
+      }),
+    );
     expect(userService.setStatus).toHaveBeenCalledWith(
       USER.toLowerCase(),
       UserStatus.SUSPENDED,
+    );
+    expect(authService.invalidateUserSessions).toHaveBeenCalledWith(
+      USER.toLowerCase(),
+    );
+    expect(notifications.notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: USER.toLowerCase(),
+        recipientEmail: 'user@example.com',
+        type: 'account_suspended',
+      }),
     );
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -161,6 +208,46 @@ describe('AdminService', () => {
         targetId: USER.toLowerCase(),
       }),
     );
+  });
+
+  it('supports permanent suspension (null duration), self-suspension guard, unsuspension, and listing suspended users', async () => {
+    const { service, users, suspensions, userService, audit, qb } = build();
+    await expect(
+      service.suspendUser(ADMIN, ADMIN, { reason: 'Self' }),
+    ).rejects.toBeInstanceOf(BusinessRuleException);
+
+    users.findOne.mockResolvedValue({
+      walletAddress: USER,
+      status: UserStatus.ACTIVE,
+    });
+    const perm = await service.suspendUser(USER, ADMIN, {
+      reason: 'Fraud',
+      duration: null,
+    });
+    expect(perm.suspension?.suspendedUntil).toBeNull();
+
+    users.findOne.mockResolvedValue({
+      walletAddress: USER,
+      status: UserStatus.SUSPENDED,
+    });
+    suspensions.findOne.mockResolvedValue({
+      id: 'susp-1',
+      walletAddress: USER.toLowerCase(),
+      isActive: true,
+    });
+    await service.unsuspendUser(USER, ADMIN, { reason: 'Appeal approved' });
+    expect(userService.setStatus).toHaveBeenCalledWith(
+      USER.toLowerCase(),
+      UserStatus.ACTIVE,
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ event: AuditEvent.USER_UNSUSPENDED }),
+    );
+
+    await service.listSuspendedUsers({ page: 1, limit: 10 });
+    expect(qb.where).toHaveBeenCalledWith('s.isActive = :isActive', {
+      isActive: true,
+    });
   });
 
   it('refuses to delete the acting admin but soft deletes other users', async () => {

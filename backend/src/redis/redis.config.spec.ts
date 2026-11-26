@@ -44,9 +44,15 @@ describe('buildRedisConfig', () => {
   });
 
   it('treats an empty password as none and rejects invalid numbers', () => {
-    expect(buildRedisConfig(reader({ REDIS_PASSWORD: '' })).password).toBeUndefined();
-    expect(() => buildRedisConfig(reader({ REDIS_PORT: 'abc' }))).toThrow('REDIS_PORT');
-    expect(() => buildRedisConfig(reader({ REDIS_DB: '-1' }))).toThrow('REDIS_DB');
+    expect(
+      buildRedisConfig(reader({ REDIS_PASSWORD: '' })).password,
+    ).toBeUndefined();
+    expect(() => buildRedisConfig(reader({ REDIS_PORT: 'abc' }))).toThrow(
+      'REDIS_PORT',
+    );
+    expect(() => buildRedisConfig(reader({ REDIS_DB: '-1' }))).toThrow(
+      'REDIS_DB',
+    );
   });
 });
 
@@ -61,8 +67,12 @@ describe('reconnectDelay', () => {
 
 describe('buildKey', () => {
   it('namespaces keys so concerns do not collide', () => {
-    expect(buildKey('skillsync:', RedisNamespace.SESSION, 'abc')).toBe('skillsync:session:abc');
-    expect(buildKey('skillsync:', RedisNamespace.CACHE, 'abc')).toBe('skillsync:cache:abc');
+    expect(buildKey('skillsync:', RedisNamespace.SESSION, 'abc')).toBe(
+      'skillsync:session:abc',
+    );
+    expect(buildKey('skillsync:', RedisNamespace.CACHE, 'abc')).toBe(
+      'skillsync:cache:abc',
+    );
     expect(buildKey('skillsync:', RedisNamespace.CACHE, 'abc')).not.toBe(
       buildKey('skillsync:', RedisNamespace.BLACKLIST, 'abc'),
     );

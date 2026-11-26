@@ -35,7 +35,7 @@ import {
 import { MentorVerificationService } from './mentor-verification.service';
 
 @ApiTags('Admin')
-@ApiBearerAuth('Bearer Auth')
+@ApiBearerAuth('BearerAuth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN)
 @Controller('admin/mentors')
@@ -92,7 +92,7 @@ export class MentorVerificationAdminController {
 }
 
 @ApiTags('Profiles')
-@ApiBearerAuth('Bearer Auth')
+@ApiBearerAuth('BearerAuth')
 @UseGuards(JwtAuthGuard)
 @Controller('mentors')
 export class MentorVerificationRequestController {

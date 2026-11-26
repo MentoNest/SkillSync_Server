@@ -8,11 +8,15 @@ import { StrKey } from '@stellar/stellar-sdk';
  */
 export function normalizeWalletAddress(address: string): string {
   if (typeof address !== 'string') {
-    throw new BadRequestException('Invalid Stellar wallet address: expected a valid Ed25519 public key.');
+    throw new BadRequestException(
+      'Invalid Stellar wallet address: expected a valid Ed25519 public key.',
+    );
   }
   const normalized = address.trim().toUpperCase();
   if (!StrKey.isValidEd25519PublicKey(normalized)) {
-    throw new BadRequestException('Invalid Stellar wallet address: expected a valid Ed25519 public key.');
+    throw new BadRequestException(
+      'Invalid Stellar wallet address: expected a valid Ed25519 public key.',
+    );
   }
   return normalized.toLowerCase();
 }

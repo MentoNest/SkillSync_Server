@@ -14,9 +14,14 @@ export class WalletStrategy extends PassportStrategy(Strategy, 'wallet') {
   }
 
   async validate(req: Request): Promise<AuthUser> {
-    const { address, signature } = (req.body ?? {}) as { address?: unknown; signature?: unknown };
+    const { address, signature } = (req.body ?? {}) as {
+      address?: unknown;
+      signature?: unknown;
+    };
     if (typeof address !== 'string' || typeof signature !== 'string') {
-      throw new InvalidCredentialsException('address and signature are required');
+      throw new InvalidCredentialsException(
+        'address and signature are required',
+      );
     }
     return this.auth.verifyWallet(address, signature);
   }

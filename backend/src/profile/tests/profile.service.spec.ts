@@ -5,13 +5,12 @@ import {
 } from '../../common/errors/app-exceptions';
 import { Role, AuthUser } from '../../auth/auth.types';
 import { ChangeReason } from '../../profile-history/profile-history.entity';
-import { MenteeProfile } from '../mentee-profile.entity';
+import { UserStatus } from '../../user/user-status.enum';
+import { MenteeProfile, SkillLevel } from '../mentee-profile.entity';
 import { MentorProfile } from '../mentor-profile.entity';
 import { CreateProfileDto, ProfileType } from '../dto/create-profile.dto';
 import { UpdateProfileDto } from '../dto/update-profile.dto';
 import { ProfileService } from '../profile.service';
-
-// ─── Stubs ────────────────────────────────────────────────────────────────────
 
 const WALLET = 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37';
 const OTHER_WALLET = Keypair.random().publicKey().toLowerCase();
@@ -39,10 +38,16 @@ function makeMenteeProfile(
   const p = new MenteeProfile();
   p.id = 'uuid-mentee';
   p.walletAddress = WALLET;
-  p.learningGoals = 'I want to transition from backend to full-stack.';
+  p.learningGoals = ['I want to transition from backend to full-stack.'];
   p.interests = ['React', 'System Design'];
   p.budgetUsdCentsPerMonth = null;
-  p.experienceLevel = 'intermediate';
+  p.experienceLevel = SkillLevel.INTERMEDIATE;
+  p.preferredMentoringStyle = ['technical skills'];
+  p.timeCommitmentHoursPerWeek = 5;
+  p.professionalBackground = 'Backend engineer';
+  p.jobTitle = null;
+  p.industry = null;
+  p.portfolioLinks = [];
   p.languages = ['English'];
   p.isActive = true;
   p.createdAt = new Date('2024-06-01T00:00:00.000Z');
@@ -61,6 +66,7 @@ function makeMenteeRepo(existing: MenteeProfile | null = null) {
   return {
     findOneBy: jest.fn().mockResolvedValue(existing),
     save: jest.fn(async (profile: MenteeProfile) => profile),
+    delete: jest.fn().mockResolvedValue({ affected: existing ? 1 : 0 }),
   };
 }
 
@@ -114,6 +120,7 @@ function makeService(
 const user = (address = WALLET, roles: Role[] = [Role.USER]): AuthUser => ({
   address,
   roles,
+  status: UserStatus.ACTIVE,
   jti: 'test-jti',
 });
 
@@ -152,7 +159,7 @@ describe('ProfileService.createProfile — mentor', () => {
     await service.createProfile(WALLET, MENTOR_DTO);
 
     const manager = ds._manager;
-    const roleQueries: string[] = (manager.query as jest.Mock).mock.calls.map(
+    const roleQueries: string[] = manager.query.mock.calls.map(
       (c: [string]) => c[0],
     );
     expect(roleQueries.some((q) => q.includes('user_roles'))).toBe(true);
@@ -215,9 +222,12 @@ describe('ProfileService.createProfile — mentor', () => {
 
 const MENTEE_DTO: CreateProfileDto = {
   profileType: ProfileType.MENTEE,
-  learningGoals: 'I want to transition from backend to full-stack.',
+  learningGoals: ['I want to transition from backend to full-stack.'],
   interests: ['React', 'System Design'],
-  experienceLevel: 'intermediate',
+  experienceLevel: SkillLevel.INTERMEDIATE,
+  preferredMentoringStyle: ['technical skills', 'career advice'],
+  timeCommitmentHoursPerWeek: 5,
+  professionalBackground: 'Backend engineer',
 };
 
 describe('ProfileService.createProfile — mentee', () => {
@@ -238,7 +248,7 @@ describe('ProfileService.createProfile — mentee', () => {
     await service.createProfile(WALLET, MENTEE_DTO);
 
     const manager = ds._manager;
-    const roleQueries: string[] = (manager.query as jest.Mock).mock.calls.map(
+    const roleQueries: string[] = manager.query.mock.calls.map(
       (c: [string]) => c[0],
     );
     expect(roleQueries.some((q) => q.includes('user_roles'))).toBe(true);
@@ -267,8 +277,6 @@ describe('ProfileService.createProfile — mentee', () => {
   });
 
   it('allows a user to have both a mentor and a mentee profile', async () => {
-    // The mentor repo returns an existing mentor profile,
-    // but the mentee repo returns nothing — the mentee creation should succeed.
     const existingMentor = makeMentorProfile();
     const savedMentee = makeMenteeProfile();
     const { service } = makeService(existingMentor, null, savedMentee);
@@ -276,6 +284,49 @@ describe('ProfileService.createProfile — mentee', () => {
     const result = await service.createProfile(WALLET, MENTEE_DTO);
 
     expect(result.profileType).toBe(ProfileType.MENTEE);
+  });
+});
+
+// ─── Dedicated Mentee CRUD (role-restricted) ──────────────────────────────────
+
+describe('ProfileService — dedicated mentee CRUD', () => {
+  it('forbids users without the mentee role from accessing mentee CRUD operations', async () => {
+    const saved = makeMenteeProfile();
+    const { service } = makeService(null, saved, saved);
+
+    await expect(service.getMenteeProfile(user())).rejects.toThrow(
+      'Only users with the mentee role can access mentee profiles.',
+    );
+    await expect(service.deleteMenteeProfile(user())).rejects.toThrow(
+      'Only users with the mentee role can access mentee profiles.',
+    );
+  });
+
+  it('returns mentee profile with completionPercentage for mentee role users', async () => {
+    const saved = makeMenteeProfile();
+    const { service } = makeService(null, saved, saved);
+
+    const res = await service.getMenteeProfile(
+      user(WALLET, [Role.USER, Role.MENTEE]),
+    );
+    expect(res.profile).toBe(saved);
+    expect(res.completionPercentage).toBe(100);
+    expect(res.missingFields).toEqual([]);
+  });
+
+  it('deletes mentee profile and invalidates completeness cache', async () => {
+    const saved = makeMenteeProfile();
+    const { service, menteeRepo, completeness } = makeService(
+      null,
+      saved,
+      saved,
+    );
+
+    await service.deleteMenteeProfile(user(WALLET, [Role.USER, Role.MENTEE]));
+    expect(menteeRepo.delete).toHaveBeenCalledWith({
+      walletAddress: WALLET.toLowerCase(),
+    });
+    expect(completeness.invalidate).toHaveBeenCalledWith(WALLET.toLowerCase());
   });
 });
 
@@ -295,13 +346,10 @@ describe('ProfileService — audit history', () => {
     );
 
     await service.createProfile(WALLET, MENTOR_DTO);
-
-    // recordMany is called with void — give it a tick to settle
     await new Promise((r) => setImmediate(r));
 
     expect(historyService.recordMany).toHaveBeenCalled();
-    const entries = (historyService.recordMany as jest.Mock).mock
-      .calls[0][0] as Array<{
+    const entries = historyService.recordMany.mock.calls[0][0] as Array<{
       userId: string;
       profileType: string;
       changeReason: ChangeReason;
@@ -326,8 +374,7 @@ describe('ProfileService — audit history', () => {
     await service.createProfile(WALLET, MENTEE_DTO);
     await new Promise((r) => setImmediate(r));
 
-    const entries = (historyService.recordMany as jest.Mock).mock
-      .calls[0][0] as Array<{
+    const entries = historyService.recordMany.mock.calls[0][0] as Array<{
       profileType: string;
     }>;
     expect(entries[0].profileType).toBe('mentee');
@@ -360,7 +407,7 @@ describe('ProfileService.updateProfile', () => {
     await expect(
       service.updateProfile(ProfileType.MENTEE, user(), {
         walletAddress: OTHER_WALLET,
-        learningGoals: 'A new learning goal for this user.',
+        learningGoals: ['A new learning goal for this user.'],
       }),
     ).rejects.toThrow('You can only update your own profile.');
     expect(menteeRepo.findOneBy).not.toHaveBeenCalled();
@@ -382,6 +429,24 @@ describe('ProfileService.updateProfile', () => {
       [WALLET.toLowerCase(), Role.MENTOR],
     );
     expect(mentorRepo.findOneBy).not.toHaveBeenCalled();
+  });
+
+  it('requires the mentee role for mentee profile updates', async () => {
+    const saved = makeMenteeProfile();
+    const { service, ds, menteeRepo } = makeService(null, saved, saved);
+
+    await expect(
+      service.updateProfile(ProfileType.MENTEE, user(), {
+        learningGoals: ['Updated goal for mentee'],
+      }),
+    ).rejects.toThrow(
+      'Only users with the mentee role can update a mentee profile.',
+    );
+    expect(ds.query).toHaveBeenCalledWith(
+      expect.stringContaining('FROM user_roles'),
+      [WALLET.toLowerCase(), Role.MENTEE],
+    );
+    expect(menteeRepo.findOneBy).not.toHaveBeenCalled();
   });
 
   it('updates only supplied fields and records old/new values', async () => {
@@ -427,7 +492,7 @@ describe('ProfileService.updateProfile', () => {
       service.updateProfile(
         ProfileType.MENTOR,
         user(WALLET, [Role.USER, Role.MENTOR]),
-        { learningGoals: 'A new learning goal for this user.' },
+        { learningGoals: ['A new learning goal for this user.'] },
       ),
     ).rejects.toBeInstanceOf(ValidationFailedException);
     expect(mentorRepo.save).not.toHaveBeenCalled();
@@ -443,7 +508,7 @@ describe('ProfileService.updateProfile', () => {
       user(WALLET, [Role.USER, Role.ADMIN]),
       {
         walletAddress: targetAddress,
-        learningGoals: 'A new learning goal for this user.',
+        learningGoals: ['A new learning goal for this user.'],
       },
     );
 

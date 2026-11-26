@@ -37,7 +37,7 @@ import {
 } from './dto/featured-mentor.dto';
 
 @ApiTags('Admin')
-@ApiBearerAuth('Bearer Auth')
+@ApiBearerAuth('BearerAuth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN)
 @Controller('admin/mentors')
@@ -54,8 +54,14 @@ export class FeaturedMentorAdminController {
   @ApiParam({ name: 'mentorId', description: 'Mentor profile UUID' })
   @ApiResponse({ status: HttpStatus.OK, type: FeaturedMentorDto })
   @ApiResponse({ status: HttpStatus.FORBIDDEN, type: ForbiddenResponseDto })
-  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, type: UnauthorizedResponseDto })
-  @ApiResponse({ status: HttpStatus.UNPROCESSABLE_ENTITY, type: ErrorResponseDto })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    type: UnauthorizedResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.UNPROCESSABLE_ENTITY,
+    type: ErrorResponseDto,
+  })
   @Post(':mentorId/feature')
   @HttpCode(HttpStatus.OK)
   feature(
@@ -63,12 +69,17 @@ export class FeaturedMentorAdminController {
     @Body() dto: FeatureMentorDto,
     @CurrentUser() admin: AuthUser,
   ) {
-    return this.featured.featureMentor(mentorId, admin.address, dto.featuredOrder);
+    return this.featured.featureMentor(
+      mentorId,
+      admin.address,
+      dto.featuredOrder,
+    );
   }
 
   @ApiOperation({
     summary: 'Unfeature a mentor',
-    description: 'Removes a mentor from the featured list. Requires ADMIN role.',
+    description:
+      'Removes a mentor from the featured list. Requires ADMIN role.',
     operationId: 'unfeatureMentor',
   })
   @ApiParam({ name: 'mentorId', description: 'Mentor profile UUID' })
@@ -97,7 +108,9 @@ export class FeaturedMentorPublicController {
   })
   @ApiResponse({ status: HttpStatus.OK, type: FeaturedMentorsPageDto })
   @Get('featured')
-  list(@Query() query: QueryFeaturedMentorsDto): Promise<FeaturedMentorsPageDto> {
+  list(
+    @Query() query: QueryFeaturedMentorsDto,
+  ): Promise<FeaturedMentorsPageDto> {
     return this.featured.getFeaturedMentors({
       page: query.page ?? 1,
       limit: query.limit ?? 20,

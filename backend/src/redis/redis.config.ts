@@ -42,7 +42,11 @@ export function buildRedisConfig(read: EnvReader): RedisConfig {
     port: readInt(read, 'REDIS_PORT', 6379),
     password: read('REDIS_PASSWORD') || undefined,
     db: readInt(read, 'REDIS_DB', 0),
-    connectTimeout: readInt(read, 'REDIS_CONNECT_TIMEOUT_MS', DEFAULT_CONNECT_TIMEOUT_MS),
+    connectTimeout: readInt(
+      read,
+      'REDIS_CONNECT_TIMEOUT_MS',
+      DEFAULT_CONNECT_TIMEOUT_MS,
+    ),
     keyPrefix: read('REDIS_KEY_PREFIX') ?? DEFAULT_KEY_PREFIX,
   };
 }
@@ -53,6 +57,10 @@ export function reconnectDelay(times: number): number {
 }
 
 /** `<prefix><namespace>:<key>`, e.g. `skillsync:session:abc`. */
-export function buildKey(prefix: string, namespace: RedisNamespace, key: string): string {
+export function buildKey(
+  prefix: string,
+  namespace: RedisNamespace,
+  key: string,
+): string {
   return `${prefix}${namespace}:${key}`;
 }

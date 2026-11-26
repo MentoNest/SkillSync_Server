@@ -12,14 +12,20 @@ export class AdminSeedService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    if (this.config.get<string>('DISABLE_SEED')?.trim().toLowerCase() === 'true') {
+    if (
+      this.config.get<string>('DISABLE_SEED')?.trim().toLowerCase() === 'true'
+    ) {
       this.logger.log('Admin seeding disabled');
       return;
     }
 
-    const walletAddress = this.config.get<string>('DEFAULT_ADMIN_WALLET')?.trim();
+    const walletAddress = this.config
+      .get<string>('DEFAULT_ADMIN_WALLET')
+      ?.trim();
     if (!walletAddress) {
-      throw new Error('DEFAULT_ADMIN_WALLET must be set when admin seeding is enabled');
+      throw new Error(
+        'DEFAULT_ADMIN_WALLET must be set when admin seeding is enabled',
+      );
     }
 
     const adminCreated = await this.dataSource.transaction(async (manager) => {
@@ -48,6 +54,8 @@ export class AdminSeedService implements OnApplicationBootstrap {
       return insertedUsers.length > 0;
     });
 
-    this.logger.log(adminCreated ? 'Admin seeded successfully' : 'Admin already exists');
+    this.logger.log(
+      adminCreated ? 'Admin seeded successfully' : 'Admin already exists',
+    );
   }
 }

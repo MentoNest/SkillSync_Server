@@ -4,7 +4,10 @@ import { Injectable, Logger } from '@nestjs/common';
 export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000;
 
 /** Signals that start a graceful shutdown. */
-export const SHUTDOWN_SIGNALS: readonly NodeJS.Signals[] = ['SIGTERM', 'SIGINT'];
+export const SHUTDOWN_SIGNALS: readonly NodeJS.Signals[] = [
+  'SIGTERM',
+  'SIGINT',
+];
 
 /** A cleanup step run during shutdown (close file handles, flush logs, ...). */
 export type ShutdownHook = () => void | Promise<void>;
@@ -51,7 +54,10 @@ export class ShutdownService {
   private shutdownPromise?: Promise<void>;
   private closeHandler?: ShutdownHook;
   private readonly hooks: RegisteredHook[] = [];
-  private readonly listeners: Array<{ signal: NodeJS.Signals; handler: () => void }> = [];
+  private readonly listeners: Array<{
+    signal: NodeJS.Signals;
+    handler: () => void;
+  }> = [];
 
   constructor(options: ShutdownServiceOptions = {}) {
     this.timeoutMs = options.timeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
@@ -153,10 +159,14 @@ export class ShutdownService {
 
   private async closeApplication(): Promise<void> {
     if (!this.closeHandler) {
-      this.logger.warn('No application close handler registered; skipping resource disposal.');
+      this.logger.warn(
+        'No application close handler registered; skipping resource disposal.',
+      );
       return;
     }
-    this.logger.log('Closing HTTP server and disposing database/Redis connections...');
+    this.logger.log(
+      'Closing HTTP server and disposing database/Redis connections...',
+    );
     await this.closeHandler();
     this.logger.log('HTTP server closed and connections disposed.');
   }
@@ -170,7 +180,9 @@ export class ShutdownService {
         this.logger.log(`Shutdown hook "${hook.name}" finished.`);
       } catch (error) {
         // A failing hook must not stop the remaining cleanup steps.
-        this.logger.error(`Shutdown hook "${hook.name}" failed: ${describe(error)}`);
+        this.logger.error(
+          `Shutdown hook "${hook.name}" failed: ${describe(error)}`,
+        );
       }
     }
   }

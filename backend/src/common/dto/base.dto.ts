@@ -6,27 +6,37 @@ import {
   IsValidWalletAddress,
 } from '../validators';
 
-const WALLET_EXAMPLE = 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37';
+const WALLET_EXAMPLE =
+  'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37';
 
 /**
  * Reusable base for path DTOs that identify a wallet. Concrete DTOs add the
  * actual parameter name so Nest can map `@Param()` onto the class (#1692).
  */
 export abstract class WalletAddressParamDto {
-  @ApiPropertyOptional({ description: 'Stellar wallet address.', example: WALLET_EXAMPLE })
+  @ApiPropertyOptional({
+    description: 'Stellar wallet address.',
+    example: WALLET_EXAMPLE,
+  })
   @IsOptional()
   @IsValidWalletAddress()
   walletAddress?: string;
 }
 
 export class UserIdParamDto extends WalletAddressParamDto {
-  @ApiProperty({ description: 'Stellar wallet address of the user.', example: WALLET_EXAMPLE })
+  @ApiProperty({
+    description: 'Stellar wallet address of the user.',
+    example: WALLET_EXAMPLE,
+  })
   @IsValidWalletAddress()
   userId!: string;
 }
 
 export class MentorIdParamDto extends WalletAddressParamDto {
-  @ApiProperty({ description: 'Stellar wallet address of the mentor.', example: WALLET_EXAMPLE })
+  @ApiProperty({
+    description: 'Stellar wallet address of the mentor.',
+    example: WALLET_EXAMPLE,
+  })
   @IsValidWalletAddress()
   mentorId!: string;
 }
@@ -52,7 +62,9 @@ export abstract class DateRangeQueryDto {
   @IsIsoDateTime()
   from?: string;
 
-  @ApiPropertyOptional({ description: 'Inclusive end (ISO 8601), not before `from`.' })
+  @ApiPropertyOptional({
+    description: 'Inclusive end (ISO 8601), not before `from`.',
+  })
   @IsOptional()
   @IsIsoDateTime()
   @IsAfterDate('from')

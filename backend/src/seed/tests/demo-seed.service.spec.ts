@@ -44,9 +44,12 @@ interface MentorRow {
 interface MenteeRow {
   id?: string;
   walletAddress: string;
-  learningGoals?: string;
+  learningGoals?: string[];
   interests?: string[];
   experienceLevel?: string;
+  preferredMentoringStyle?: string[];
+  timeCommitmentHoursPerWeek?: number | null;
+  professionalBackground?: string | null;
   budgetUsdCentsPerMonth?: number | null;
   languages?: string[];
   isActive?: boolean;
@@ -200,7 +203,7 @@ describe('DemoSeedService', () => {
     }
 
     for (const profile of h.mentees.rows) {
-      expect(profile.learningGoals?.length ?? 0).toBeGreaterThan(10);
+      expect(profile.learningGoals?.length ?? 0).toBeGreaterThan(0);
       expect(profile.interests?.length ?? 0).toBeGreaterThan(0);
       expect(['beginner', 'intermediate', 'advanced']).toContain(
         profile.experienceLevel,

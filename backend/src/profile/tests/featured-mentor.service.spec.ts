@@ -1,4 +1,7 @@
-import { BusinessRuleException, ResourceNotFoundException } from '../../common/errors/app-exceptions';
+import {
+  BusinessRuleException,
+  ResourceNotFoundException,
+} from '../../common/errors/app-exceptions';
 import { AppConfig } from '../../config/app.config';
 import { MentorProfile } from '../mentor-profile.entity';
 import { FeaturedMentorService } from '../featured-mentor.service';
@@ -24,7 +27,13 @@ function mentor(over: Partial<MentorProfile> = {}): MentorProfile {
   return Object.assign(profile, over);
 }
 
-function makeService(options: { existing?: MentorProfile | null; count?: number; max?: number } = {}) {
+function makeService(
+  options: {
+    existing?: MentorProfile | null;
+    count?: number;
+    max?: number;
+  } = {},
+) {
   const profile = options.existing === undefined ? mentor() : options.existing;
   const qb = {
     select: jest.fn().mockReturnThis(),
@@ -50,7 +59,11 @@ function makeService(options: { existing?: MentorProfile | null; count?: number;
   } as AppConfig;
   const service = new FeaturedMentorService(
     mentors as never,
-    { transaction: jest.fn(async (cb: (m: typeof manager) => Promise<unknown>) => cb(manager)) } as never,
+    {
+      transaction: jest.fn(
+        async (cb: (m: typeof manager) => Promise<unknown>) => cb(manager),
+      ),
+    } as never,
     history as never,
     config,
   );
@@ -63,49 +76,63 @@ describe('FeaturedMentorService', () => {
 
     const result = await service.featureMentor('mentor-uuid', ADMIN);
 
-    expect(result).toMatchObject({ isFeatured: true, badge: 'Featured', featuredOrder: 3 });
+    expect(result).toMatchObject({
+      isFeatured: true,
+      badge: 'Featured',
+      featuredOrder: 3,
+    });
     expect(manager.update).toHaveBeenCalledWith(
       MentorProfile,
       'mentor-uuid',
       expect.objectContaining({ isFeatured: true }),
     );
     expect(history.recordMany).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ changedBy: ADMIN, fieldName: 'isFeatured' })]),
+      expect.arrayContaining([
+        expect.objectContaining({ changedBy: ADMIN, fieldName: 'isFeatured' }),
+      ]),
     );
   });
 
   it('refuses to exceed the configured maximum', async () => {
     const { service } = makeService({ count: 2, max: 2 });
-    await expect(service.featureMentor('mentor-uuid', ADMIN)).rejects.toBeInstanceOf(
-      BusinessRuleException,
-    );
+    await expect(
+      service.featureMentor('mentor-uuid', ADMIN),
+    ).rejects.toBeInstanceOf(BusinessRuleException);
   });
 
   it('clears feature fields on unfeature', async () => {
     const { service, manager } = makeService({
-      existing: mentor({ isFeatured: true, featuredAt: new Date(), featuredOrder: 1 }),
+      existing: mentor({
+        isFeatured: true,
+        featuredAt: new Date(),
+        featuredOrder: 1,
+      }),
     });
 
     const result = await service.unfeatureMentor('mentor-uuid', ADMIN);
 
     expect(result).toEqual({ walletAddress: WALLET, isFeatured: false });
-    expect(manager.update).toHaveBeenCalledWith(
-      MentorProfile,
-      'mentor-uuid',
-      { isFeatured: false, featuredAt: null, featuredOrder: null },
-    );
+    expect(manager.update).toHaveBeenCalledWith(MentorProfile, 'mentor-uuid', {
+      isFeatured: false,
+      featuredAt: null,
+      featuredOrder: null,
+    });
   });
 
   it('reports a missing mentor', async () => {
     const { service } = makeService({ existing: null });
-    await expect(service.featureMentor('missing', ADMIN)).rejects.toBeInstanceOf(
-      ResourceNotFoundException,
-    );
+    await expect(
+      service.featureMentor('missing', ADMIN),
+    ).rejects.toBeInstanceOf(ResourceNotFoundException);
   });
 
   it('expires stale features on public reads and maps the badge DTO', async () => {
     const { service, mentors } = makeService({
-      existing: mentor({ isFeatured: true, featuredAt: new Date(), featuredOrder: 1 }),
+      existing: mentor({
+        isFeatured: true,
+        featuredAt: new Date(),
+        featuredOrder: 1,
+      }),
     });
 
     const page = await service.getFeaturedMentors({ page: 1, limit: 10 });
@@ -115,12 +142,19 @@ describe('FeaturedMentorService', () => {
       { isFeatured: false, featuredAt: null, featuredOrder: null },
     );
     expect(page).toMatchObject({ total: 1, page: 1, limit: 10 });
-    expect(page.data[0]).toMatchObject({ badge: 'Featured', isFeatured: true, displayName: WALLET.slice(0, 8) });
+    expect(page.data[0]).toMatchObject({
+      badge: 'Featured',
+      isFeatured: true,
+      displayName: WALLET.slice(0, 8),
+    });
   });
 
   it('treats features older than the configured duration as inactive', () => {
     const { service } = makeService();
-    const old = mentor({ isFeatured: true, featuredAt: new Date(Date.now() - 31 * 86_400_000) });
+    const old = mentor({
+      isFeatured: true,
+      featuredAt: new Date(Date.now() - 31 * 86_400_000),
+    });
     const fresh = mentor({ isFeatured: true, featuredAt: new Date() });
     expect(service.isFeatureActive(old)).toBe(false);
     expect(service.isFeatureActive(fresh)).toBe(true);

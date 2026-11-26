@@ -4,6 +4,7 @@ import { Role } from '../auth.types';
 import { Roles } from '../decorators/roles.decorator';
 import { RolesGuard } from '../guards/roles.guard';
 import { InvalidCredentialsException } from '../../common/errors/app-exceptions';
+import { UserStatus } from '../../user/user-status.enum';
 import { JwtStrategy } from '../strategies/jwt.strategy';
 import { WalletStrategy } from '../strategies/wallet.strategy';
 
@@ -25,52 +26,129 @@ describe('RolesGuard', () => {
   const controller = new AdminController();
 
   it('lets any authenticated user reach routes without @Roles', () => {
-    expect(guard.canActivate(ctx(controller.open, { roles: [Role.USER] }))).toBe(true);
+    expect(
+      guard.canActivate(ctx(controller.open, { roles: [Role.USER] })),
+    ).toBe(true);
   });
 
   it('allows a user holding a required role', () => {
-    expect(guard.canActivate(ctx(controller.adminOnly, { roles: [Role.USER, Role.ADMIN] }))).toBe(true);
+    expect(
+      guard.canActivate(
+        ctx(controller.adminOnly, { roles: [Role.USER, Role.ADMIN] }),
+      ),
+    ).toBe(true);
   });
 
   it('forbids users without the role, and requests without a user', () => {
-    expect(() => guard.canActivate(ctx(controller.adminOnly, { roles: [Role.USER] }))).toThrow(ForbiddenException);
-    expect(() => guard.canActivate(ctx(controller.adminOnly))).toThrow(ForbiddenException);
+    expect(() =>
+      guard.canActivate(ctx(controller.adminOnly, { roles: [Role.USER] })),
+    ).toThrow(ForbiddenException);
+    expect(() => guard.canActivate(ctx(controller.adminOnly))).toThrow(
+      ForbiddenException,
+    );
   });
 });
 
 describe('JwtStrategy.validate', () => {
-  const make = (revoked: boolean) =>
+  const make = (revoked: boolean, liveActive = true) =>
     new JwtStrategy(
       { jwtSecret: 'test-secret-test-secret' } as never,
       {
         isRevoked: () => Promise.resolve(revoked),
         isTokenVersionCurrent: () => Promise.resolve(true),
+        isUserActive: () => Promise.resolve(liveActive),
       } as never,
     );
 
-  it('returns the authenticated user for a live access token', async () => {
-    await expect(make(false).validate({ sub: 'GA', roles: [Role.USER], type: 'access', jti: 'j' })).resolves.toEqual({
-      address: 'GA', roles: [Role.USER], jti: 'j',
+  it('returns the authenticated user for a live active access token', async () => {
+    await expect(
+      make(false).validate({
+        sub: 'GA',
+        roles: [Role.USER],
+        status: UserStatus.ACTIVE,
+        type: 'access',
+        jti: 'j',
+      }),
+    ).resolves.toEqual({
+      address: 'GA',
+      roles: [Role.USER],
+      status: UserStatus.ACTIVE,
+      jti: 'j',
     });
   });
 
   it('rejects refresh tokens and revoked tokens', async () => {
-    await expect(make(false).validate({ sub: 'GA', roles: [], type: 'refresh', jti: 'j' })).rejects.toBeInstanceOf(InvalidCredentialsException);
-    await expect(make(true).validate({ sub: 'GA', roles: [], type: 'access', jti: 'j' })).rejects.toBeInstanceOf(InvalidCredentialsException);
+    await expect(
+      make(false).validate({
+        sub: 'GA',
+        roles: [],
+        status: UserStatus.ACTIVE,
+        type: 'refresh',
+        jti: 'j',
+      }),
+    ).rejects.toBeInstanceOf(InvalidCredentialsException);
+    await expect(
+      make(true).validate({
+        sub: 'GA',
+        roles: [],
+        status: UserStatus.ACTIVE,
+        type: 'access',
+        jti: 'j',
+      }),
+    ).rejects.toBeInstanceOf(InvalidCredentialsException);
+  });
+
+  it.each([
+    UserStatus.SUSPENDED,
+    UserStatus.DELETED,
+    UserStatus.PENDING_VERIFICATION,
+  ])('rejects non-active JWT status %s at the guard level', async (status) => {
+    await expect(
+      make(false).validate({
+        sub: 'GA',
+        roles: [Role.USER],
+        status,
+        type: 'access',
+        jti: 'j',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('rejects when live database user status is no longer active', async () => {
+    await expect(
+      make(false, false).validate({
+        sub: 'GA',
+        roles: [Role.USER],
+        status: UserStatus.ACTIVE,
+        type: 'access',
+        jti: 'j',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
 
 describe('WalletStrategy.validate', () => {
-  const verifyWallet = jest.fn().mockResolvedValue({ address: 'GA', roles: [Role.USER], jti: '' });
+  const verifyWallet = jest.fn().mockResolvedValue({
+    address: 'GA',
+    roles: [Role.USER],
+    status: UserStatus.ACTIVE,
+    jti: '',
+  });
   const strategy = new WalletStrategy({ verifyWallet } as never);
 
   it('verifies the wallet from the request body', async () => {
-    await strategy.validate({ body: { address: 'GA', signature: 'c2ln' } } as never);
+    await strategy.validate({
+      body: { address: 'GA', signature: 'c2ln' },
+    } as never);
     expect(verifyWallet).toHaveBeenCalledWith('GA', 'c2ln');
   });
 
   it('rejects bodies without address and signature strings', async () => {
-    await expect(strategy.validate({ body: { address: 1 } } as never)).rejects.toBeInstanceOf(InvalidCredentialsException);
-    await expect(strategy.validate({} as never)).rejects.toBeInstanceOf(InvalidCredentialsException);
+    await expect(
+      strategy.validate({ body: { address: 1 } } as never),
+    ).rejects.toBeInstanceOf(InvalidCredentialsException);
+    await expect(strategy.validate({} as never)).rejects.toBeInstanceOf(
+      InvalidCredentialsException,
+    );
   });
 });

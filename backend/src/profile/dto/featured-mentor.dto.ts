@@ -5,7 +5,8 @@ import { MentorProfile } from '../mentor-profile.entity';
 
 export class FeatureMentorDto {
   @ApiPropertyOptional({
-    description: 'Manual display position (lower first). Defaults to the next available slot.',
+    description:
+      'Manual display position (lower first). Defaults to the next available slot.',
     example: 1,
     minimum: 1,
   })
@@ -53,19 +54,33 @@ export class FeaturedMentorDto {
   @ApiPropertyOptional({ nullable: true })
   hourlyRateUsdCents!: number | null;
 
-  @ApiProperty({ description: 'Always true for entries in this collection.', example: true })
+  @ApiProperty({
+    description: 'Always true for entries in this collection.',
+    example: true,
+  })
   isFeatured!: boolean;
 
-  @ApiProperty({ description: 'Badge shown on mentor cards and profiles.', example: 'Featured' })
+  @ApiProperty({
+    description: 'Badge shown on mentor cards and profiles.',
+    example: 'Featured',
+  })
   badge!: string;
 
-  @ApiProperty({ description: 'Whether this mentor has been verified by an administrator.' })
+  @ApiProperty({
+    description: 'Whether this mentor has been verified by an administrator.',
+  })
   isVerified!: boolean;
 
-  @ApiPropertyOptional({ nullable: true, description: 'Badge shown on verified mentor cards.' })
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Badge shown on verified mentor cards.',
+  })
   verifiedBadge!: string | null;
 
-  @ApiPropertyOptional({ nullable: true, description: 'UTC date of mentor verification.' })
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'UTC date of mentor verification.',
+  })
   verifiedAt!: Date | null;
 
   @ApiProperty()
@@ -77,7 +92,8 @@ export class FeaturedMentorDto {
   static fromEntity(profile: MentorProfile): FeaturedMentorDto {
     return {
       walletAddress: profile.walletAddress,
-      displayName: profile.user?.effectiveDisplayName ?? profile.walletAddress.slice(0, 8),
+      displayName:
+        profile.user?.effectiveDisplayName ?? profile.walletAddress.slice(0, 8),
       avatarUrl: profile.user?.avatarUrl ?? null,
       bio: profile.bio,
       skills: profile.skills,
@@ -87,7 +103,7 @@ export class FeaturedMentorDto {
       isVerified: profile.isVerified ?? false,
       verifiedBadge: profile.isVerified ? 'Verified' : null,
       verifiedAt: profile.verifiedAt ?? null,
-      featuredAt: (profile.featuredAt ?? profile.updatedAt) as Date,
+      featuredAt: profile.featuredAt ?? profile.updatedAt,
       featuredOrder: profile.featuredOrder,
     };
   }

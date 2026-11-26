@@ -43,6 +43,14 @@ async function bootstrap() {
     process.env.CHAT_UPLOAD_PUBLIC_PATH ?? '/uploads/chat',
     express.static(resolve(process.env.CHAT_UPLOAD_DIR ?? 'uploads/chat')),
   );
+  (app.getHttpAdapter().getInstance() as Application).use(
+    process.env.AVATAR_UPLOAD_PUBLIC_PATH ?? '/uploads/avatars',
+    express.static(resolve(process.env.AVATAR_UPLOAD_DIR ?? 'uploads/avatars')),
+  );
+  (app.getHttpAdapter().getInstance() as Application).use(
+    process.env.AVATAR_UPLOAD_PUBLIC_PATH ?? '/uploads/avatars',
+    express.static(resolve(process.env.AVATAR_UPLOAD_DIR ?? 'uploads/avatars')),
+  );
   app.useGlobalPipes(createValidationPipe());
   app.useGlobalFilters(new AllExceptionsFilter(config.isProduction));
   app.useGlobalInterceptors(new ResponseInterceptor());

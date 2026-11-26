@@ -13,15 +13,22 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import type { AuthUser } from '../auth/auth.types';
 import { Role } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { PaginationQueryDto } from '../common/pagination/pagination.dto';
 import { AdminService } from './admin.service';
 import {
+  AdminSuspensionUserParamDto,
   AdminUserParamDto,
   AnalyticsRangeQueryDto,
   AssignRoleDto,
@@ -31,13 +38,18 @@ import {
   ListReportsQueryDto,
   ListSessionsQueryDto,
   ListUsersQueryDto,
+  PaginatedSuspendedUsersResponseDto,
   ReportActionDto,
   ResolveDisputeDto,
   ResolveReportDto,
+  SuspendUserDto,
+  SuspendUserResponseDto,
+  UnsuspendUserDto,
+  UnsuspendUserResponseDto,
 } from './dto/admin.dto';
 
 @ApiTags('Admin')
-@ApiBearerAuth('Bearer Auth')
+@ApiBearerAuth('BearerAuth')
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN)
@@ -53,6 +65,19 @@ export class AdminController {
     return this.admin.listUsers(query);
   }
 
+  @Get('users/suspended')
+  @ApiOperation({
+    summary: 'List currently suspended users with active suspension details',
+    operationId: 'adminListSuspendedUsers',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    type: PaginatedSuspendedUsersResponseDto,
+  })
+  listSuspendedUsers(@Query() query: PaginationQueryDto) {
+    return this.admin.listSuspendedUsers(query);
+  }
+
   @Get('users/:walletAddress')
   @ApiOperation({
     summary: 'View a user by wallet address',
@@ -62,13 +87,54 @@ export class AdminController {
     return this.admin.getUser(params.walletAddress);
   }
 
-  @Patch('users/:walletAddress/suspend')
-  @ApiOperation({ summary: 'Suspend a user', operationId: 'adminSuspendUser' })
-  suspendUser(
-    @Param() params: AdminUserParamDto,
+  @Post('users/:userId/suspend')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Suspend a user temporarily or permanently',
+    operationId: 'adminSuspendUserWithReason',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    type: SuspendUserResponseDto,
+  })
+  suspendUserWithReason(
+    @Param() params: AdminSuspensionUserParamDto,
+    @Body() dto: SuspendUserDto,
     @CurrentUser() admin: AuthUser,
   ) {
-    return this.admin.suspendUser(params.walletAddress, admin.address);
+    return this.admin.suspendUser(params.userId, admin.address, dto);
+  }
+
+  @Post('users/:userId/unsuspend')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Lift an active suspension for a user',
+    operationId: 'adminUnsuspendUser',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    type: UnsuspendUserResponseDto,
+  })
+  unsuspendUser(
+    @Param() params: AdminSuspensionUserParamDto,
+    @Body() dto: UnsuspendUserDto,
+    @CurrentUser() admin: AuthUser,
+  ) {
+    return this.admin.unsuspendUser(params.userId, admin.address, dto);
+  }
+
+  @Patch('users/:userId/suspend')
+  @ApiOperation({ summary: 'Suspend a user', operationId: 'adminSuspendUser' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    type: SuspendUserResponseDto,
+  })
+  suspendUser(
+    @Param() params: AdminSuspensionUserParamDto,
+    @CurrentUser() admin: AuthUser,
+    @Body() dto?: Partial<SuspendUserDto>,
+  ) {
+    return this.admin.suspendUser(params.userId, admin.address, dto);
   }
 
   @Delete('users/:walletAddress')
@@ -270,7 +336,7 @@ export class AdminController {
 }
 
 @ApiTags('Reports')
-@ApiBearerAuth('Bearer Auth')
+@ApiBearerAuth('BearerAuth')
 @Controller('reports')
 @UseGuards(JwtAuthGuard)
 export class ReportsController {

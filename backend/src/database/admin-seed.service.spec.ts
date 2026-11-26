@@ -13,12 +13,14 @@ describe('AdminSeedService', () => {
     userInserted?: boolean;
   } = {}) {
     const query = jest.fn().mockImplementation((sql: string) => {
-      if (sql.includes('INSERT INTO users')) return userInserted ? [{ wallet_address: wallet }] : [];
+      if (sql.includes('INSERT INTO users'))
+        return userInserted ? [{ wallet_address: wallet }] : [];
       return [];
     });
     const manager = { query } as unknown as EntityManager;
-    const transaction = jest.fn((callback: (manager: EntityManager) => Promise<boolean>) =>
-      callback(manager),
+    const transaction = jest.fn(
+      (callback: (manager: EntityManager) => Promise<boolean>) =>
+        callback(manager),
     );
     const dataSource = { transaction } as unknown as DataSource;
     const config = {
@@ -38,9 +40,13 @@ describe('AdminSeedService', () => {
     expect(query).toHaveBeenCalledTimes(3);
     expect(query.mock.calls[0][0]).toContain('ON CONFLICT (name) DO NOTHING');
     expect(query.mock.calls[0][1]).toEqual(['admin', '["*"]']);
-    expect(query.mock.calls[1][0]).toContain('ON CONFLICT (wallet_address) DO NOTHING');
+    expect(query.mock.calls[1][0]).toContain(
+      'ON CONFLICT (wallet_address) DO NOTHING',
+    );
     expect(query.mock.calls[1][1]).toEqual([wallet]);
-    expect(query.mock.calls[2][0]).toContain('ON CONFLICT (wallet_address, role_name) DO NOTHING');
+    expect(query.mock.calls[2][0]).toContain(
+      'ON CONFLICT (wallet_address, role_name) DO NOTHING',
+    );
     expect(query.mock.calls[2][1]).toEqual([wallet, 'admin']);
     expect(log).toHaveBeenCalledWith('Admin seeded successfully');
   });
@@ -65,7 +71,9 @@ describe('AdminSeedService', () => {
   it('fails startup when the admin wallet is not configured', async () => {
     const { service, transaction } = setup({ env: {} });
 
-    await expect(service.onApplicationBootstrap()).rejects.toThrow('DEFAULT_ADMIN_WALLET');
+    await expect(service.onApplicationBootstrap()).rejects.toThrow(
+      'DEFAULT_ADMIN_WALLET',
+    );
 
     expect(transaction).not.toHaveBeenCalled();
   });

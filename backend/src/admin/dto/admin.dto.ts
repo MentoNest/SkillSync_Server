@@ -17,12 +17,14 @@ import { Role } from '../../auth/auth.types';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 import { IsValidWalletAddress } from '../../common/validators';
 import { UserStatus } from '../../user/user-status.enum';
+import { UserResponseDto } from '../../user/dto/user-response.dto';
 import { AuditEvent } from '../../audit/entities/audit-log.entity';
 import { AdminSessionStatus } from '../entities/admin-session.entity';
 import {
   ReportStatus,
   ReportTargetType,
 } from '../entities/content-report.entity';
+import { UserSuspension } from '../entities/user-suspension.entity';
 
 export class AdminUserParamDto {
   @ApiProperty({
@@ -30,6 +32,53 @@ export class AdminUserParamDto {
   })
   @IsValidWalletAddress()
   walletAddress!: string;
+}
+
+export class AdminSuspensionUserParamDto {
+  @ApiProperty({
+    example: 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37',
+  })
+  @IsValidWalletAddress()
+  userId!: string;
+}
+
+export class SuspendUserDto {
+  @ApiProperty({
+    description: 'Reason for suspending the account.',
+    example: 'Repeated violation of community guidelines.',
+    minLength: 3,
+    maxLength: 1000,
+  })
+  @IsString()
+  @MinLength(3)
+  @MaxLength(1000)
+  reason!: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Suspension duration in days. Omit or pass null for a permanent suspension.',
+    example: 7,
+    type: Number,
+    nullable: true,
+    minimum: 1,
+    maximum: 3650,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  duration?: number | null;
+}
+
+export class UnsuspendUserDto {
+  @ApiPropertyOptional({
+    description: 'Optional note explaining why the suspension was lifted.',
+    maxLength: 500,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
 }
 
 export class ListUsersQueryDto extends PaginationQueryDto {
@@ -240,4 +289,39 @@ export class AnalyticsRangeQueryDto {
   @Min(1)
   @Max(365)
   days?: number = 30;
+}
+
+export class SuspendUserResponseDto extends UserResponseDto {
+  @ApiPropertyOptional({
+    description: 'Active suspension record created for the user.',
+    type: () => UserSuspension,
+    nullable: true,
+  })
+  suspension!: UserSuspension | null;
+}
+
+export class UnsuspendUserResponseDto extends UserResponseDto {
+  @ApiProperty({
+    description: 'Timestamp when the suspension was lifted.',
+    type: String,
+    format: 'date-time',
+  })
+  liftedAt!: Date;
+}
+
+export class SuspensionPaginationMetaDto {
+  @ApiProperty() page!: number;
+  @ApiProperty() limit!: number;
+  @ApiProperty() total!: number;
+  @ApiProperty() totalPages!: number;
+  @ApiPropertyOptional() hasNext?: boolean;
+  @ApiPropertyOptional() hasPrev?: boolean;
+}
+
+export class PaginatedSuspendedUsersResponseDto {
+  @ApiProperty({ type: () => [UserSuspension] })
+  data!: UserSuspension[];
+
+  @ApiProperty({ type: () => SuspensionPaginationMetaDto })
+  meta!: SuspensionPaginationMetaDto;
 }

@@ -1,5 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
+import {
+  IsEnum,
+  IsOptional,
+  IsString,
+  IsUrl,
+  MaxLength,
+} from 'class-validator';
 import { PortfolioPlatform } from '../portfolio-link.entity';
 
 export class CreatePortfolioLinkDto {
@@ -9,7 +15,10 @@ export class CreatePortfolioLinkDto {
   @MaxLength(2048)
   url!: string;
 
-  @ApiPropertyOptional({ enum: PortfolioPlatform, description: 'Optional; detected from URL when omitted' })
+  @ApiPropertyOptional({
+    enum: PortfolioPlatform,
+    description: 'Optional; detected from URL when omitted',
+  })
   @IsOptional()
   @IsEnum(PortfolioPlatform)
   platform?: PortfolioPlatform;
@@ -25,6 +34,7 @@ export class PortfolioLinkResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty({ enum: PortfolioPlatform }) platform!: PortfolioPlatform;
   @ApiProperty() url!: string;
-  @ApiPropertyOptional({ type: String, nullable: true }) displayTitle!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) displayTitle!:
+    string | null;
   @ApiProperty() createdAt!: Date;
 }

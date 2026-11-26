@@ -1,3 +1,5 @@
+import { UserStatus } from '../user/user-status.enum';
+
 export enum Role {
   USER = 'user',
   MENTOR = 'mentor',
@@ -11,6 +13,7 @@ export interface JwtPayload {
   /** Wallet address (subject). */
   sub: string;
   roles: Role[];
+  status: UserStatus;
   type: TokenType;
   /** Unique token id; used for refresh rotation and logout blacklisting. */
   jti: string;
@@ -23,6 +26,7 @@ export interface JwtPayload {
 export interface AuthUser {
   address: string;
   roles: Role[];
+  status: UserStatus;
   jti: string;
 }
 
@@ -39,22 +43,33 @@ export interface AuthConfig {
   nonceTtlSeconds: number;
   adminAddresses: string[];
   mentorAddresses: string[];
+  requireEmailVerification: boolean;
 }
 
 export const AUTH_CONFIG = 'AUTH_CONFIG';
 
 const list = (value: string | undefined) =>
-  (value ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  (value ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 
-export function buildAuthConfig(read: (key: string) => string | undefined): AuthConfig {
+export function buildAuthConfig(
+  read: (key: string) => string | undefined,
+): AuthConfig {
   const secret = read('JWT_SECRET');
   if (!secret || secret.length < 16) {
-    throw new Error('JWT_SECRET must be set to a value of at least 16 characters');
+    throw new Error(
+      'JWT_SECRET must be set to a value of at least 16 characters',
+    );
   }
   const num = (key: string, fallback: number) => {
     const value = Number(read(key));
     return Number.isFinite(value) && value > 0 ? value : fallback;
   };
+  const rawRequireVerification = read('REQUIRE_EMAIL_VERIFICATION')
+    ?.trim()
+    .toLowerCase();
   return {
     jwtSecret: secret,
     accessTtlSeconds: num('JWT_ACCESS_TTL_SECONDS', 15 * 60),
@@ -62,5 +77,7 @@ export function buildAuthConfig(read: (key: string) => string | undefined): Auth
     nonceTtlSeconds: num('AUTH_NONCE_TTL_SECONDS', 300),
     adminAddresses: list(read('AUTH_ADMIN_ADDRESSES')),
     mentorAddresses: list(read('AUTH_MENTOR_ADDRESSES')),
+    requireEmailVerification:
+      rawRequireVerification === 'true' || rawRequireVerification === '1',
   };
 }

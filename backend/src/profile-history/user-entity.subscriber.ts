@@ -9,7 +9,10 @@ import {
 import { User } from '../user/user.entity';
 import { getProfileHistoryContext } from './profile-history-context';
 import { ChangeReason } from './profile-history.entity';
-import { ProfileHistoryService, RecordChangeOptions } from './profile-history.service';
+import {
+  ProfileHistoryService,
+  RecordChangeOptions,
+} from './profile-history.service';
 
 /**
  * Fields on User that we do NOT want to track.
@@ -18,7 +21,10 @@ import { ProfileHistoryService, RecordChangeOptions } from './profile-history.se
  * - `usernameChangedAt` — internal implementation detail of the cooldown; the
  *                         change to `username` itself is already recorded
  */
-const IGNORED_FIELDS: ReadonlySet<string> = new Set(['createdAt', 'usernameChangedAt']);
+const IGNORED_FIELDS: ReadonlySet<string> = new Set([
+  'createdAt',
+  'usernameChangedAt',
+]);
 
 /**
  * TypeORM subscriber that automatically records a ProfileHistory entry for
@@ -60,15 +66,18 @@ export class UserEntitySubscriber implements EntitySubscriberInterface<User> {
 
     const entries: RecordChangeOptions[] = [];
 
-    for (const [field, value] of Object.entries(user) as [keyof User, unknown][]) {
-      if (IGNORED_FIELDS.has(field as string)) continue;
+    for (const [field, value] of Object.entries(user) as [
+      keyof User,
+      unknown,
+    ][]) {
+      if (IGNORED_FIELDS.has(field)) continue;
       if (field === 'walletAddress') continue; // PK — not a "change"
       if (value === null || value === undefined) continue;
 
       entries.push({
         userId: user.walletAddress,
         profileType: 'user',
-        fieldName: field as string,
+        fieldName: field,
         oldValue: null,
         newValue: value,
         changedBy: ctx.changedBy,
@@ -109,8 +118,10 @@ export class UserEntitySubscriber implements EntitySubscriberInterface<User> {
 
       // Deep-equality: JSON stringify is reliable here because all User fields
       // are primitives (string | null | Date).  Dates are compared by value.
-      const oldSerialized = oldVal instanceof Date ? oldVal.toISOString() : oldVal;
-      const newSerialized = newVal instanceof Date ? newVal.toISOString() : newVal;
+      const oldSerialized =
+        oldVal instanceof Date ? oldVal.toISOString() : oldVal;
+      const newSerialized =
+        newVal instanceof Date ? newVal.toISOString() : newVal;
 
       if (oldSerialized === newSerialized) continue;
 

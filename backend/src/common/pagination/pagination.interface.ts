@@ -62,10 +62,7 @@ export interface OffsetQueryBuilder<T> {
 
 /** Minimal repository surface needed for offset pagination. */
 export interface OffsetRepository<T> {
-  findAndCount(options: {
-    skip: number;
-    take: number;
-  }): Promise<[T[], number]>;
+  findAndCount(options: { skip: number; take: number }): Promise<[T[], number]>;
 }
 
 /** Minimal QueryBuilder surface needed for cursor pagination. */

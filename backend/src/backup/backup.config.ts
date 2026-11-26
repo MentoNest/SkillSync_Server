@@ -55,7 +55,8 @@ function readBool(read: EnvReader, key: string, fallback: boolean): boolean {
  */
 export function buildBackupConfig(read: EnvReader): BackupConfig {
   const backupDir = read('BACKUP_DIR') ?? DEFAULT_BACKUP_DIR;
-  const statusFile = read('BACKUP_STATUS_FILE') ?? `${backupDir}/backup-status.json`;
+  const statusFile =
+    read('BACKUP_STATUS_FILE') ?? `${backupDir}/backup-status.json`;
   const bucket = read('BACKUP_S3_BUCKET')?.trim();
 
   return {
@@ -65,7 +66,11 @@ export function buildBackupConfig(read: EnvReader): BackupConfig {
     s3Prefix: read('BACKUP_S3_PREFIX') ?? DEFAULT_S3_PREFIX,
     s3Region: read('BACKUP_S3_REGION') ?? DEFAULT_S3_REGION,
     maxAgeHours: readInt(read, 'BACKUP_MAX_AGE_HOURS', DEFAULT_MAX_AGE_HOURS),
-    retentionDays: readInt(read, 'BACKUP_RETENTION_DAYS', DEFAULT_RETENTION_DAYS),
+    retentionDays: readInt(
+      read,
+      'BACKUP_RETENTION_DAYS',
+      DEFAULT_RETENTION_DAYS,
+    ),
     encryptionEnabled: readBool(read, 'BACKUP_ENCRYPTION_ENABLED', true),
     pointInTimeRecoveryEnabled: readBool(read, 'BACKUP_PITR_ENABLED', true),
     scheduleCron: read('BACKUP_SCHEDULE_CRON') ?? DEFAULT_SCHEDULE_CRON,

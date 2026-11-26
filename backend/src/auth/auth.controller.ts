@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -15,6 +24,7 @@ import {
   UnauthorizedResponseDto,
 } from '../common/dto/error-response.dto';
 import { AuthService } from './auth.service';
+import { Role } from './auth.types';
 import type { AuthUser } from './auth.types';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Roles } from './decorators/roles.decorator';
@@ -47,7 +57,10 @@ export class AuthController {
       'The nonce expires after 5 minutes and replaces any previous unused nonce for this wallet.',
     operationId: 'requestWalletNonce',
   })
-  @ApiParam({ name: 'walletAddress', description: 'Stellar wallet public key (ED25519).' })
+  @ApiParam({
+    name: 'walletAddress',
+    description: 'Stellar wallet public key (ED25519).',
+  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Nonce issued successfully.',
@@ -58,10 +71,20 @@ export class AuthController {
     description: 'Wallet address is not a valid Stellar public key.',
     type: ErrorResponseDto,
   })
-  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
-  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded.',
+    type: TooManyRequestsResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Unexpected server error.',
+    type: InternalServerErrorResponseDto,
+  })
   @Get('nonce/:walletAddress')
-  nonceForWallet(@Param() params: NonceAddressParamsDto): Promise<IssuedNonceResponseDto> {
+  nonceForWallet(
+    @Param() params: NonceAddressParamsDto,
+  ): Promise<IssuedNonceResponseDto> {
     return this.auth.createNonceWithExpiry(params.walletAddress);
   }
 
@@ -83,11 +106,20 @@ export class AuthController {
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
-    description: 'Request body failed validation (e.g. address is not a valid Stellar public key).',
+    description:
+      'Request body failed validation (e.g. address is not a valid Stellar public key).',
     type: ErrorResponseDto,
   })
-  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
-  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded.',
+    type: TooManyRequestsResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Unexpected server error.',
+    type: InternalServerErrorResponseDto,
+  })
   @Post('nonce')
   @HttpCode(HttpStatus.OK)
   nonce(@Body() dto: NonceDto): Promise<NonceResponseDto> {
@@ -107,7 +139,8 @@ export class AuthController {
   @ApiBody({ type: LoginDto })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Authentication successful. Returns a short-lived access token and a single-use refresh token.',
+    description:
+      'Authentication successful. Returns a short-lived access token and a single-use refresh token.',
     type: TokenPairResponseDto,
   })
   @ApiResponse({
@@ -117,15 +150,27 @@ export class AuthController {
   })
   @ApiResponse({
     status: HttpStatus.UNAUTHORIZED,
-    description: 'Signature is invalid, the nonce has already been used, or no nonce exists for this address.',
+    description:
+      'Signature is invalid, the nonce has already been used, or no nonce exists for this address.',
     type: UnauthorizedResponseDto,
   })
-  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
-  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded.',
+    type: TooManyRequestsResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Unexpected server error.',
+    type: InternalServerErrorResponseDto,
+  })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @UseGuards(WalletAuthGuard)
-  login(@Body() _dto: LoginDto, @CurrentUser() user: AuthUser): Promise<TokenPairResponseDto> {
+  login(
+    @Body() _dto: LoginDto,
+    @CurrentUser() user: AuthUser,
+  ): Promise<TokenPairResponseDto> {
     return this.auth.issueForUser(user);
   }
 
@@ -153,11 +198,20 @@ export class AuthController {
   })
   @ApiResponse({
     status: HttpStatus.UNAUTHORIZED,
-    description: 'Refresh token is expired, has already been used, or was issued for a different token type.',
+    description:
+      'Refresh token is expired, has already been used, or was issued for a different token type.',
     type: UnauthorizedResponseDto,
   })
-  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
-  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded.',
+    type: TooManyRequestsResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Unexpected server error.',
+    type: InternalServerErrorResponseDto,
+  })
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   refresh(@Body() dto: RefreshDto): Promise<TokenPairResponseDto> {
@@ -169,21 +223,41 @@ export class AuthController {
   @ApiOperation({
     summary: 'Log out',
     description:
-      'Revokes the caller\'s current access token by adding its JTI to the blacklist, and ' +
+      "Revokes the caller's current access token by adding its JTI to the blacklist, and " +
       'optionally invalidates the accompanying refresh token if supplied in the body. ' +
       'Requires a valid Bearer access token in the Authorization header.',
     operationId: 'logout',
   })
-  @ApiBody({ type: RefreshDto, required: false, description: 'Optionally supply the refresh token to invalidate it immediately.' })
-  @ApiResponse({ status: HttpStatus.NO_CONTENT, description: 'Logged out successfully. No response body.' })
+  @ApiBody({
+    type: RefreshDto,
+    required: false,
+    description:
+      'Optionally supply the refresh token to invalidate it immediately.',
+  })
+  @ApiResponse({
+    status: HttpStatus.NO_CONTENT,
+    description: 'Logged out successfully. No response body.',
+  })
   @ApiResponse({
     status: HttpStatus.UNAUTHORIZED,
     description: 'Access token is missing, expired, or already revoked.',
     type: UnauthorizedResponseDto,
   })
-  @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Insufficient role.', type: ForbiddenResponseDto })
-  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
-  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'Insufficient role.',
+    type: ForbiddenResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded.',
+    type: TooManyRequestsResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Unexpected server error.',
+    type: InternalServerErrorResponseDto,
+  })
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
   @UseGuards(JwtAuthGuard)
@@ -195,7 +269,7 @@ export class AuthController {
   }
 
   @ApiTags('Session Management')
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @ApiOperation({
     summary: 'Revoke all of the caller’s sessions',
     description:
@@ -213,24 +287,38 @@ export class AuthController {
     description: 'Access token is missing, expired, or already revoked.',
     type: UnauthorizedResponseDto,
   })
-  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
-  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded.',
+    type: TooManyRequestsResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Unexpected server error.',
+    type: InternalServerErrorResponseDto,
+  })
   @Post('revoke-all')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
-  async revokeAllSessions(@CurrentUser() user: AuthUser): Promise<SessionRevocationResponseDto> {
+  async revokeAllSessions(
+    @CurrentUser() user: AuthUser,
+  ): Promise<SessionRevocationResponseDto> {
     const revokedCount = await this.auth.revokeAllSessions(user);
     return { message: 'All active sessions have been revoked.', revokedCount };
   }
 
   @ApiTags('Session Management')
-  @ApiBearerAuth('Bearer Auth')
+  @ApiBearerAuth('BearerAuth')
   @ApiOperation({
     summary: 'Revoke all sessions for a user (admin)',
-    description: 'Invalidates every active session for the specified wallet address. Requires the admin role.',
+    description:
+      'Invalidates every active session for the specified wallet address. Requires the admin role.',
     operationId: 'adminRevokeAllSessions',
   })
-  @ApiParam({ name: 'walletAddress', description: 'Stellar wallet address whose sessions will be revoked.' })
+  @ApiParam({
+    name: 'walletAddress',
+    description: 'Stellar wallet address whose sessions will be revoked.',
+  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'All active sessions were revoked.',
@@ -241,9 +329,21 @@ export class AuthController {
     description: 'Access token is missing, expired, or already revoked.',
     type: UnauthorizedResponseDto,
   })
-  @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Insufficient role.', type: ForbiddenResponseDto })
-  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded.', type: TooManyRequestsResponseDto })
-  @ApiResponse({ status: HttpStatus.INTERNAL_SERVER_ERROR, description: 'Unexpected server error.', type: InternalServerErrorResponseDto })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'Insufficient role.',
+    type: ForbiddenResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded.',
+    type: TooManyRequestsResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Unexpected server error.',
+    type: InternalServerErrorResponseDto,
+  })
   @Post('admin/revoke-all/:walletAddress')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -252,7 +352,10 @@ export class AuthController {
     @CurrentUser() actor: AuthUser,
     @Param() params: NonceAddressParamsDto,
   ): Promise<SessionRevocationResponseDto> {
-    const revokedCount = await this.auth.adminRevokeAllSessions(actor, params.walletAddress);
+    const revokedCount = await this.auth.adminRevokeAllSessions(
+      actor,
+      params.walletAddress,
+    );
     return { message: 'All active sessions have been revoked.', revokedCount };
   }
 }

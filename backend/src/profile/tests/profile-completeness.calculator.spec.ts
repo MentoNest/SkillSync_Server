@@ -59,35 +59,51 @@ describe('calculateProfileCompleteness', () => {
   it('adds optional-field bonuses incrementally', () => {
     expect(calculateProfileCompleteness(fullMentor).bonusPoints).toBe(4);
     expect(
-      calculateProfileCompleteness({ ...fullMentor, user: { ...fullMentor.user, education: ['BSc'] } })
-        .bonusPoints,
+      calculateProfileCompleteness({
+        ...fullMentor,
+        user: { ...fullMentor.user, education: ['BSc'] },
+      }).bonusPoints,
     ).toBe(7);
   });
 
-  it('treats empty arrays and blank strings as missing', () => {
+  it('treats empty arrays and blank strings as missing for mentees', () => {
     const result = calculateProfileCompleteness({
       profileType: 'mentee',
-      profile: { learningGoals: '   ', interests: [], experienceLevel: '' },
+      profile: {
+        learningGoals: ['   '],
+        interests: [],
+        experienceLevel: '',
+        preferredMentoringStyle: [],
+        timeCommitmentHoursPerWeek: null,
+        professionalBackground: '   ',
+      },
       user: {},
       availabilitySlotCount: 0,
       portfolioLinkCount: 0,
     });
     expect(result.baseScore).toBe(0);
-    expect(result.missingFields).toHaveLength(3);
+    expect(result.missingFields).toHaveLength(6);
   });
 
-  it('uses the mentee field set and honours a custom suggestion threshold', () => {
+  it('scores filled mentee fields and honours a custom suggestion threshold', () => {
     const result = calculateProfileCompleteness(
       {
         profileType: 'mentee',
-        profile: { learningGoals: 'Learn NestJS', interests: ['Backend'], experienceLevel: null },
+        profile: {
+          learningGoals: ['Learn NestJS'],
+          interests: ['Backend'],
+          experienceLevel: null,
+          preferredMentoringStyle: ['technical skills'],
+          timeCommitmentHoursPerWeek: 5,
+          professionalBackground: 'Junior developer',
+        },
         user: {},
         availabilitySlotCount: 0,
         portfolioLinkCount: 0,
       },
       50,
     );
-    expect(result.baseScore).toBe(67);
+    expect(result.baseScore).toBe(83);
     expect(result.missingFields).toEqual([
       { field: 'skillLevel', description: 'Set your current skill level.' },
     ]);

@@ -13,7 +13,11 @@ export type BackupRunStatus = 'success' | 'failed' | 'running';
 export type BackupHealth = 'healthy' | 'stale' | 'failing' | 'not_configured';
 
 export class BackupStorageDto {
-  @ApiProperty({ enum: ['s3', 'local'], example: 's3', description: 'Where backups are stored offsite.' })
+  @ApiProperty({
+    enum: ['s3', 'local'],
+    example: 's3',
+    description: 'Where backups are stored offsite.',
+  })
   provider!: 's3' | 'local';
 
   @ApiPropertyOptional({ nullable: true, example: 'skillsync-backups' })
@@ -33,33 +37,65 @@ export class BackupRunSummaryDto {
   @ApiProperty({ example: '2026-11-23T02:00:00.000Z', format: 'date-time' })
   startedAt!: string;
 
-  @ApiPropertyOptional({ nullable: true, example: '2026-11-23T02:03:12.000Z', format: 'date-time' })
+  @ApiPropertyOptional({
+    nullable: true,
+    example: '2026-11-23T02:03:12.000Z',
+    format: 'date-time',
+  })
   finishedAt!: string | null;
 
-  @ApiPropertyOptional({ nullable: true, example: 192_000, description: 'Wall-clock duration in milliseconds.' })
+  @ApiPropertyOptional({
+    nullable: true,
+    example: 192_000,
+    description: 'Wall-clock duration in milliseconds.',
+  })
   durationMs!: number | null;
 
-  @ApiPropertyOptional({ nullable: true, example: 12_345_678, description: 'Size of the encrypted artefact in bytes.' })
+  @ApiPropertyOptional({
+    nullable: true,
+    example: 12_345_678,
+    description: 'Size of the encrypted artefact in bytes.',
+  })
   sizeBytes!: number | null;
 
-  @ApiProperty({ example: true, description: 'Whether the artefact was encrypted before upload.' })
+  @ApiProperty({
+    example: true,
+    description: 'Whether the artefact was encrypted before upload.',
+  })
   encrypted!: boolean;
 
-  @ApiProperty({ example: true, description: 'Whether the artefact was uploaded to offsite storage.' })
+  @ApiProperty({
+    example: true,
+    description: 'Whether the artefact was uploaded to offsite storage.',
+  })
   uploadedToS3!: boolean;
 
-  @ApiPropertyOptional({ nullable: true, example: 's3://skillsync-backups/postgres/skillsync-2026-11-23T02-00-00.dump.gpg' })
+  @ApiPropertyOptional({
+    nullable: true,
+    example:
+      's3://skillsync-backups/postgres/skillsync-2026-11-23T02-00-00.dump.gpg',
+  })
   location!: string | null;
 
-  @ApiPropertyOptional({ nullable: true, example: 'sha256:9f2c…', description: 'Checksum of the encrypted artefact.' })
+  @ApiPropertyOptional({
+    nullable: true,
+    example: 'sha256:9f2c…',
+    description: 'Checksum of the encrypted artefact.',
+  })
   checksum!: string | null;
 
-  @ApiPropertyOptional({ nullable: true, description: 'Failure reason when `status` is `failed`.' })
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Failure reason when `status` is `failed`.',
+  })
   error!: string | null;
 }
 
 export class BackupStatusDto {
-  @ApiProperty({ enum: ['healthy', 'stale', 'failing', 'not_configured'], example: 'healthy' })
+  @ApiProperty({
+    enum: ['healthy', 'stale', 'failing', 'not_configured'],
+    example: 'healthy',
+  })
   health!: BackupHealth;
 
   @ApiProperty({ example: '2026-11-23T04:00:00.000Z', format: 'date-time' })
@@ -68,10 +104,17 @@ export class BackupStatusDto {
   @ApiPropertyOptional({ type: BackupRunSummaryDto, nullable: true })
   lastBackup!: BackupRunSummaryDto | null;
 
-  @ApiPropertyOptional({ nullable: true, example: 2.5, description: 'Age of the latest run in hours.' })
+  @ApiPropertyOptional({
+    nullable: true,
+    example: 2.5,
+    description: 'Age of the latest run in hours.',
+  })
   lastBackupAgeHours!: number | null;
 
-  @ApiProperty({ example: 26, description: 'Age in hours after which a backup is reported as stale.' })
+  @ApiProperty({
+    example: 26,
+    description: 'Age in hours after which a backup is reported as stale.',
+  })
   maxAgeHours!: number;
 
   @ApiProperty({ example: 30 })
@@ -80,10 +123,16 @@ export class BackupStatusDto {
   @ApiProperty({ example: true })
   encryptionEnabled!: boolean;
 
-  @ApiProperty({ example: true, description: 'Whether WAL archiving for point-in-time recovery is enabled.' })
+  @ApiProperty({
+    example: true,
+    description: 'Whether WAL archiving for point-in-time recovery is enabled.',
+  })
   pointInTimeRecoveryEnabled!: boolean;
 
-  @ApiProperty({ example: '0 2 * * *', description: 'Cron expression of the automated backup schedule.' })
+  @ApiProperty({
+    example: '0 2 * * *',
+    description: 'Cron expression of the automated backup schedule.',
+  })
   scheduleCron!: string;
 
   @ApiProperty({ type: BackupStorageDto })

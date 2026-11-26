@@ -11,9 +11,16 @@ import {
 @Entity('availability_exceptions')
 @Index('idx_availability_exceptions_mentor', ['mentorId'])
 @Index('idx_availability_exceptions_mentor_date', ['mentorId', 'date'])
-@Index('idx_availability_exceptions_mentor_date_unavailable', ['mentorId', 'date', 'isUnavailable'])
+@Index('idx_availability_exceptions_mentor_date_unavailable', [
+  'mentorId',
+  'date',
+  'isUnavailable',
+])
 export class AvailabilityException {
-  @ApiProperty({ description: 'Auto-generated UUID.', example: 'd4e5f6a7-0000-0000-0000-000000000001' })
+  @ApiProperty({
+    description: 'Auto-generated UUID.',
+    example: 'd4e5f6a7-0000-0000-0000-000000000001',
+  })
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
@@ -25,7 +32,8 @@ export class AvailabilityException {
   mentorId!: string;
 
   @ApiProperty({
-    description: 'Specific date this exception applies to, in YYYY-MM-DD format (UTC date).',
+    description:
+      'Specific date this exception applies to, in YYYY-MM-DD format (UTC date).',
     example: '2026-12-25',
   })
   @Column({ name: 'date', type: 'date' })
@@ -55,7 +63,8 @@ export class AvailabilityException {
   reason!: string | null;
 
   @ApiProperty({
-    description: 'True if mentor is unavailable for this window; false can represent explicit availability override.',
+    description:
+      'True if mentor is unavailable for this window; false can represent explicit availability override.',
     example: true,
   })
   @Column({ name: 'is_unavailable', type: 'boolean', default: true })

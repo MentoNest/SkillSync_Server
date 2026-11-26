@@ -36,6 +36,7 @@
     "seed:demo": "ts-node -r tsconfig-paths/register src/seed/run-demo-seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1177.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.1",
@@ -52,6 +53,7 @@
     "class-validator": "^0.14.1",
     "helmet": "^8.0.0",
     "ioredis": "^5.11.1",
+    "moment-timezone": "^0.6.6",
     "multer": "^2.0.2",
     "passport": "^0.7.0",
     "passport-custom": "^1.2.1",
@@ -59,6 +61,7 @@
     "pg": "^8.13.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "sharp": "^0.35.5",
     "socket.io": "^4.8.1",
     "swagger-ui-express": "^5.0.0",
     "typeorm": "^0.3.20"
@@ -67,10 +70,10 @@
     "@apidevtools/swagger-parser": "^10.1.0",
     "@eslint/eslintrc": "^3.2.0",
     "@eslint/js": "^9.18.0",
+    "@faker-js/faker": "^9.9.0",
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
-    "@faker-js/faker": "^9.9.0",
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
     "@types/multer": "^1.4.12",
@@ -84,9 +87,9 @@
     "husky": "^9.1.7",
     "jest": "^30.0.0",
     "jest-openapi": "^0.14.2",
+    "lint-staged": "^15.2.10",
     "openapi-diff": "^0.24.0",
     "openapi-typescript": "^7.4.4",
-    "lint-staged": "^15.2.10",
     "prettier": "^3.4.2",
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
@@ -112,9 +115,15 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "coverageReporters": ["text-summary", "lcov"],
+    "coverageReporters": [
+      "text-summary",
+      "lcov"
+    ],
     "testEnvironment": "node",
-    "testPathIgnorePatterns": ["/node_modules/", "/dist/"],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/dist/"
+    ],
     "coverageThreshold": {
       "global": {
         "branches": 80,

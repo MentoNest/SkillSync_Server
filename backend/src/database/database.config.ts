@@ -53,10 +53,9 @@ export function buildDatabaseSettings(read: EnvReader): DatabaseSettings {
   const password = read('DB_PASSWORD');
   const database = read('DB_NAME');
   if (!isDevelopment) {
-    const missing = [
-      !password && 'DB_PASSWORD',
-      !database && 'DB_NAME',
-    ].filter(Boolean);
+    const missing = [!password && 'DB_PASSWORD', !database && 'DB_NAME'].filter(
+      Boolean,
+    );
     if (missing.length > 0) {
       throw new Error(
         `Missing required database environment variable(s): ${missing.join(', ')}`,
@@ -80,7 +79,11 @@ export function buildDatabaseSettings(read: EnvReader): DatabaseSettings {
     database: database ?? 'skillsync',
     ssl: sslEnabled
       ? {
-          rejectUnauthorized: readBool(read, 'DB_SSL_REJECT_UNAUTHORIZED', true),
+          rejectUnauthorized: readBool(
+            read,
+            'DB_SSL_REJECT_UNAUTHORIZED',
+            true,
+          ),
           ...(ca ? { ca: ca.replace(/\\n/g, '\n') } : {}),
         }
       : false,
@@ -92,13 +95,23 @@ export function buildDatabaseSettings(read: EnvReader): DatabaseSettings {
     synchronize: false,
     poolSize,
     extra: {
-      connectionTimeoutMillis: readInt(read, 'DB_CONNECTION_TIMEOUT_MS', 10_000),
+      connectionTimeoutMillis: readInt(
+        read,
+        'DB_CONNECTION_TIMEOUT_MS',
+        10_000,
+      ),
       idleTimeoutMillis: readInt(read, 'DB_IDLE_TIMEOUT_MS', 30_000),
     },
     logging: isDevelopment ? ['error', 'warn', 'migration'] : ['error'],
     // Slow query logging (a warning for queries slower than this) is for development.
     ...(isDevelopment
-      ? { maxQueryExecutionTime: readInt(read, 'DB_SLOW_QUERY_MS', DEFAULT_SLOW_QUERY_MS) }
+      ? {
+          maxQueryExecutionTime: readInt(
+            read,
+            'DB_SLOW_QUERY_MS',
+            DEFAULT_SLOW_QUERY_MS,
+          ),
+        }
       : {}),
   };
 

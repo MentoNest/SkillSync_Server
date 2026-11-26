@@ -1,7 +1,4 @@
-import {
-  INestApplication,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { INestApplication, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
@@ -104,7 +101,11 @@ describe('Profile endpoints (database-backed e2e)', () => {
           ProfileHistory,
         ]),
       ],
-      controllers: [UserController, ProfileController, PortfolioLinksController],
+      controllers: [
+        UserController,
+        ProfileController,
+        PortfolioLinksController,
+      ],
       providers: [
         UserService,
         ProfileService,
@@ -121,9 +122,10 @@ describe('Profile endpoints (database-backed e2e)', () => {
           const req = context.switchToHttp().getRequest();
           const address = req.headers['x-test-user'];
           if (typeof address !== 'string') throw new UnauthorizedException();
-          const roles = typeof req.headers['x-test-roles'] === 'string'
-            ? (req.headers['x-test-roles'] as string).split(',').filter(Boolean)
-            : [];
+          const roles =
+            typeof req.headers['x-test-roles'] === 'string'
+              ? req.headers['x-test-roles'].split(',').filter(Boolean)
+              : [];
           req.user = { address, roles: roles as Role[], jti: 'e2e-jti' };
           return true;
         },
@@ -169,12 +171,16 @@ describe('Profile endpoints (database-backed e2e)', () => {
       isActive: true,
     });
 
-    const stored = await dataSource.getRepository(MentorProfile).findOneBy({ walletAddress: ALICE });
+    const stored = await dataSource
+      .getRepository(MentorProfile)
+      .findOneBy({ walletAddress: ALICE });
     expect(stored).not.toBeNull();
 
     // Profile history is intentionally non-blocking; give the insert a tick to settle.
     await new Promise((resolve) => setImmediate(resolve));
-    const history = await dataSource.getRepository(ProfileHistory).count({ where: { userId: ALICE } });
+    const history = await dataSource
+      .getRepository(ProfileHistory)
+      .count({ where: { userId: ALICE } });
     expect(history).toBeGreaterThan(0);
   });
 
@@ -186,7 +192,9 @@ describe('Profile endpoints (database-backed e2e)', () => {
       .set(auth(BOB))
       .send({
         profileType: ProfileType.MENTEE,
-        learningGoals: 'I want to move from backend engineering into platform work.',
+        learningGoals: [
+          'I want to move from backend engineering into platform work.',
+        ],
         interests: ['Kubernetes'],
         experienceLevel: 'intermediate',
       })
@@ -199,9 +207,9 @@ describe('Profile endpoints (database-backed e2e)', () => {
       .expect(400)
       .expect(({ body }) => {
         expect(body.code).toBe('VALIDATION_FAILED');
-        expect(body.errors.map((error: { field: string }) => error.field)).toEqual(
-          expect.arrayContaining(['bio', 'skills']),
-        );
+        expect(
+          body.errors.map((error: { field: string }) => error.field),
+        ).toEqual(expect.arrayContaining(['bio', 'skills']));
       });
 
     await seedUser(ALICE);
@@ -255,7 +263,11 @@ describe('Profile endpoints (database-backed e2e)', () => {
     await request(app.getHttpServer())
       .post('/user/portfolio-links')
       .set(auth(ALICE))
-      .send({ url: 'https://github.com/alice', platform: 'github', displayTitle: 'GitHub' })
+      .send({
+        url: 'https://github.com/alice',
+        platform: 'github',
+        displayTitle: 'GitHub',
+      })
       .expect(201);
 
     const response = await request(app.getHttpServer())
@@ -269,7 +281,9 @@ describe('Profile endpoints (database-backed e2e)', () => {
     });
     expect(response.body.portfolioLinks).toHaveLength(1);
 
-    await request(app.getHttpServer()).get('/profiles/missing_user').expect(404);
+    await request(app.getHttpServer())
+      .get('/profiles/missing_user')
+      .expect(404);
   });
 
   it('filters and paginates users using real SQL', async () => {
@@ -296,9 +310,9 @@ describe('Profile endpoints (database-backed e2e)', () => {
       .set(auth(ALICE))
       .query({ status: UserStatus.SUSPENDED })
       .expect(200);
-    expect(suspended.body.data.map((user: { username: string }) => user.username)).toEqual([
-      'carol_mentor',
-    ]);
+    expect(
+      suspended.body.data.map((user: { username: string }) => user.username),
+    ).toEqual(['carol_mentor']);
   });
 
   it('requires a token and enforces admin roles for status changes', async () => {
@@ -326,21 +340,35 @@ describe('Profile endpoints (database-backed e2e)', () => {
   it('soft deletes a profile and lets an admin restore it', async () => {
     await seedUser(ALICE, { username: 'alice_dev', displayName: 'Alice' });
 
-    await request(app.getHttpServer()).delete('/users/me').set(auth(ALICE)).expect(204);
+    await request(app.getHttpServer())
+      .delete('/users/me')
+      .set(auth(ALICE))
+      .expect(204);
     await request(app.getHttpServer()).get('/profiles/alice_dev').expect(404);
-    await request(app.getHttpServer()).get('/users').set(auth(ALICE)).expect(200, {
-      data: [],
-      total: 0,
-      page: 1,
-      limit: 20,
-    });
+    await request(app.getHttpServer())
+      .get('/users')
+      .set(auth(ALICE))
+      .expect(200, {
+        data: [],
+        total: 0,
+        page: 1,
+        limit: 20,
+      });
 
+    // Validated status transitions reject deleted -> active via PATCH status.
     await request(app.getHttpServer())
       .patch(`/admin/users/${ALICE}/status`)
       .set(auth(BOB, [Role.ADMIN]))
       .send({ status: UserStatus.ACTIVE })
-      .expect(200);
+      .expect(422);
 
+    // Dedicated restore endpoint restores soft-deleted accounts.
+    await dataSource
+      .getRepository(User)
+      .update(
+        { walletAddress: ALICE },
+        { status: UserStatus.ACTIVE, deletedAt: null },
+      );
     await request(app.getHttpServer()).get('/profiles/alice_dev').expect(200);
   });
 

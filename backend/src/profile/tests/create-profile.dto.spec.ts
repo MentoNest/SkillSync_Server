@@ -1,10 +1,14 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { CreateProfileDto, ProfileType } from '../dto/create-profile.dto';
+import { SkillLevel } from '../mentee-profile.entity';
 
 async function validateDto(plain: object): Promise<string[]> {
   const dto = plainToInstance(CreateProfileDto, plain);
-  const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: false });
+  const errors = await validate(dto, {
+    whitelist: true,
+    forbidNonWhitelisted: false,
+  });
   return errors.flatMap((e) =>
     Object.values(e.constraints ?? {}).concat(
       (e.children ?? []).flatMap((c) => Object.values(c.constraints ?? {})),
@@ -17,11 +21,17 @@ async function validateDto(plain: object): Promise<string[]> {
 describe('CreateProfileDto — profileType', () => {
   it('rejects a missing profileType', async () => {
     const errs = await validateDto({ bio: 'x'.repeat(10), skills: ['TS'] });
-    expect(errs.some((e) => e.includes('mentor') || e.includes('mentee'))).toBe(true);
+    expect(errs.some((e) => e.includes('mentor') || e.includes('mentee'))).toBe(
+      true,
+    );
   });
 
   it('rejects an unknown profileType', async () => {
-    const errs = await validateDto({ profileType: 'admin', bio: 'x'.repeat(10), skills: ['TS'] });
+    const errs = await validateDto({
+      profileType: 'admin',
+      bio: 'x'.repeat(10),
+      skills: ['TS'],
+    });
     expect(errs.length).toBeGreaterThan(0);
   });
 });
@@ -50,7 +60,10 @@ describe('CreateProfileDto — mentor', () => {
   });
 
   it('rejects a missing bio', async () => {
-    const errs = await validateDto({ profileType: ProfileType.MENTOR, skills: ['TS'] });
+    const errs = await validateDto({
+      profileType: ProfileType.MENTOR,
+      skills: ['TS'],
+    });
     expect(errs.some((e) => /bio/i.test(e))).toBe(true);
   });
 
@@ -78,7 +91,10 @@ describe('CreateProfileDto — mentor', () => {
   });
 
   it('rejects a skill name longer than 64 characters', async () => {
-    const errs = await validateDto({ ...VALID_MENTOR, skills: ['x'.repeat(65)] });
+    const errs = await validateDto({
+      ...VALID_MENTOR,
+      skills: ['x'.repeat(65)],
+    });
     expect(errs.length).toBeGreaterThan(0);
   });
 
@@ -88,12 +104,18 @@ describe('CreateProfileDto — mentor', () => {
   });
 
   it('rejects hourlyRateUsdCents above 100 000', async () => {
-    const errs = await validateDto({ ...VALID_MENTOR, hourlyRateUsdCents: 100_001 });
+    const errs = await validateDto({
+      ...VALID_MENTOR,
+      hourlyRateUsdCents: 100_001,
+    });
     expect(errs.length).toBeGreaterThan(0);
   });
 
   it('allows null hourlyRateUsdCents (free / negotiate)', async () => {
-    const errs = await validateDto({ ...VALID_MENTOR, hourlyRateUsdCents: null });
+    const errs = await validateDto({
+      ...VALID_MENTOR,
+      hourlyRateUsdCents: null,
+    });
     expect(errs).toHaveLength(0);
   });
 
@@ -108,7 +130,6 @@ describe('CreateProfileDto — mentor', () => {
   });
 
   it('does NOT require mentee-only fields when profileType is mentor', async () => {
-    // learningGoals and interests are absent — that's fine
     const errs = await validateDto(VALID_MENTOR);
     expect(errs).toHaveLength(0);
   });
@@ -118,9 +139,9 @@ describe('CreateProfileDto — mentor', () => {
 
 const VALID_MENTEE = {
   profileType: ProfileType.MENTEE,
-  learningGoals: 'I want to transition from backend to full-stack.',
+  learningGoals: ['Transition from backend to full-stack development'],
   interests: ['React', 'System Design'],
-  experienceLevel: 'intermediate',
+  experienceLevel: SkillLevel.INTERMEDIATE,
 };
 
 describe('CreateProfileDto — mentee', () => {
@@ -131,24 +152,43 @@ describe('CreateProfileDto — mentee', () => {
   it('passes with all optional mentee fields', async () => {
     const errs = await validateDto({
       ...VALID_MENTEE,
+      preferredMentoringStyle: ['career advice', 'technical skills'],
+      timeCommitmentHoursPerWeek: 6,
+      professionalBackground:
+        'Backend engineer with 3 years of Node.js experience.',
+      jobTitle: 'Software Engineer',
+      industry: 'FinTech',
+      portfolioLinks: ['https://github.com/alice'],
       budgetUsdCentsPerMonth: 10000,
       languages: ['English'],
     });
     expect(errs).toHaveLength(0);
   });
 
-  it('rejects a missing learningGoals', async () => {
-    const errs = await validateDto({
+  it('rejects missing or empty learningGoals', async () => {
+    const missing = await validateDto({
       profileType: ProfileType.MENTEE,
       interests: ['React'],
-      experienceLevel: 'beginner',
+      experienceLevel: SkillLevel.BEGINNER,
     });
-    expect(errs.some((e) => /learningGoals/i.test(e))).toBe(true);
+    expect(missing.some((e) => /learningGoals/i.test(e))).toBe(true);
+
+    const empty = await validateDto({ ...VALID_MENTEE, learningGoals: [] });
+    expect(empty.some((e) => /learningGoals/i.test(e))).toBe(true);
   });
 
-  it('rejects learningGoals shorter than 10 characters', async () => {
-    const errs = await validateDto({ ...VALID_MENTEE, learningGoals: 'too short' });
-    expect(errs.some((e) => /learningGoals/i.test(e))).toBe(true);
+  it('rejects learningGoals entries shorter than 3 chars or longer than 500 chars', async () => {
+    const tooShort = await validateDto({
+      ...VALID_MENTEE,
+      learningGoals: ['ab'],
+    });
+    expect(tooShort.length).toBeGreaterThan(0);
+
+    const tooLong = await validateDto({
+      ...VALID_MENTEE,
+      learningGoals: ['x'.repeat(501)],
+    });
+    expect(tooLong.length).toBeGreaterThan(0);
   });
 
   it('rejects empty interests array', async () => {
@@ -157,24 +197,51 @@ describe('CreateProfileDto — mentee', () => {
   });
 
   it('rejects an invalid experienceLevel', async () => {
-    const errs = await validateDto({ ...VALID_MENTEE, experienceLevel: 'expert' });
+    const errs = await validateDto({
+      ...VALID_MENTEE,
+      experienceLevel: 'expert',
+    });
     expect(errs.some((e) => /experienceLevel/i.test(e))).toBe(true);
   });
 
   it('accepts all three valid experienceLevels', async () => {
-    for (const level of ['beginner', 'intermediate', 'advanced']) {
-      const errs = await validateDto({ ...VALID_MENTEE, experienceLevel: level });
+    for (const level of Object.values(SkillLevel)) {
+      const errs = await validateDto({
+        ...VALID_MENTEE,
+        experienceLevel: level,
+      });
       expect(errs).toHaveLength(0);
     }
   });
 
+  it('rejects out-of-range timeCommitmentHoursPerWeek and invalid portfolioLinks', async () => {
+    expect(
+      (await validateDto({ ...VALID_MENTEE, timeCommitmentHoursPerWeek: 0 }))
+        .length,
+    ).toBeGreaterThan(0);
+    expect(
+      (await validateDto({ ...VALID_MENTEE, timeCommitmentHoursPerWeek: 200 }))
+        .length,
+    ).toBeGreaterThan(0);
+    expect(
+      (await validateDto({ ...VALID_MENTEE, portfolioLinks: ['not-a-url'] }))
+        .length,
+    ).toBeGreaterThan(0);
+  });
+
   it('rejects a negative budget', async () => {
-    const errs = await validateDto({ ...VALID_MENTEE, budgetUsdCentsPerMonth: -100 });
+    const errs = await validateDto({
+      ...VALID_MENTEE,
+      budgetUsdCentsPerMonth: -100,
+    });
     expect(errs.length).toBeGreaterThan(0);
   });
 
   it('allows null budgetUsdCentsPerMonth', async () => {
-    const errs = await validateDto({ ...VALID_MENTEE, budgetUsdCentsPerMonth: null });
+    const errs = await validateDto({
+      ...VALID_MENTEE,
+      budgetUsdCentsPerMonth: null,
+    });
     expect(errs).toHaveLength(0);
   });
 

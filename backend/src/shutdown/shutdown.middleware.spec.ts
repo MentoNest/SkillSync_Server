@@ -21,9 +21,15 @@ describe('createShutdownMiddleware', () => {
 
   it('passes the request through while the server is running', () => {
     const next = jest.fn();
-    const middleware = createShutdownMiddleware({ isShuttingDown: () => false } as never);
+    const middleware = createShutdownMiddleware({
+      isShuttingDown: () => false,
+    } as never);
 
-    middleware({ method: 'GET', originalUrl: '/' } as never, makeResponse() as never, next);
+    middleware(
+      { method: 'GET', originalUrl: '/' } as never,
+      makeResponse() as never,
+      next,
+    );
 
     expect(next).toHaveBeenCalledTimes(1);
   });
@@ -31,16 +37,25 @@ describe('createShutdownMiddleware', () => {
   it('rejects with 503 while the server is shutting down', () => {
     const next = jest.fn();
     const res = makeResponse();
-    const middleware = createShutdownMiddleware({ isShuttingDown: () => true } as never);
+    const middleware = createShutdownMiddleware({
+      isShuttingDown: () => true,
+    } as never);
 
-    middleware({ method: 'POST', originalUrl: '/users' } as never, res as never, next);
+    middleware(
+      { method: 'POST', originalUrl: '/users' } as never,
+      res as never,
+      next,
+    );
 
     expect(next).not.toHaveBeenCalled();
     expect(res.setHeader).toHaveBeenCalledWith('Connection', 'close');
     expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '1');
     expect(res.status).toHaveBeenCalledWith(503);
     expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ statusCode: 503, error: 'Service Unavailable' }),
+      expect.objectContaining({
+        statusCode: 503,
+        error: 'Service Unavailable',
+      }),
     );
   });
 });

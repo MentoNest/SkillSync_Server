@@ -37,7 +37,12 @@ export class AddPerformanceIndexes1795180000000 implements MigrationInterface {
     `);
 
     // User: auth and admin list queries.
-    await this.createIndex(queryRunner, 'idx_users_wallet_status', 'users', 'wallet_address, status');
+    await this.createIndex(
+      queryRunner,
+      'idx_users_wallet_status',
+      'users',
+      'wallet_address, status',
+    );
     await this.createIndex(
       queryRunner,
       'idx_users_role_status_created',
@@ -64,7 +69,12 @@ export class AddPerformanceIndexes1795180000000 implements MigrationInterface {
       'mentor_profiles',
       'is_active, is_verified, average_rating',
     );
-    await this.createIndex(queryRunner, 'idx_mentor_created_at', 'mentor_profiles', 'created_at');
+    await this.createIndex(
+      queryRunner,
+      'idx_mentor_created_at',
+      'mentor_profiles',
+      'created_at',
+    );
     await this.createIndex(
       queryRunner,
       'idx_mentee_wallet_active',
@@ -77,7 +87,12 @@ export class AddPerformanceIndexes1795180000000 implements MigrationInterface {
       'mentee_profiles',
       'is_active, experience_level',
     );
-    await this.createIndex(queryRunner, 'idx_mentee_created_at', 'mentee_profiles', 'created_at');
+    await this.createIndex(
+      queryRunner,
+      'idx_mentee_created_at',
+      'mentee_profiles',
+      'created_at',
+    );
 
     // Availability lookups (mentor + day + time and exception overlap checks).
     await this.createIndex(
@@ -126,8 +141,18 @@ export class AddPerformanceIndexes1795180000000 implements MigrationInterface {
     );
 
     // Foreign-key columns of the role join table (all FK columns are indexed).
-    await this.createIndex(queryRunner, 'idx_user_roles_wallet', 'user_roles', 'wallet_address');
-    await this.createIndex(queryRunner, 'idx_user_roles_role', 'user_roles', 'role_name');
+    await this.createIndex(
+      queryRunner,
+      'idx_user_roles_wallet',
+      'user_roles',
+      'wallet_address',
+    );
+    await this.createIndex(
+      queryRunner,
+      'idx_user_roles_role',
+      'user_roles',
+      'role_name',
+    );
     await this.createIndex(
       queryRunner,
       'idx_user_roles_role_wallet',
@@ -178,6 +203,8 @@ export class AddPerformanceIndexes1795180000000 implements MigrationInterface {
     table: string,
     columns: string,
   ): Promise<void> {
-    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "${name}" ON "${table}" (${columns})`);
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "${name}" ON "${table}" (${columns})`,
+    );
   }
 }

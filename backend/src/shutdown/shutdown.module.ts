@@ -1,12 +1,18 @@
 import { Module } from '@nestjs/common';
 import { HealthController } from './health.controller';
-import { DEFAULT_SHUTDOWN_TIMEOUT_MS, ShutdownService } from './shutdown.service';
+import {
+  DEFAULT_SHUTDOWN_TIMEOUT_MS,
+  ShutdownService,
+} from './shutdown.service';
 
 /** Parses `SHUTDOWN_TIMEOUT_MS`; falls back to the default when missing or invalid. */
 function resolveTimeout(raw: string | undefined): number {
-  if (raw === undefined || raw.trim() === '') return DEFAULT_SHUTDOWN_TIMEOUT_MS;
+  if (raw === undefined || raw.trim() === '')
+    return DEFAULT_SHUTDOWN_TIMEOUT_MS;
   const value = Number(raw);
-  return Number.isInteger(value) && value > 0 ? value : DEFAULT_SHUTDOWN_TIMEOUT_MS;
+  return Number.isInteger(value) && value > 0
+    ? value
+    : DEFAULT_SHUTDOWN_TIMEOUT_MS;
 }
 
 /**
@@ -19,7 +25,9 @@ function resolveTimeout(raw: string | undefined): number {
     {
       provide: ShutdownService,
       useFactory: () =>
-        new ShutdownService({ timeoutMs: resolveTimeout(process.env.SHUTDOWN_TIMEOUT_MS) }),
+        new ShutdownService({
+          timeoutMs: resolveTimeout(process.env.SHUTDOWN_TIMEOUT_MS),
+        }),
     },
   ],
   exports: [ShutdownService],

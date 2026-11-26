@@ -9,6 +9,7 @@ import { APP_CONFIG } from '../config/app.config';
 import type { AppConfig } from '../config/app.config';
 import { ChangeReason } from '../profile-history/profile-history.entity';
 import { ProfileHistoryService } from '../profile-history/profile-history.service';
+import { UserStatus } from '../user/user-status.enum';
 import { MentorProfile } from './mentor-profile.entity';
 import { FeaturedMentorDto } from './dto/featured-mentor.dto';
 
@@ -31,7 +32,9 @@ export class FeaturedMentorService {
   ) {}
 
   /** Public, paginated list used by the homepage and discovery sections. */
-  async getFeaturedMentors(query: { page?: number; limit?: number } = {}): Promise<{
+  async getFeaturedMentors(
+    query: { page?: number; limit?: number } = {},
+  ): Promise<{
     data: FeaturedMentorDto[];
     total: number;
     page: number;
@@ -42,15 +45,19 @@ export class FeaturedMentorService {
     await this.expireStaleFeatures();
 
     const [rows, total] = await this.mentors.findAndCount({
-      where: { isFeatured: true },
+      where: { isFeatured: true, user: { status: UserStatus.ACTIVE } },
       relations: { user: true },
       order: { featuredOrder: 'ASC', featuredAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
 
+    const activeRows = rows.filter(
+      (row) => !row.user || row.user.status === UserStatus.ACTIVE,
+    );
+
     return {
-      data: rows.map(FeaturedMentorDto.fromEntity),
+      data: activeRows.map((row) => FeaturedMentorDto.fromEntity(row)),
       total,
       page,
       limit,
@@ -77,8 +84,14 @@ export class FeaturedMentorService {
 
       if (existing.isFeatured) {
         // Refreshing a featured mentor keeps its slot unless one was requested.
-        const order = requestedOrder ?? existing.featuredOrder ?? (await this.nextOrder(manager));
-        if (requestedOrder !== undefined && requestedOrder !== existing.featuredOrder) {
+        const order =
+          requestedOrder ??
+          existing.featuredOrder ??
+          (await this.nextOrder(manager));
+        if (
+          requestedOrder !== undefined &&
+          requestedOrder !== existing.featuredOrder
+        ) {
           await this.shiftOrders(manager, requestedOrder);
         }
         await manager.update(MentorProfile, existing.id, {
@@ -91,7 +104,7 @@ export class FeaturedMentorService {
           featuredAt: now,
           featuredOrder: order,
           isFeatured: true,
-        } as MentorProfile;
+        };
       }
 
       const currentCount = await manager.count(MentorProfile, {
@@ -117,7 +130,7 @@ export class FeaturedMentorService {
         isFeatured: true,
         featuredAt: now,
         featuredOrder: order,
-      } as MentorProfile;
+      };
     });
 
     this.audit.log(
@@ -156,10 +169,15 @@ export class FeaturedMentorService {
           .execute();
       }
       await this.recordAudit(existing, adminAddress, now, 'unfeature');
-      return { walletAddress: existing.walletAddress, isFeatured: false as const };
+      return {
+        walletAddress: existing.walletAddress,
+        isFeatured: false as const,
+      };
     });
 
-    this.audit.log(`mentor_unfeatured mentor=${mentorId} actor=${adminAddress}`);
+    this.audit.log(
+      `mentor_unfeatured mentor=${mentorId} actor=${adminAddress}`,
+    );
     return result;
   }
 
@@ -167,7 +185,8 @@ export class FeaturedMentorService {
   isFeatureActive(profile: MentorProfile, now = new Date()): boolean {
     if (!profile.isFeatured || !profile.featuredAt) return false;
     const expiresAt =
-      profile.featuredAt.getTime() + this.config.featuredMentors.durationDays * DAY_MS;
+      profile.featuredAt.getTime() +
+      this.config.featuredMentors.durationDays * DAY_MS;
     return expiresAt > now.getTime();
   }
 
@@ -195,7 +214,10 @@ export class FeaturedMentorService {
   }
 
   /** Makes room at `order` by moving existing entries one slot down. */
-  private async shiftOrders(manager: EntityManager, order: number): Promise<void> {
+  private async shiftOrders(
+    manager: EntityManager,
+    order: number,
+  ): Promise<void> {
     await manager
       .createQueryBuilder()
       .update(MentorProfile)

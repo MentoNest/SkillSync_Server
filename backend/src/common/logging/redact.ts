@@ -14,7 +14,10 @@ const SENSITIVE_VALUE: Array<[RegExp, string]> = [
 const MAX_DEPTH = 6;
 
 export function redactString(value: string): string {
-  return SENSITIVE_VALUE.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), value);
+  return SENSITIVE_VALUE.reduce(
+    (text, [pattern, replacement]) => text.replace(pattern, replacement),
+    value,
+  );
 }
 
 /** Copy of `value` with sensitive keys and credential-looking strings replaced. */
@@ -51,7 +54,9 @@ export function redactUrl(url: string): string {
       } catch {
         // Keep the raw name when it is not valid percent-encoding.
       }
-      return SENSITIVE_KEY.test(decoded) ? `${name}=${REDACTED}` : [name, ...rest].join('=');
+      return SENSITIVE_KEY.test(decoded)
+        ? `${name}=${REDACTED}`
+        : [name, ...rest].join('=');
     })
     .join('&');
   return `${path}?${cleaned}`;

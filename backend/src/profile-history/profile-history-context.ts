@@ -23,7 +23,8 @@ export const SYSTEM_CONTEXT: ProfileHistoryContext = {
   reason: ChangeReason.SYSTEM,
 };
 
-export const profileHistoryStorage = new AsyncLocalStorage<ProfileHistoryContext>();
+export const profileHistoryStorage =
+  new AsyncLocalStorage<ProfileHistoryContext>();
 
 /** Returns the active context, or the system fallback. */
 export function getProfileHistoryContext(): ProfileHistoryContext {

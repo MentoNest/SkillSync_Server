@@ -154,15 +154,29 @@ export class MentorProfile {
   })
   averageRating!: number;
 
-  @ApiPropertyOptional({ description: 'Whether this mentor is in the curated featured list.', example: false })
+  @ApiPropertyOptional({
+    description: 'Whether this mentor is in the curated featured list.',
+    example: false,
+  })
   @Column({ name: 'is_featured', type: 'boolean', default: false })
   isFeatured!: boolean;
 
-  @ApiPropertyOptional({ description: 'UTC timestamp when the mentor was featured.', nullable: true })
-  @Column({ name: 'featured_at', type: 'timestamptz', precision: 3, nullable: true })
+  @ApiPropertyOptional({
+    description: 'UTC timestamp when the mentor was featured.',
+    nullable: true,
+  })
+  @Column({
+    name: 'featured_at',
+    type: 'timestamptz',
+    precision: 3,
+    nullable: true,
+  })
   featuredAt!: Date | null;
 
-  @ApiPropertyOptional({ description: 'Manual display position in the featured list.', nullable: true })
+  @ApiPropertyOptional({
+    description: 'Manual display position in the featured list.',
+    nullable: true,
+  })
   @Column({ name: 'featured_order', type: 'int', nullable: true })
   featuredOrder!: number | null;
 

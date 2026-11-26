@@ -12,7 +12,8 @@ export class RedisService implements OnModuleDestroy {
 
   constructor(
     @Inject(REDIS_CLIENT) private readonly client: Redis,
-    @Inject(REDIS_KEY_PREFIX) private readonly prefix: string = DEFAULT_KEY_PREFIX,
+    @Inject(REDIS_KEY_PREFIX)
+    private readonly prefix: string = DEFAULT_KEY_PREFIX,
   ) {}
 
   key(namespace: RedisNamespace, key: string): string {
@@ -67,7 +68,13 @@ export class RedisService implements OnModuleDestroy {
     let cursor = '0';
 
     do {
-      const [nextCursor, keys] = await this.client.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+      const [nextCursor, keys] = await this.client.scan(
+        cursor,
+        'MATCH',
+        pattern,
+        'COUNT',
+        100,
+      );
       cursor = nextCursor;
       if (keys.length === 0) continue;
 
@@ -81,8 +88,14 @@ export class RedisService implements OnModuleDestroy {
   }
 
   /** Returns true when the key exists and the expiry was set. */
-  async expire(namespace: RedisNamespace, key: string, ttlSeconds: number): Promise<boolean> {
-    return (await this.client.expire(this.key(namespace, key), ttlSeconds)) === 1;
+  async expire(
+    namespace: RedisNamespace,
+    key: string,
+    ttlSeconds: number,
+  ): Promise<boolean> {
+    return (
+      (await this.client.expire(this.key(namespace, key), ttlSeconds)) === 1
+    );
   }
 
   async exists(namespace: RedisNamespace, key: string): Promise<boolean> {
@@ -104,7 +117,9 @@ export class RedisService implements OnModuleDestroy {
       await this.ping();
       return true;
     } catch (error) {
-      this.logger.warn(`Redis health check failed: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.warn(
+        `Redis health check failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return false;
     }
   }

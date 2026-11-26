@@ -21,7 +21,9 @@ export class PaginationService {
   private readonly options: PaginationOptions;
 
   constructor(
-    @Optional() @Inject(PAGINATION_OPTIONS_TOKEN) options: PaginationOptions = {},
+    @Optional()
+    @Inject(PAGINATION_OPTIONS_TOKEN)
+    options: PaginationOptions = {},
   ) {
     this.options = options ?? {};
   }
@@ -34,9 +36,13 @@ export class PaginationService {
   }
 
   /** Clamp a limit to `[1, maxLimit]`; invalid values use the default limit. */
-  normalizeLimit(limit?: number, maxLimit: number = this.options.maxLimit ?? DEFAULT_MAX_LIMIT): number {
+  normalizeLimit(
+    limit?: number,
+    maxLimit: number = this.options.maxLimit ?? DEFAULT_MAX_LIMIT,
+  ): number {
     const fallback = this.options.defaultLimit ?? DEFAULT_LIMIT;
-    if (typeof limit !== 'number' || !Number.isFinite(limit)) return Math.min(fallback, maxLimit);
+    if (typeof limit !== 'number' || !Number.isFinite(limit))
+      return Math.min(fallback, maxLimit);
     return Math.max(1, Math.min(Math.floor(limit), maxLimit));
   }
 
@@ -74,12 +80,16 @@ export class PaginationService {
     options: PaginationOptions = {},
   ): Promise<PaginatedResponse<T>> {
     const currentPage = this.normalizePage(page);
-    const pageSize = this.normalizeLimit(limit, options.maxLimit ?? this.options.maxLimit);
+    const pageSize = this.normalizeLimit(
+      limit,
+      options.maxLimit ?? this.options.maxLimit,
+    );
     const skip = this.getOffset(currentPage, pageSize);
 
-    const [rows, total] = 'getManyAndCount' in source
-      ? await source.skip(skip).take(pageSize).getManyAndCount()
-      : await source.findAndCount({ skip, take: pageSize });
+    const [rows, total] =
+      'getManyAndCount' in source
+        ? await source.skip(skip).take(pageSize).getManyAndCount()
+        : await source.findAndCount({ skip, take: pageSize });
 
     return { data: rows, meta: this.buildMeta(currentPage, pageSize, total) };
   }
@@ -144,7 +154,10 @@ export class PaginationService {
 
     return {
       data: pageRows,
-      nextCursor: hasMore && pageRows.length > 0 ? this.encodeCursor(cursorValue(pageRows[pageRows.length - 1])) : null,
+      nextCursor:
+        hasMore && pageRows.length > 0
+          ? this.encodeCursor(cursorValue(pageRows[pageRows.length - 1]))
+          : null,
       prevCursor: decoded ? this.encodeCursor(cursorValue(pageRows[0])) : null,
       hasMore,
       limit: pageSize,

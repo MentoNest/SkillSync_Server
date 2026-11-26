@@ -36,7 +36,8 @@ import { IsIanaTimezone } from '../common/validators/timezone.validator';
 @Index('idx_users_status_role_created', ['status', 'role', 'createdAt'])
 export class User {
   @ApiProperty({
-    description: 'Stellar wallet public key (ED25519). Unique account identifier.',
+    description:
+      'Stellar wallet public key (ED25519). Unique account identifier.',
     example: 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37',
   })
   @IsString()
@@ -115,21 +116,83 @@ export class User {
   @Column({ name: 'role', type: 'varchar', length: 32, nullable: true })
   role!: string | null;
 
-  @ApiPropertyOptional({ description: 'Avatar URL.', type: String, nullable: true })
+  @ApiPropertyOptional({
+    description: 'Avatar URL.',
+    type: String,
+    nullable: true,
+  })
   @IsOptional()
   @IsUrl({ require_tld: false })
   @MaxLength(2048)
   @Column({ name: 'avatar_url', type: 'varchar', length: 2048, nullable: true })
   avatarUrl!: string | null;
 
-  @ApiProperty({ description: 'User timezone (IANA).', example: 'UTC', default: 'UTC', type: String })
+  @ApiPropertyOptional({
+    description: 'Avatar thumbnail URL (64x64).',
+    type: String,
+    nullable: true,
+  })
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  @MaxLength(2048)
+  @Column({
+    name: 'avatar_thumbnail_url',
+    type: 'varchar',
+    length: 2048,
+    nullable: true,
+  })
+  avatarThumbnailUrl!: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Avatar small URL (200x200).',
+    type: String,
+    nullable: true,
+  })
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  @MaxLength(2048)
+  @Column({
+    name: 'avatar_small_url',
+    type: 'varchar',
+    length: 2048,
+    nullable: true,
+  })
+  avatarSmallUrl!: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Avatar medium URL (400x400).',
+    type: String,
+    nullable: true,
+  })
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  @MaxLength(2048)
+  @Column({
+    name: 'avatar_medium_url',
+    type: 'varchar',
+    length: 2048,
+    nullable: true,
+  })
+  avatarMediumUrl!: string | null;
+
+  @ApiProperty({
+    description: 'User timezone (IANA).',
+    example: 'UTC',
+    default: 'UTC',
+    type: String,
+  })
   @IsIanaTimezone()
   @IsString()
   @MaxLength(64)
   @Column({ type: 'varchar', length: 64, default: 'UTC' })
   timezone!: string;
 
-  @ApiPropertyOptional({ description: 'User locale.', example: 'en-US', type: String, nullable: true })
+  @ApiPropertyOptional({
+    description: 'User locale.',
+    example: 'en-US',
+    type: String,
+    nullable: true,
+  })
   @IsOptional()
   @IsString()
   @MaxLength(16)
@@ -137,7 +200,8 @@ export class User {
   locale!: string | null;
 
   @ApiPropertyOptional({
-    description: 'Optional education history. Contributes to the profile completeness bonus.',
+    description:
+      'Optional education history. Contributes to the profile completeness bonus.',
     type: [String],
   })
   @IsOptional()
@@ -146,7 +210,8 @@ export class User {
   education!: string[];
 
   @ApiPropertyOptional({
-    description: 'Optional certifications. Contributes to the profile completeness bonus.',
+    description:
+      'Optional certifications. Contributes to the profile completeness bonus.',
     type: [String],
   })
   @IsOptional()
@@ -155,7 +220,8 @@ export class User {
   certifications!: string[];
 
   @ApiPropertyOptional({
-    description: 'When the username was last changed. Used to enforce the 30-day cooldown between changes.',
+    description:
+      'When the username was last changed. Used to enforce the 30-day cooldown between changes.',
     type: String,
     format: 'date-time',
     nullable: true,
@@ -163,7 +229,12 @@ export class User {
   @Column({ name: 'username_changed_at', type: 'timestamptz', nullable: true })
   usernameChangedAt!: Date | null;
 
-  @ApiPropertyOptional({ description: 'Last login timestamp.', type: String, format: 'date-time', nullable: true })
+  @ApiPropertyOptional({
+    description: 'Last login timestamp.',
+    type: String,
+    format: 'date-time',
+    nullable: true,
+  })
   @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })
   lastLoginAt!: Date | null;
 
@@ -178,14 +249,22 @@ export class User {
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt!: Date;
 
-  @ApiPropertyOptional({ description: 'Soft delete timestamp.', type: String, format: 'date-time', nullable: true })
+  @ApiPropertyOptional({
+    description: 'Soft delete timestamp.',
+    type: String,
+    format: 'date-time',
+    nullable: true,
+  })
   @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt!: Date | null;
 
   @ManyToMany(() => RoleEntity, (role) => role.users, { eager: false })
   @JoinTable({
     name: 'user_roles',
-    joinColumn: { name: 'wallet_address', referencedColumnName: 'walletAddress' },
+    joinColumn: {
+      name: 'wallet_address',
+      referencedColumnName: 'walletAddress',
+    },
     inverseJoinColumn: { name: 'role_name', referencedColumnName: 'name' },
   })
   roles?: RoleEntity[];
